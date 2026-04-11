@@ -1,4 +1,5 @@
 {
+  "$comment": "JSR rejects publish.include paths outside this package dir (no ../). See AGENTS.md § Deno Workspace Layout for workspace quirks.",
   "name": "@korchasa/ai-ide-cli",
   "version": "0.1.0",
   "license": "MIT",

@@ -62,6 +62,9 @@ if (import.meta.main) {
   await run("deno", ["test", "-A", "--no-check", "."], "Tests");
 
   // Doc lint — missing JSDoc, private-type-ref, circular deps on public API.
+  // Caveat: `deno doc --lint <entry>` validates only symbols reachable from
+  // `<entry>`. Public symbols accessed through other barrels stay invisible —
+  // the publish dry-run below is what catches them.
   await run("deno", ["doc", "--lint", "mod.ts"], "Doc Lint");
 
   // Publish dry-run — catches JSR slow-types, invalid paths, missing
