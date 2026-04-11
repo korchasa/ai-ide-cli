@@ -1,0 +1,30 @@
+{
+  "name": "@korchasa/ai-ide-cli",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./mod.ts",
+    "./types": "./types.ts",
+    "./process-registry": "./process-registry.ts",
+    "./runtime": "./runtime/index.ts",
+    "./runtime/types": "./runtime/types.ts",
+    "./claude/process": "./claude/process.ts",
+    "./claude/stream": "./claude/stream.ts",
+    "./opencode/process": "./opencode/process.ts",
+    "./opencode/hitl-mcp": "./opencode/hitl-mcp.ts"
+  },
+  "tasks": {
+    "check": "deno run -A scripts/check.ts"
+  },
+  "publish": {
+    "include": [
+      "./",
+      "./deno.json",
+      "./README.md"
+    ],
+    "exclude": [
+      "**/*_test.ts",
+      "scripts/**"
+    ]
+  }
+}
