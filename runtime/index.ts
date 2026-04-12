@@ -5,11 +5,13 @@ import type {
   RuntimeConfigSource,
 } from "./types.ts";
 import { claudeRuntimeAdapter } from "./claude-adapter.ts";
+import { cursorRuntimeAdapter } from "./cursor-adapter.ts";
 import { opencodeRuntimeAdapter } from "./opencode-adapter.ts";
 
 const ADAPTERS: Record<RuntimeId, RuntimeAdapter> = {
   claude: claudeRuntimeAdapter,
   opencode: opencodeRuntimeAdapter,
+  cursor: cursorRuntimeAdapter,
 };
 
 /** Return the adapter implementation for the given runtime ID. */
@@ -43,9 +45,7 @@ export function resolveRuntimeConfig(
 
   return {
     runtime,
-    args: runtime === "claude"
-      ? [...(opts.defaults?.claude_args ?? []), ...runtimeArgs]
-      : runtimeArgs,
+    args: runtimeArgs,
     model: model || undefined,
     permissionMode: opts.node.permission_mode ?? opts.parent?.permission_mode ??
       opts.defaults?.permission_mode,

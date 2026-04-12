@@ -118,6 +118,4 @@ export interface RuntimeConfigSource {
   permission_mode?: string;
   /** Generic extra CLI args forwarded to any runtime. */
   runtime_args?: string[];
-  /** Claude-only legacy extra CLI args; ignored for non-claude runtimes. */
-  claude_args?: string[];
 }

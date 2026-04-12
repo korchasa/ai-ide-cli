@@ -38,6 +38,14 @@ export type {
 export { buildClaudeArgs, invokeClaudeCli } from "./claude/process.ts";
 export type { ClaudeInvokeOptions } from "./claude/process.ts";
 
+// --- Cursor runner ---
+export {
+  buildCursorArgs,
+  extractCursorOutput,
+  formatCursorEventForOutput,
+  invokeCursorCli,
+} from "./cursor/process.ts";
+
 // --- OpenCode runner ---
 export {
   buildOpenCodeArgs,

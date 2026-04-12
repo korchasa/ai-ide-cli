@@ -11,6 +11,7 @@
     "./runtime/types": "./runtime/types.ts",
     "./claude/process": "./claude/process.ts",
     "./claude/stream": "./claude/stream.ts",
+    "./cursor/process": "./cursor/process.ts",
     "./opencode/process": "./opencode/process.ts",
     "./opencode/hitl-mcp": "./opencode/hitl-mcp.ts"
   },
@@ -25,7 +26,8 @@
     ],
     "exclude": [
       "**/*_test.ts",
-      "scripts/**"
+      "scripts/**",
+      "documents/**"
     ]
   }
 }

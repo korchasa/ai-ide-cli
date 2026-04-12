@@ -32,12 +32,13 @@ export const VALID_PERMISSION_MODES: readonly string[] = [
 // --- Runtime ---
 
 /** Supported agent runtime IDs. */
-export type RuntimeId = "claude" | "opencode";
+export type RuntimeId = "claude" | "opencode" | "cursor";
 
 /** All valid runtime IDs, used for config validation. */
 export const VALID_RUNTIME_IDS: readonly RuntimeId[] = [
   "claude",
   "opencode",
+  "cursor",
 ];
 
 // --- Verbosity ---
