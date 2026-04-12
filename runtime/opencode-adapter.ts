@@ -7,9 +7,6 @@ import type {
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
-/** Prefix for injected skill directories. */
-const SKILL_PREFIX = "flowai-workflow-";
-
 /**
  * Resolve the OpenCode/Claude skills directory. OpenCode discovers skills
  * from `.opencode/skills/` and falls back to `.claude/skills/`. We use
@@ -44,7 +41,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
         for (const skill of opts.skills) {
           const targetDir = join(
             skillsDir,
-            SKILL_PREFIX + skill.frontmatter.name,
+            skill.frontmatter.name,
           );
           await copy(skill.rootPath, targetDir, { overwrite: true });
           injectedPaths.push(targetDir);

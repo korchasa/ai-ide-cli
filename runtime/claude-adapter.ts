@@ -7,9 +7,6 @@ import type {
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
-/** Prefix for injected skill directories — easy to identify and clean up. */
-const SKILL_PREFIX = "flowai-workflow-";
-
 /**
  * Resolve the user-level Claude skills directory.
  * Skills placed here are discovered by Claude Code in any project.
@@ -21,9 +18,9 @@ function claudeSkillsDir(): string {
 }
 
 /**
- * Copy bundled skills into the user's Claude skills directory with a
- * `flowai-workflow-` prefix. Returns the list of created directory paths
- * for cleanup after the session.
+ * Copy bundled skills into the user's Claude skills directory.
+ * Directory name = frontmatter `name` field (already namespaced, e.g.
+ * `flowai-workflow-init`). Returns created paths for cleanup.
  */
 async function injectSkills(
   skills: NonNullable<InteractiveOptions["skills"]>,
@@ -33,7 +30,7 @@ async function injectSkills(
 
   const created: string[] = [];
   for (const skill of skills) {
-    const targetDir = join(skillsDir, SKILL_PREFIX + skill.frontmatter.name);
+    const targetDir = join(skillsDir, skill.frontmatter.name);
     await copy(skill.rootPath, targetDir, { overwrite: true });
     created.push(targetDir);
   }
