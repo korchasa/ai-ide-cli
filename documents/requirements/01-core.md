@@ -14,10 +14,10 @@
 - **Motivation:** Engine code stays runtime-agnostic. Adding a new runtime
   requires only a new adapter + registration.
 - **Acceptance:**
-  - [x] `RuntimeAdapter` interface with `id`, `capabilities`, `invoke()`.
-    Evidence: `ai-ide-cli/runtime/types.ts:83-90`.
-  - [x] `RuntimeCapabilities` flags: `permissionMode`, `hitl`, `transcript`.
-    Evidence: `ai-ide-cli/runtime/types.ts:9-16`.
+  - [x] `RuntimeAdapter` interface with `id`, `capabilities`, `invoke()`,
+    `launchInteractive()`. Evidence: `ai-ide-cli/runtime/types.ts:113-124`.
+  - [x] `RuntimeCapabilities` flags: `permissionMode`, `hitl`, `transcript`,
+    `interactive`. Evidence: `ai-ide-cli/runtime/types.ts:9-19`.
   - [x] `getRuntimeAdapter(id)` returns adapter from registry.
     Evidence: `ai-ide-cli/runtime/index.ts:18-20`.
   - [x] `resolveRuntimeConfig()` merges `runtime_args` across cascade levels.
@@ -213,3 +213,51 @@
     Evidence: `ai-ide-cli/claude/stream_test.ts`.
   - [x] Backward-compat: omitting onEvent causes no errors.
     Evidence: `ai-ide-cli/claude/stream_test.ts`.
+
+
+### 3.11 FR-L11: Skill Model
+
+- **Description:** Typed representation of SKILL.md files — the de facto skill
+  standard across AI IDEs. `SkillFrontmatter` is a union of known fields across
+  Claude Code, OpenCode, and Cursor. `SkillDef` holds parsed frontmatter, body,
+  rootPath, and additional files list. `parseSkill(dir)` reads `SKILL.md`,
+  extracts YAML frontmatter, scans for additional files.
+- **Motivation:** Skills must be first-class objects (not plain text) for
+  injection into runtimes. Parser enables bundled and project-level skills.
+- **Acceptance:**
+  - [x] `SkillFrontmatter` with required `name`, `description` and optional
+    IDE-specific fields. Evidence: `ai-ide-cli/skill/types.ts:8-57`.
+  - [x] `SkillDef` with `frontmatter`, `body`, `rootPath`, `files`.
+    Evidence: `ai-ide-cli/skill/types.ts:63-72`.
+  - [x] `parseSkill(dir)` reads SKILL.md, extracts frontmatter, scans files.
+    Evidence: `ai-ide-cli/skill/parser.ts:28-57`.
+  - [x] Error cases: missing SKILL.md, invalid YAML, missing name/description.
+    Evidence: `ai-ide-cli/skill/parser_test.ts`.
+  - [x] Sub-path export `@korchasa/ai-ide-cli/skill`.
+    Evidence: `ai-ide-cli/deno.json` exports.
+
+
+### 3.12 FR-L12: Interactive Mode
+
+- **Description:** `RuntimeAdapter.launchInteractive(opts)` launches an
+  interactive CLI session with injected skills. `InteractiveOptions` carries
+  `skills`, `systemPrompt`, `cwd`, `env`. `InteractiveResult` returns
+  `exitCode`. Per-runtime skill injection: Claude uses temp `CLAUDE_CONFIG_DIR`
+  with symlinked auth + copied skills; OpenCode copies to temp
+  `.claude/skills/`; Cursor throws (no interactive CLI). `interactive`
+  capability flag advertises support.
+- **Motivation:** REPL needs to launch agent sessions with bundled management
+  skills. Injection strategy is runtime-specific — belongs in adapter layer.
+- **Acceptance:**
+  - [x] `InteractiveOptions` and `InteractiveResult` types.
+    Evidence: `ai-ide-cli/runtime/types.ts:90-108`.
+  - [x] `launchInteractive()` on `RuntimeAdapter` interface.
+    Evidence: `ai-ide-cli/runtime/types.ts:120-123`.
+  - [x] `interactive` flag on `RuntimeCapabilities`.
+    Evidence: `ai-ide-cli/runtime/types.ts:18`.
+  - [x] Claude adapter: temp config dir with skills, stdin inherit.
+    Evidence: `ai-ide-cli/runtime/claude-adapter.ts:17-49,78-120`.
+  - [x] OpenCode adapter: temp .claude/skills/, stdin inherit.
+    Evidence: `ai-ide-cli/runtime/opencode-adapter.ts:22-63`.
+  - [x] Cursor adapter: throws UnsupportedError.
+    Evidence: `ai-ide-cli/runtime/cursor-adapter.ts:16-20`.

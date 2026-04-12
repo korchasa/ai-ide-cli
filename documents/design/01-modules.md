@@ -8,7 +8,7 @@
 - **Purpose:** Design of the `@korchasa/ai-ide-cli` library — thin wrapper
   around agent-CLI binaries providing normalized invocation, stream parsing,
   retry, and HITL wiring.
-- **Relation to SRS:** Implements FR-L1..FR-L10 from
+- **Relation to SRS:** Implements FR-L1..FR-L12 from
   [requirements.md](../requirements.md).
 
 ## 2. Architecture
@@ -35,6 +35,10 @@ ai-ide-cli/
   cursor/
     process.ts          — buildCursorArgs, invokeCursorCli, extractCursorOutput,
                           formatCursorEventForOutput
+  skill/
+    types.ts            — SkillDef, SkillFrontmatter (union of all IDE fields)
+    parser.ts           — parseSkill(dir) → SkillDef
+    mod.ts              — barrel export for @korchasa/ai-ide-cli/skill
 ```
 
 **Dependency rule:** All arrows point inward. Runtime-specific modules import
@@ -83,14 +87,17 @@ with `_` for test isolation.
 
 **`runtime/types.ts`:**
 - `RuntimeCapabilities` — feature flags per adapter: `permissionMode`, `hitl`,
-  `transcript`.
+  `transcript`, `interactive`.
 - `RuntimeInvokeOptions` — normalized invocation options: `taskPrompt`,
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
   `hitlConfig`, `hitlMcpCommandBuilder`, `cwd`, `agent`, `systemPrompt`,
   `env`, `onEvent`.
 - `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string }`.
-- `RuntimeAdapter` — interface: `id`, `capabilities`, `invoke(opts)`.
+- `InteractiveOptions` — `{ skills?, systemPrompt?, cwd?, env? }`.
+- `InteractiveResult` — `{ exitCode: number }`.
+- `RuntimeAdapter` — interface: `id`, `capabilities`, `invoke(opts)`,
+  `launchInteractive(opts)`.
 - `ResolvedRuntimeConfig` — effective config after cascade resolution.
 - `RuntimeConfigSource` — structural shape for cascade input. No workflow
   type dependency.
@@ -196,15 +203,35 @@ dedicated flag). Retry loop with exponential backoff. Real-time NDJSON
 processing with log file + terminal output forwarding.
 
 
+### 3.9 `skill/` — Skill Model
+
+**`skill/types.ts`:**
+- `SkillFrontmatter` — union of all known SKILL.md frontmatter fields across
+  IDEs. Required: `name`, `description`. Optional Claude Code fields:
+  `argument-hint`, `when_to_use`, `allowed-tools`, `model`, `effort`,
+  `context`, `agent`, `paths`, `hooks`, `shell`, `type`,
+  `disable-model-invocation`, `user-invocable`, `hide-from-slash-command-tool`,
+  `version`. Optional OpenCode: `license`, `compatibility`, `metadata`.
+  Index signature `[key: string]: unknown` for forward compatibility.
+- `SkillDef` — parsed skill directory: `frontmatter`, `body` (markdown after
+  `---`), `rootPath` (absolute), `files[]` (relative, excludes SKILL.md).
+
+**`skill/parser.ts`:**
+- `parseSkill(skillDir)` — reads `SKILL.md`, extracts YAML frontmatter via
+  `@std/yaml`, validates required `name` and `description`, recursively scans
+  directory for additional files. Error on: missing SKILL.md, invalid YAML,
+  unterminated frontmatter, missing required fields.
+
+
 ## 4. Data
 
 ### Runtime capability matrix
 
-| Runtime  | permissionMode | hitl  | transcript |
-|----------|----------------|-------|------------|
-| claude   | true           | true  | true       |
-| opencode | false          | false | false      |
-| cursor   | false          | false | false      |
+| Runtime  | permissionMode | hitl  | transcript | interactive |
+|----------|----------------|-------|------------|-------------|
+| claude   | true           | true  | true       | true        |
+| opencode | true           | true  | false      | true        |
+| cursor   | false          | false | false      | false       |
 
 
 ## 5. Constraints

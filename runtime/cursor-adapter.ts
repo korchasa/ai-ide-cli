@@ -1,5 +1,5 @@
 import { invokeCursorCli } from "../cursor/process.ts";
-import type { RuntimeAdapter } from "./types.ts";
+import type { InteractiveResult, RuntimeAdapter } from "./types.ts";
 
 export const cursorRuntimeAdapter: RuntimeAdapter = {
   id: "cursor",
@@ -7,8 +7,15 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     permissionMode: false,
     hitl: false,
     transcript: false,
+    interactive: false,
   },
   invoke(opts) {
     return invokeCursorCli(opts);
+  },
+
+  launchInteractive(): Promise<InteractiveResult> {
+    throw new Error(
+      "Cursor has no interactive CLI mode — use Cursor IDE directly",
+    );
   },
 };

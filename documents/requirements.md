@@ -26,3 +26,5 @@ renumber on move.
 - FR-L8  (Repeated File Read Warning)  → 01-core
 - FR-L9  (Custom Subprocess Environment) → 01-core
 - FR-L10 (Raw NDJSON Event Callback)     → 01-core
+- FR-L11 (Skill Model)                  → 01-core
+- FR-L12 (Interactive Mode)             → 01-core

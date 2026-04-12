@@ -4,6 +4,7 @@ import type {
   RuntimeId,
   Verbosity,
 } from "../types.ts";
+import type { SkillDef } from "../skill/types.ts";
 
 /** Capability flags advertised by a runtime adapter. */
 export interface RuntimeCapabilities {
@@ -13,6 +14,8 @@ export interface RuntimeCapabilities {
   hitl: boolean;
   /** Whether the runtime provides an external transcript file the engine can copy. */
   transcript: boolean;
+  /** Whether the runtime supports interactive CLI mode (stdin-based REPL). */
+  interactive: boolean;
 }
 
 /** Low-level options for a single runtime invocation (initial or resume). */
@@ -87,6 +90,24 @@ export interface RuntimeInvokeResult {
   error?: string;
 }
 
+/** Options for launching an interactive CLI session with bundled skills. */
+export interface InteractiveOptions {
+  /** Skills to inject into the runtime's discovery path. */
+  skills?: SkillDef[];
+  /** System prompt content for the interactive session. */
+  systemPrompt?: string;
+  /** Working directory for the interactive session. */
+  cwd?: string;
+  /** Extra environment variables for the subprocess. */
+  env?: Record<string, string>;
+}
+
+/** Result returned by an interactive session after it exits. */
+export interface InteractiveResult {
+  /** Process exit code. */
+  exitCode: number;
+}
+
 /** Adapter interface implemented by each supported runtime. */
 export interface RuntimeAdapter {
   /** Stable runtime identifier. */
@@ -95,6 +116,11 @@ export interface RuntimeAdapter {
   capabilities: RuntimeCapabilities;
   /** Invoke the runtime with normalized options. */
   invoke(opts: RuntimeInvokeOptions): Promise<RuntimeInvokeResult>;
+  /**
+   * Launch an interactive CLI session with injected skills.
+   * Adapters that do not support interactive mode throw an error.
+   */
+  launchInteractive(opts: InteractiveOptions): Promise<InteractiveResult>;
 }
 
 /** Effective runtime configuration after defaults/parent/node resolution. */

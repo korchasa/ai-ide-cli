@@ -26,6 +26,8 @@ export { VALID_PERMISSION_MODES, VALID_RUNTIME_IDS } from "./types.ts";
 // --- Runtime adapter layer ---
 export { getRuntimeAdapter, resolveRuntimeConfig } from "./runtime/index.ts";
 export type {
+  InteractiveOptions,
+  InteractiveResult,
   ResolvedRuntimeConfig,
   RuntimeAdapter,
   RuntimeCapabilities,
@@ -60,6 +62,10 @@ export {
   INTERNAL_OPENCODE_HITL_MCP_ARG,
   runOpenCodeHitlMcpServer,
 } from "./opencode/hitl-mcp.ts";
+
+// --- Skill model ---
+export type { SkillDef, SkillFrontmatter } from "./skill/types.ts";
+export { parseSkill } from "./skill/parser.ts";
 
 // --- Process registry (pure tracker) ---
 export {
