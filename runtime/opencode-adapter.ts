@@ -7,6 +7,18 @@ import type {
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
+/** Prefix for injected skill directories. */
+const SKILL_PREFIX = "flowai-workflow-";
+
+/**
+ * Resolve the OpenCode/Claude skills directory. OpenCode discovers skills
+ * from `.opencode/skills/` and falls back to `.claude/skills/`. We use
+ * the Claude path for broader compatibility.
+ */
+function opencodeSkillsDir(): string {
+  return join(Deno.env.get("HOME") ?? Deno.cwd(), ".claude", "skills");
+}
+
 export const opencodeRuntimeAdapter: RuntimeAdapter = {
   id: "opencode",
   capabilities: {
@@ -22,19 +34,20 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   async launchInteractive(
     opts: InteractiveOptions,
   ): Promise<InteractiveResult> {
-    // OpenCode discovers skills from .opencode/skills/ and .claude/skills/ (fallback).
-    // Copy bundled skills to a temp .claude/skills/ dir and set CWD there.
-    let tmpDir: string | undefined;
+    const injectedPaths: string[] = [];
     try {
       const env: Record<string, string> = { ...opts.env };
 
       if (opts.skills && opts.skills.length > 0) {
-        tmpDir = await Deno.makeTempDir({ prefix: "flowai-repl-oc-" });
-        const skillsDir = join(tmpDir, ".claude", "skills");
+        const skillsDir = opencodeSkillsDir();
         await Deno.mkdir(skillsDir, { recursive: true });
         for (const skill of opts.skills) {
-          const targetDir = join(skillsDir, skill.frontmatter.name);
+          const targetDir = join(
+            skillsDir,
+            SKILL_PREFIX + skill.frontmatter.name,
+          );
           await copy(skill.rootPath, targetDir, { overwrite: true });
+          injectedPaths.push(targetDir);
         }
       }
 
@@ -56,9 +69,9 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       const status = await process.status;
       return { exitCode: status.code };
     } finally {
-      if (tmpDir) {
+      for (const p of injectedPaths) {
         try {
-          await Deno.remove(tmpDir, { recursive: true });
+          await Deno.remove(p, { recursive: true });
         } catch {
           // Best-effort cleanup
         }

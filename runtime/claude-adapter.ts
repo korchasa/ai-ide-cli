@@ -7,47 +7,48 @@ import type {
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
+/** Prefix for injected skill directories — easy to identify and clean up. */
+const SKILL_PREFIX = "flowai-workflow-";
+
 /**
- * Prepare a temporary CLAUDE_CONFIG_DIR that merges the user's real config
- * (credentials, settings) with bundled REPL skills.
- *
- * Returns the temp dir path. Caller must clean up via `Deno.remove(tmpDir, { recursive: true })`.
+ * Resolve the user-level Claude skills directory.
+ * Skills placed here are discovered by Claude Code in any project.
  */
-async function prepareClaudeConfigDir(
-  skills: NonNullable<InteractiveOptions["skills"]>,
-): Promise<string> {
-  const tmpDir = await Deno.makeTempDir({ prefix: "flowai-repl-" });
-
-  // Symlink all entries from user's real config to preserve auth, settings,
-  // projects, todos, etc. Skip `skills/` — we create our own with bundled content.
-  const realConfigDir = Deno.env.get("CLAUDE_CONFIG_DIR") ??
+function claudeSkillsDir(): string {
+  const configDir = Deno.env.get("CLAUDE_CONFIG_DIR") ??
     join(Deno.env.get("HOME") ?? Deno.cwd(), ".claude");
+  return join(configDir, "skills");
+}
 
-  try {
-    for await (const entry of Deno.readDir(realConfigDir)) {
-      if (entry.name === "skills") continue;
-      const src = join(realConfigDir, entry.name);
-      const dst = join(tmpDir, entry.name);
-      try {
-        await Deno.symlink(src, dst);
-      } catch {
-        // Non-fatal: some files may be locked or inaccessible
-      }
-    }
-  } catch {
-    // Real config dir may not exist (fresh install) — proceed without symlinks
-  }
-
-  // Copy bundled skills into <tmpDir>/skills/<name>/
-  const skillsDir = join(tmpDir, "skills");
+/**
+ * Copy bundled skills into the user's Claude skills directory with a
+ * `flowai-workflow-` prefix. Returns the list of created directory paths
+ * for cleanup after the session.
+ */
+async function injectSkills(
+  skills: NonNullable<InteractiveOptions["skills"]>,
+): Promise<string[]> {
+  const skillsDir = claudeSkillsDir();
   await Deno.mkdir(skillsDir, { recursive: true });
 
+  const created: string[] = [];
   for (const skill of skills) {
-    const targetDir = join(skillsDir, skill.frontmatter.name);
+    const targetDir = join(skillsDir, SKILL_PREFIX + skill.frontmatter.name);
     await copy(skill.rootPath, targetDir, { overwrite: true });
+    created.push(targetDir);
   }
+  return created;
+}
 
-  return tmpDir;
+/** Remove previously injected skill directories. */
+async function removeInjectedSkills(paths: string[]): Promise<void> {
+  for (const p of paths) {
+    try {
+      await Deno.remove(p, { recursive: true });
+    } catch {
+      // Best-effort cleanup
+    }
+  }
 }
 
 export const claudeRuntimeAdapter: RuntimeAdapter = {
@@ -82,7 +83,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
   async launchInteractive(
     opts: InteractiveOptions,
   ): Promise<InteractiveResult> {
-    let tmpDir: string | undefined;
+    let injectedPaths: string[] = [];
     try {
       const env: Record<string, string> = {
         CLAUDECODE: "",
@@ -90,8 +91,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       };
 
       if (opts.skills && opts.skills.length > 0) {
-        tmpDir = await prepareClaudeConfigDir(opts.skills);
-        env["CLAUDE_CONFIG_DIR"] = tmpDir;
+        injectedPaths = await injectSkills(opts.skills);
       }
 
       const args: string[] = [];
@@ -112,13 +112,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       const status = await process.status;
       return { exitCode: status.code };
     } finally {
-      if (tmpDir) {
-        try {
-          await Deno.remove(tmpDir, { recursive: true });
-        } catch {
-          // Best-effort cleanup
-        }
-      }
+      await removeInjectedSkills(injectedPaths);
     }
   },
 };
