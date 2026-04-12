@@ -24,6 +24,8 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       streamLogPath: opts.streamLogPath,
       verbosity: opts.verbosity,
       cwd: opts.cwd,
+      env: opts.env,
+      onEvent: opts.onEvent,
     });
   },
 };

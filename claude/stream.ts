@@ -53,6 +53,8 @@ export interface StreamProcessorState {
   onOutput?: (line: string) => void;
   /** Verbosity level controls which event types reach terminal output. */
   verbosity?: Verbosity;
+  /** Raw-event callback invoked before any filtering/extraction. */
+  onEvent?: (event: Record<string, unknown>) => void;
 }
 
 /**
@@ -65,6 +67,7 @@ export async function processStreamEvent(
   event: Record<string, any>,
   state: StreamProcessorState,
 ): Promise<void> {
+  state.onEvent?.(event);
   if (event.type === "assistant") {
     state.turnCount++;
     if (state.logFile) {

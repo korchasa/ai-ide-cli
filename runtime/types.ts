@@ -69,6 +69,14 @@ export interface RuntimeInvokeOptions {
   hitlMcpCommandBuilder?: () => string[];
   /** Working directory for the runtime subprocess. */
   cwd?: string;
+  /** Extra environment variables merged into the subprocess env. */
+  env?: Record<string, string>;
+  /**
+   * Callback invoked with every raw NDJSON event object before any filtering
+   * or extraction. Consumer decides what to keep (init metadata, token stats,
+   * etc.).
+   */
+  onEvent?: (event: Record<string, unknown>) => void;
 }
 
 /** Result returned by a runtime adapter invocation. */

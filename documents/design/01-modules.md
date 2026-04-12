@@ -8,7 +8,7 @@
 - **Purpose:** Design of the `@korchasa/ai-ide-cli` library — thin wrapper
   around agent-CLI binaries providing normalized invocation, stream parsing,
   retry, and HITL wiring.
-- **Relation to SRS:** Implements FR-L1..FR-L8 from
+- **Relation to SRS:** Implements FR-L1..FR-L10 from
   [requirements.md](../requirements.md).
 
 ## 2. Architecture
@@ -87,7 +87,8 @@ with `_` for test isolation.
 - `RuntimeInvokeOptions` — normalized invocation options: `taskPrompt`,
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
-  `hitlConfig`, `hitlMcpCommandBuilder`, `cwd`, `agent`, `systemPrompt`.
+  `hitlConfig`, `hitlMcpCommandBuilder`, `cwd`, `agent`, `systemPrompt`,
+  `env`, `onEvent`.
 - `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string }`.
 - `RuntimeAdapter` — interface: `id`, `capabilities`, `invoke(opts)`.
 - `ResolvedRuntimeConfig` — effective config after cascade resolution.
@@ -114,15 +115,18 @@ stream-json --verbose`. Resume skips `--agent`, `--append-system-prompt`,
 result → retry. On exception → retry. Returns `RuntimeInvokeResult`.
 
 `executeClaudeProcess(args, ...)`: spawns `Deno.Command("claude")` with
-`CLAUDECODE=""` env override. Reads stdout as NDJSON lines, delegates to
-`processStreamEvent()` from `claude/stream.ts`. Collects stderr. Timeout
-via `setTimeout` → `SIGTERM`. Registered/unregistered in process registry.
+`{ CLAUDECODE: "", ...env }` env override. Optional `env` param merged on
+top. Reads stdout as NDJSON lines, delegates to `processStreamEvent()` from
+`claude/stream.ts`. Optional `onEvent` threaded into `StreamProcessorState`.
+Collects stderr. Timeout via `setTimeout` → `SIGTERM`. Registered/unregistered
+in process registry.
 
 
 ### 3.5 `claude/stream.ts` — Stream Processing
 
 `processStreamEvent(event, state)`: mutable state bag
-(`StreamProcessorState`). Handles:
+(`StreamProcessorState`). First calls `state.onEvent?.(event)` to forward
+raw event before any processing. Then handles:
 - `assistant` → increment turn count, write separator to log, track Read
   tool_use via `FileReadTracker`
 - `result` → `extractClaudeOutput()`, write footer to log

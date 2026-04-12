@@ -131,6 +131,8 @@ export async function invokeCursorCli(
         opts.streamLogPath,
         opts.verbosity,
         opts.cwd,
+        opts.env,
+        opts.onEvent,
       );
       if (output.is_error) {
         lastError = `Cursor CLI returned error: ${output.result}`;
@@ -170,12 +172,15 @@ async function executeCursorProcess(
   streamLogPath?: string,
   verbosity?: Verbosity,
   cwd?: string,
+  env?: Record<string, string>,
+  onEvent?: (event: Record<string, unknown>) => void,
 ): Promise<CliRunOutput> {
   const cmd = new Deno.Command("cursor", {
     args,
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
+    ...(env ? { env } : {}),
     ...(cwd ? { cwd } : {}),
   });
 
@@ -221,6 +226,7 @@ async function executeCursorProcess(
             try {
               // deno-lint-ignore no-explicit-any
               const event = JSON.parse(line) as Record<string, any>;
+              onEvent?.(event);
               if (event.type === "result") {
                 resultEvent = extractCursorOutput(event);
               }
@@ -244,6 +250,7 @@ async function executeCursorProcess(
           try {
             // deno-lint-ignore no-explicit-any
             const event = JSON.parse(buffer) as Record<string, any>;
+            onEvent?.(event);
             if (event.type === "result") {
               resultEvent = extractCursorOutput(event);
             }

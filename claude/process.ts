@@ -46,6 +46,14 @@ export interface ClaudeInvokeOptions {
   verbosity?: Verbosity;
   /** Working directory for the claude subprocess. Defaults to process CWD. */
   cwd?: string;
+  /** Extra environment variables merged into the subprocess env. */
+  env?: Record<string, string>;
+  /**
+   * Callback invoked with every raw NDJSON event object before any filtering
+   * or extraction. Consumer decides what to keep (init metadata, token stats,
+   * etc.).
+   */
+  onEvent?: (event: Record<string, unknown>) => void;
 }
 
 /** Invoke claude CLI with retry logic. */
@@ -64,6 +72,8 @@ export async function invokeClaudeCli(
         opts.streamLogPath,
         opts.verbosity,
         opts.cwd,
+        opts.env,
+        opts.onEvent,
       );
       if (output.is_error) {
         lastError = `Claude CLI returned error: ${output.result}`;
@@ -140,6 +150,8 @@ async function executeClaudeProcess(
   streamLogPath?: string,
   verbosity?: Verbosity,
   cwd?: string,
+  env?: Record<string, string>,
+  onEvent?: (event: Record<string, unknown>) => void,
 ): Promise<CliRunOutput> {
   // Unset CLAUDECODE to allow nested claude CLI invocations.
   // Claude Code checks this variable and refuses to launch inside another session.
@@ -149,7 +161,7 @@ async function executeClaudeProcess(
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    env: { CLAUDECODE: "" },
+    env: { CLAUDECODE: "", ...env },
     ...(cwd ? { cwd } : {}),
   });
 
@@ -187,6 +199,7 @@ async function executeClaudeProcess(
       encoder: new TextEncoder(),
       onOutput,
       verbosity,
+      onEvent,
     };
     const stdoutDecoder = new TextDecoder();
     let buffer = "";

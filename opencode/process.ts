@@ -195,6 +195,8 @@ export async function invokeOpenCodeCli(
         opts.verbosity,
         opts.cwd,
         configContent,
+        opts.env,
+        opts.onEvent,
       );
       if (output.is_error) {
         lastError = `OpenCode returned error: ${output.result}`;
@@ -229,15 +231,19 @@ async function executeOpenCodeProcess(
   verbosity?: Verbosity,
   cwd?: string,
   configContent?: string,
+  env?: Record<string, string>,
+  onEvent?: (event: Record<string, unknown>) => void,
 ): Promise<CliRunOutput> {
+  const processEnv: Record<string, string> = { ...env };
+  if (configContent) {
+    processEnv.OPENCODE_CONFIG_CONTENT = configContent;
+  }
   const cmd = new Deno.Command("opencode", {
     args,
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    ...(configContent
-      ? { env: { OPENCODE_CONFIG_CONTENT: configContent } }
-      : {}),
+    ...(Object.keys(processEnv).length > 0 ? { env: processEnv } : {}),
     ...(cwd ? { cwd } : {}),
   });
 
@@ -300,6 +306,7 @@ async function executeOpenCodeProcess(
                   // Process may already be gone.
                 }
               },
+              onEvent,
             );
           }
         }
@@ -320,6 +327,7 @@ async function executeOpenCodeProcess(
                 // Process may already be gone.
               }
             },
+            onEvent,
           );
         }
       } catch {
@@ -399,6 +407,7 @@ async function processOpenCodeLine(
   onOutput: ((line: string) => void) | undefined,
   verbosity: Verbosity | undefined,
   onHitlRequest: () => void,
+  onEvent?: (event: Record<string, unknown>) => void,
 ): Promise<void> {
   const line = rawLine.trim();
   if (!line) return;
@@ -409,6 +418,7 @@ async function processOpenCodeLine(
   try {
     // deno-lint-ignore no-explicit-any
     const event = JSON.parse(line) as Record<string, any>;
+    onEvent?.(event);
     const summary = formatOpenCodeEventForOutput(event, verbosity);
     if (summary) {
       onOutput?.(summary);

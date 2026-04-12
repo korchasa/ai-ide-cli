@@ -61,6 +61,26 @@ const { output, error } = await adapter.invoke({
 });
 ```
 
+## Custom environment & raw event access
+
+All runtimes accept optional `env` (extra subprocess environment variables)
+and `onEvent` (raw NDJSON event callback):
+
+```ts
+await invokeClaudeCli({
+  taskPrompt: "...",
+  timeoutSeconds: 60,
+  maxRetries: 1,
+  retryDelaySeconds: 1,
+  // Isolate from host config:
+  env: { CLAUDE_CONFIG_DIR: "/tmp/cleanroom" },
+  // Access raw stream events (init metadata, cache tokens, etc.):
+  onEvent: (event) => {
+    if (event.type === "system") console.log("init:", event);
+  },
+});
+```
+
 ## HITL MCP self-spawn contract
 
 OpenCode runs a stdio MCP server for Human-in-the-Loop. The library does NOT

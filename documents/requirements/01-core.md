@@ -156,3 +156,60 @@
   - [x] Tests: threshold boundary, per-path independence, custom threshold,
     integration with log file.
     Evidence: `ai-ide-cli/claude/stream.ts` tests (in engine test suite).
+
+
+### 3.9 FR-L9: Custom Subprocess Environment
+
+- **Description:** `RuntimeInvokeOptions.env` and `ClaudeInvokeOptions.env`
+  accept `Record<string, string>` merged into the subprocess environment.
+  Enables isolation scenarios (e.g. `CLAUDE_CONFIG_DIR=<cleanroom>` to avoid
+  global `~/.claude/CLAUDE.md` contamination). Claude merges with
+  `{ CLAUDECODE: "", ...env }`, Cursor passes env directly, OpenCode merges
+  with `OPENCODE_CONFIG_CONTENT` when present.
+- **Motivation:** Experiments and benchmarks require isolated agent configs
+  without polluting or depending on the host's global state.
+- **Acceptance:**
+  - [x] `env?: Record<string, string>` on `RuntimeInvokeOptions`.
+    Evidence: `ai-ide-cli/runtime/types.ts`.
+  - [x] `env?: Record<string, string>` on `ClaudeInvokeOptions`.
+    Evidence: `ai-ide-cli/claude/process.ts`.
+  - [x] Claude: merged as `{ CLAUDECODE: "", ...env }`.
+    Evidence: `ai-ide-cli/claude/process.ts` `executeClaudeProcess`.
+  - [x] Cursor: passed to `Deno.Command` when present.
+    Evidence: `ai-ide-cli/cursor/process.ts` `executeCursorProcess`.
+  - [x] OpenCode: merged with `OPENCODE_CONFIG_CONTENT`.
+    Evidence: `ai-ide-cli/opencode/process.ts` `executeOpenCodeProcess`.
+  - [x] Claude adapter forwards `env` field.
+    Evidence: `ai-ide-cli/runtime/claude-adapter.ts`.
+  - [x] Type-level test: env accepted without affecting CLI args.
+    Evidence: `ai-ide-cli/claude/process_test.ts`.
+
+
+### 3.10 FR-L10: Raw NDJSON Event Callback
+
+- **Description:** `RuntimeInvokeOptions.onEvent` and
+  `ClaudeInvokeOptions.onEvent` accept
+  `(event: Record<string, unknown>) => void`. Invoked with every raw NDJSON
+  event object **before** any filtering or extraction. Consumer decides what
+  to keep (init metadata, cache token stats, tool lists, etc.).
+- **Motivation:** Enables experiments like `context-anatomy` to extract
+  `init` event metadata (tools, skills, agents, MCP servers) and `result`
+  event cache token counts without modifying `CliRunOutput`.
+- **Acceptance:**
+  - [x] `onEvent` on `RuntimeInvokeOptions`.
+    Evidence: `ai-ide-cli/runtime/types.ts`.
+  - [x] `onEvent` on `ClaudeInvokeOptions`.
+    Evidence: `ai-ide-cli/claude/process.ts`.
+  - [x] `onEvent` on `StreamProcessorState`, called at top of
+    `processStreamEvent()` before any filtering.
+    Evidence: `ai-ide-cli/claude/stream.ts`.
+  - [x] Cursor: `onEvent` called on each parsed event.
+    Evidence: `ai-ide-cli/cursor/process.ts`.
+  - [x] OpenCode: `onEvent` called in `processOpenCodeLine()`.
+    Evidence: `ai-ide-cli/opencode/process.ts`.
+  - [x] Claude adapter forwards `onEvent` field.
+    Evidence: `ai-ide-cli/runtime/claude-adapter.ts`.
+  - [x] Test: onEvent receives all events in order.
+    Evidence: `ai-ide-cli/claude/stream_test.ts`.
+  - [x] Backward-compat: omitting onEvent causes no errors.
+    Evidence: `ai-ide-cli/claude/stream_test.ts`.

@@ -24,3 +24,5 @@ renumber on move.
 - FR-L6  (Cursor CLI Wrapper)          → 01-core
 - FR-L7  (Stream Event Formatting)     → 01-core
 - FR-L8  (Repeated File Read Warning)  → 01-core
+- FR-L9  (Custom Subprocess Environment) → 01-core
+- FR-L10 (Raw NDJSON Event Callback)     → 01-core
