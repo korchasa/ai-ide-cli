@@ -18,20 +18,20 @@ async function prepareClaudeConfigDir(
 ): Promise<string> {
   const tmpDir = await Deno.makeTempDir({ prefix: "flowai-repl-" });
 
-  // Symlink files (not dirs) from user's real config to preserve auth/settings.
+  // Symlink all entries from user's real config to preserve auth, settings,
+  // projects, todos, etc. Skip `skills/` — we create our own with bundled content.
   const realConfigDir = Deno.env.get("CLAUDE_CONFIG_DIR") ??
     join(Deno.env.get("HOME") ?? Deno.cwd(), ".claude");
 
   try {
     for await (const entry of Deno.readDir(realConfigDir)) {
-      if (entry.isFile || entry.isSymlink) {
-        const src = join(realConfigDir, entry.name);
-        const dst = join(tmpDir, entry.name);
-        try {
-          await Deno.symlink(src, dst);
-        } catch {
-          // Non-fatal: some files may be locked or inaccessible
-        }
+      if (entry.name === "skills") continue;
+      const src = join(realConfigDir, entry.name);
+      const dst = join(tmpDir, entry.name);
+      try {
+        await Deno.symlink(src, dst);
+      } catch {
+        // Non-fatal: some files may be locked or inaccessible
       }
     }
   } catch {
