@@ -30,6 +30,10 @@ import this package to invoke IDE CLIs uniformly.
   FR numbering: `FR-L<N>`.
 - `scripts/check.ts` — self-contained verification (fmt, lint, type check,
   tests, doc-lint, publish dry-run).
+- `scripts/smoke.ts` — behavioural checks against real agent CLI binaries
+  (AbortSignal SIGTERM, timeout, `settingSources`). Not part of
+  `deno task check`; invoke manually via `deno run -A scripts/smoke.ts
+  [abort|settings]`.
 
 ## Tasks
 
