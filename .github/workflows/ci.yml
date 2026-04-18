@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Default permissions: write needed to push release commits/tags.
+# publish-jsr overrides with id-token: write for OIDC trusted publishing.
+permissions:
+  contents: write
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.create-release.outputs.released }}
+      tag: ${{ steps.create-release.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.24.3
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+
+      - name: Secret scan
+        run: gitleaks detect --source . --verbose --redact --exit-code 1
+
+      - name: Run checks
+        run: deno task check
+
+      - name: Verify no files modified by check
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Check modified files — commit these changes"
+            git diff --stat
+            exit 1
+          fi
+
+      - name: Create release and push tags
+        id: create-release
+        if: |
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          !contains(github.event.head_commit.message, 'chore(release):')
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          # Detect releasable commits. standard-version handles feat/fix
+          # automatically; refactor/perf/build get forced to patch.
+          RELEASABLE=false
+          BUMP_ARGS=""
+
+          if [ -z "$LATEST_TAG" ]; then
+            RELEASABLE=true
+          else
+            COMMITS_SINCE=$(git log --format='%s' ${LATEST_TAG}..HEAD)
+            if echo "$COMMITS_SINCE" | grep -qE '^feat'; then
+              RELEASABLE=true
+            elif echo "$COMMITS_SINCE" | grep -qE '^(fix|perf|refactor|build)'; then
+              RELEASABLE=true
+              BUMP_ARGS="--release-as patch"
+            fi
+          fi
+
+          if [ "$RELEASABLE" = "true" ]; then
+            deno task release $BUMP_ARGS
+            NEW_VERSION=$(deno eval "console.log(JSON.parse(Deno.readTextFileSync('deno.json')).version)")
+            NEW_TAG="v${NEW_VERSION}"
+            git tag -a "$NEW_TAG" -m "Release ${NEW_TAG}"
+            git push origin main "$NEW_TAG"
+
+            echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+            echo "tag=${NEW_TAG}" >> $GITHUB_OUTPUT
+            echo "released=true" >> $GITHUB_OUTPUT
+          else
+            echo "Nothing to release"
+            echo "released=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Publishes the TypeScript package to JSR via OIDC trusted publishing.
+  publish-jsr:
+    name: Publish to JSR
+    needs: check
+    if: needs.check.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+
+      - name: Publish @korchasa/ai-ide-cli to JSR
+        run: deno publish
+
+  # Creates the GitHub Release at the tag with auto-generated notes.
+  # Library-only repo — no binaries to attach.
+  publish-github:
+    name: Publish GitHub Release
+    needs: check
+    if: needs.check.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.check.outputs.tag }}
+          fetch-depth: 0
+
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          CURRENT_TAG="${{ needs.check.outputs.tag }}"
+          PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || echo "")
+          NOTES_FILE=$(mktemp)
+          if [ -n "$PREV_TAG" ]; then
+            deno run -A scripts/generate-release-notes.ts "$PREV_TAG" "$CURRENT_TAG" "${{ github.repository }}" > "$NOTES_FILE"
+          else
+            echo "Initial release" > "$NOTES_FILE"
+          fi
+          echo "notes_file=${NOTES_FILE}" >> $GITHUB_OUTPUT
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "${{ needs.check.outputs.tag }}" \
+            --title "ai-ide-cli ${{ needs.check.outputs.tag }}" \
+            --notes-file "${{ steps.notes.outputs.notes_file }}"
