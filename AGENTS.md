@@ -24,8 +24,8 @@ import this package to invoke IDE CLIs uniformly.
 - `skill/` — SKILL.md parser and typed skill model.
 - `process-registry.ts` — cross-runtime child process registry with graceful
   shutdown hooks.
-- `documents/` — SRS (`requirements.md` + `requirements/*.md`) and
-  SDS (`design.md` + `design/*.md`). FR numbering: `FR-L<N>`.
+- `documents/` — SRS (`requirements.md`) and SDS (`design.md`).
+  FR numbering: `FR-L<N>`.
 - `scripts/check.ts` — self-contained verification (fmt, lint, type check,
   tests, doc-lint, publish dry-run).
 
