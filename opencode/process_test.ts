@@ -24,7 +24,7 @@ Deno.test("buildOpenCodeArgs — fresh invocation includes run, model, agent, fo
     makeInvokeOpts({
       agent: "builder",
       model: "anthropic/claude-sonnet-4-5",
-      extraArgs: ["--variant", "high"],
+      extraArgs: { "--variant": "high" },
     }),
   );
 

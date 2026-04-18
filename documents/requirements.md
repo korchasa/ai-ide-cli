@@ -63,8 +63,10 @@ stable — never renumber on move.
     `interactive`. Evidence: `ai-ide-cli/runtime/types.ts:9-19`.
   - [x] `getRuntimeAdapter(id)` returns adapter from registry.
     Evidence: `ai-ide-cli/runtime/index.ts:18-20`.
-  - [x] `resolveRuntimeConfig()` merges `runtime_args` across cascade levels.
-    Evidence: `ai-ide-cli/runtime/index.ts:30-53`.
+  - [x] `resolveRuntimeConfig()` merges map-shape `runtime_args` across
+    cascade levels last-writer-wins; `null` survives to suppress the flag
+    at expansion time. Evidence: `ai-ide-cli/runtime/index.ts`,
+    `ai-ide-cli/runtime/index_test.ts`.
   - [x] `RuntimeConfigSource` structural type — no workflow imports.
     Evidence: `ai-ide-cli/runtime/types.ts:112-121`.
   - [x] Four adapters registered: `claude`, `opencode`, `cursor`, `codex`.
@@ -353,6 +355,147 @@ stable — never renumber on move.
     `ai-ide-cli/runtime/codex-adapter.ts`, `ai-ide-cli/runtime/index.ts`.
   - [x] Sub-path export `@korchasa/ai-ide-cli/codex/process`.
     Evidence: `ai-ide-cli/deno.json` exports.
+
+### 3.14 FR-L14: Map-shaped `extraArgs` / `runtime_args`
+
+- **Description:** Extra CLI arguments are expressed as
+  `Record<string, string | null>`. An empty string emits a bare flag; a
+  non-empty string emits `--key value`; `null` suppresses the flag (used
+  by downstream cascade levels to override a parent-supplied value).
+  `expandExtraArgs(map, reserved?)` flattens the map into argv and throws
+  synchronously if any reserved key is present. Each runtime declares its
+  reserved-flag list (`CLAUDE_RESERVED_FLAGS`, `OPENCODE_RESERVED_FLAGS`,
+  `CURSOR_RESERVED_FLAGS`, `CODEX_RESERVED_FLAGS`).
+- **Motivation:** Map shape makes cascading overrides trivial (`{flag:
+  null}` suppresses a parent value) and matches the shape of Anthropic's
+  Claude Agent SDK `extraArgs` option.
+- **Acceptance:**
+  - [x] `ExtraArgsMap` type exported from `runtime/types.ts`.
+    Evidence: `ai-ide-cli/runtime/types.ts`.
+  - [x] `expandExtraArgs` helper with empty/null/reserved semantics.
+    Evidence: `ai-ide-cli/runtime/index.ts`,
+    `ai-ide-cli/runtime/index_test.ts`.
+  - [x] Each `build*Args` expands `extraArgs` via `expandExtraArgs` with
+    its reserved list. Evidence: `ai-ide-cli/claude/process.ts`,
+    `ai-ide-cli/opencode/process.ts`, `ai-ide-cli/cursor/process.ts`,
+    `ai-ide-cli/codex/process.ts`.
+  - [x] Cascade merge preserves `null` for flag suppression. Evidence:
+    `ai-ide-cli/runtime/index_test.ts`.
+
+
+### 3.15 FR-L15: `AbortSignal` Cancellation
+
+- **Description:** `RuntimeInvokeOptions.signal` and
+  `ClaudeInvokeOptions.signal` accept an external `AbortSignal`. Each
+  runtime composes the caller's signal with its internal timeout via
+  `AbortSignal.any`; on abort the subprocess receives `SIGTERM` and the
+  retry loop exits immediately with
+  `{ error: "Aborted: <reason>" }` (no further attempts). A signal that
+  is already aborted on entry returns `Aborted before start` without
+  spawning the subprocess. The retry sleep is abortable — it rejects
+  with `DOMException("Aborted", "AbortError")` when the signal fires.
+- **Motivation:** Composable cancellation for callers that coordinate
+  multiple long-running runtimes (e.g. workflow engines, benchmarks,
+  orchestrators).
+- **Acceptance:**
+  - [x] `signal?: AbortSignal` on `RuntimeInvokeOptions` and
+    `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/runtime/types.ts`,
+    `ai-ide-cli/claude/process.ts`.
+  - [x] Aborted-before-start returns `"Aborted before start"` without
+    spawning. Evidence: `ai-ide-cli/claude/process_test.ts`.
+  - [x] AbortSignal composed with timeout via `AbortSignal.any`.
+    Evidence: `ai-ide-cli/claude/process.ts`,
+    `ai-ide-cli/opencode/process.ts`, `ai-ide-cli/cursor/process.ts`,
+    `ai-ide-cli/codex/process.ts`.
+  - [x] Retry loop treats abort as terminal. Evidence:
+    `ai-ide-cli/claude/process.ts` retry loop error-mapping.
+
+
+### 3.16 FR-L16: Observed-Tool-Use Hook (Claude)
+
+- **Description:** `ClaudeInvokeOptions.onToolUseObserved(info)` and the
+  runtime-neutral `RuntimeInvokeOptions.onToolUseObserved(info)` fire
+  for every `tool_use` block emitted by Claude. The hook runs
+  **post-dispatch but pre-next-turn** — by the time it fires, the CLI has
+  already invoked the tool, so returning `"abort"` terminates the run
+  but cannot un-execute the tool. Hook-driven aborts synthesize a
+  `CliRunOutput` with `is_error: true`, `result: "Aborted by
+  onToolUseObserved callback"`, and a single
+  `permission_denials[]` entry `{tool_name, tool_input: {id, reason}}`.
+  Currently Claude-only; capability advertised via
+  `RuntimeCapabilities.toolUseObservation`.
+- **Motivation:** First-class audit / HITL pre-hook that the SDK inspired.
+- **Acceptance:**
+  - [x] `onToolUseObserved` callback receives `{id, name, input, turn}`.
+    Evidence: `ai-ide-cli/claude/stream.ts`,
+    `ai-ide-cli/claude/stream_test.ts`.
+  - [x] Sync `"abort"` sets `state.denied` and aborts the run's
+    controller. Evidence: `ai-ide-cli/claude/stream_test.ts`.
+  - [x] Async `"abort"` (awaited decision) also aborts cleanly.
+    Evidence: `ai-ide-cli/claude/stream_test.ts`.
+  - [x] `"allow"` is a no-op (run continues). Evidence:
+    `ai-ide-cli/claude/stream_test.ts`.
+  - [x] `RuntimeCapabilities.toolUseObservation` advertises support
+    (Claude `true`, others `false`). Evidence:
+    `ai-ide-cli/runtime/claude-adapter.ts`,
+    `ai-ide-cli/runtime/opencode-adapter.ts`,
+    `ai-ide-cli/runtime/cursor-adapter.ts`,
+    `ai-ide-cli/runtime/codex-adapter.ts`.
+
+
+### 3.17 FR-L17: Typed Lifecycle Hooks
+
+- **Description:** Claude exposes `ClaudeLifecycleHooks` with
+  `onInit(ClaudeSystemEvent)`, `onAssistant(ClaudeAssistantEvent)`,
+  `onResult(ClaudeResultEvent)` — each fires with the narrowed event
+  *before* internal state mutations (turn counter, file-read tracker, log
+  writes). Runtime-neutral `RuntimeLifecycleHooks` exposes `onInit(info)`
+  and `onResult(output)` honored by all four adapters, which translate
+  their native init events into the minimal `RuntimeInitInfo` shape.
+  Dispatch order is fixed: `onEvent(raw)` → typed hook →
+  `onToolUseObserved` (for `tool_use` blocks) → internal mutations.
+- **Motivation:** Typed hooks remove casts in consumer code and give
+  callers a predictable observation point without subscribing to every
+  raw event.
+- **Acceptance:**
+  - [x] `ClaudeLifecycleHooks` on `StreamProcessorState` and
+    `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/claude/stream.ts`,
+    `ai-ide-cli/claude/process.ts`.
+  - [x] `RuntimeLifecycleHooks` on `RuntimeInvokeOptions`. Evidence:
+    `ai-ide-cli/runtime/types.ts`.
+  - [x] Dispatch order onEvent → typed hook → internal mutation.
+    Evidence: `ai-ide-cli/claude/stream_test.ts`.
+  - [x] Typed hook sees pre-increment `turnCount`. Evidence:
+    `ai-ide-cli/claude/stream_test.ts`.
+
+
+### 3.18 FR-L18: Setting-Source Isolation (Claude)
+
+- **Description:** `ClaudeInvokeOptions.settingSources` (and the
+  runtime-neutral `RuntimeInvokeOptions.settingSources`) selects which
+  Claude configuration sources (`'user'` / `'project'` / `'local'`)
+  apply. When provided, the Claude adapter builds a temporary
+  `CLAUDE_CONFIG_DIR` via `prepareSettingSourcesDir()` and redirects the
+  subprocess env for the run, then removes the tmp dir in `finally`.
+  `'user'` symlinks the host `settings.json` into the tmp dir if it
+  exists; `'project'` / `'local'` are recognized but not yet isolated
+  (they still come from CWD). Other adapters ignore `settingSources`
+  silently.
+- **Motivation:** Reproducible cleanroom runs for benchmarks and
+  experiments — pairs naturally with FR-L9 `env` isolation.
+- **Acceptance:**
+  - [x] `settingSources?: SettingSource[]` on `RuntimeInvokeOptions`
+    and `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/runtime/types.ts`,
+    `ai-ide-cli/claude/process.ts`.
+  - [x] `['user']` with existing `settings.json` symlinks into tmp dir.
+    Evidence: `ai-ide-cli/runtime/setting-sources_test.ts`.
+  - [x] `['project']` / `[]` yield an empty tmp dir. Evidence:
+    `ai-ide-cli/runtime/setting-sources_test.ts`.
+  - [x] `undefined` leaves env untouched and skips tmp-dir setup.
+    Evidence: `ai-ide-cli/claude/process.ts`.
+  - [x] Cleanup runs on success and failure and is idempotent. Evidence:
+    `ai-ide-cli/runtime/setting-sources_test.ts`.
+
 
 ## 4. Non-Functional Requirements
 

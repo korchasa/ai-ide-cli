@@ -104,9 +104,20 @@ with `_` for test isolation.
 **`runtime/index.ts`:**
 - `ADAPTERS` record keyed by `RuntimeId`.
 - `getRuntimeAdapter(id)` — lookup.
-- `resolveRuntimeConfig({defaults, node, parent})` — merges `runtime_args`
-  from all cascade levels (defaults → parent → node). Model and
-  permissionMode use first-defined-wins (node > parent > defaults).
+- `resolveRuntimeConfig({defaults, node, parent})` — merges map-shape
+  `runtime_args` from all cascade levels last-writer-wins. `null` survives
+  the merge and suppresses the flag at expansion time. Model and
+  `permissionMode` use first-defined-wins (node > parent > defaults).
+- `expandExtraArgs(map, reserved?)` — flattens `ExtraArgsMap` into argv.
+  Value semantics: `""` → bare flag; any other string → `--key value`;
+  `null` → drop. Throws synchronously on reserved keys.
+
+**`runtime/setting-sources.ts`:**
+- `SettingSource` = `'user' | 'project' | 'local'`.
+- `prepareSettingSourcesDir(sources, realConfigDir, realCwd)` — builds a
+  temp `CLAUDE_CONFIG_DIR` symlinking the user-level `settings.json` when
+  `'user'` is selected. `'project'`/`'local'` are recognized but not yet
+  isolated — they still come from CWD.
 
 
 ### 3.4 `claude/process.ts` — Claude Runner
@@ -130,19 +141,33 @@ in process registry.
 
 ### 3.5 `claude/stream.ts` — Stream Processing
 
+Typed `ClaudeStreamEvent` discriminated union:
+`ClaudeSystemEvent | ClaudeAssistantEvent | ClaudeUserEvent |
+ClaudeResultEvent | ClaudeUnknownEvent`. Assistant message content is a
+tagged union of `ClaudeTextBlock | ClaudeToolUseBlock |
+ClaudeThinkingBlock`. Index signatures `[key: string]: unknown` on every
+event preserve forward-compat upstream fields without casts.
+
+`parseClaudeStreamEvent(line)`: pure function returning
+`ClaudeStreamEvent | null`. Returns `null` on empty input, invalid JSON,
+non-object payloads, or a missing string `type`.
+
 `processStreamEvent(event, state)`: mutable state bag
-(`StreamProcessorState`). First calls `state.onEvent?.(event)` to forward
-raw event before any processing. Then handles:
-- `assistant` → increment turn count, write separator to log, track Read
-  tool_use via `FileReadTracker`
-- `result` → `extractClaudeOutput()`, write footer to log
-- All events → `formatEventForOutput()` for log + terminal
+(`StreamProcessorState`). Fixed dispatch order:
+1. `state.onEvent?.(event)` — raw escape hatch.
+2. Typed lifecycle hook (`hooks.onInit` / `onAssistant` / `onResult`)
+   with the narrowed event.
+3. For each `tool_use` block inside `assistant`, `onToolUseObserved` is
+   awaited; `"abort"` sets `state.denied` and calls
+   `state.abortController?.abort()`.
+4. Internal state mutations — `turnCount++`, `FileReadTracker`,
+   `extractClaudeOutput()` on `result`, log writes, terminal forwarding.
 
-`extractClaudeOutput(event)`: maps result event fields to `CliRunOutput`
-with `runtime: "claude"`.
+`extractClaudeOutput(event: ClaudeResultEvent)`: maps result event fields
+to `CliRunOutput` with `runtime: "claude"`.
 
-`formatEventForOutput(event, verbosity?)`: one-line summaries. `system/init`
-→ model info. `assistant` → text preview + tool names.
+`formatEventForOutput(event, verbosity?)`: one-line summaries.
+`system/init` → model info. `assistant` → text preview + tool names.
 Semi-verbose skips `tool_use` blocks.
 
 `FileReadTracker`: per-path read counter with configurable threshold.

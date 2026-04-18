@@ -24,21 +24,53 @@ export type {
 export { VALID_PERMISSION_MODES, VALID_RUNTIME_IDS } from "./types.ts";
 
 // --- Runtime adapter layer ---
-export { getRuntimeAdapter, resolveRuntimeConfig } from "./runtime/index.ts";
+export {
+  expandExtraArgs,
+  getRuntimeAdapter,
+  resolveRuntimeConfig,
+} from "./runtime/index.ts";
 export type {
+  ExtraArgsMap,
   InteractiveOptions,
   InteractiveResult,
+  OnRuntimeToolUseObservedCallback,
   ResolvedRuntimeConfig,
   RuntimeAdapter,
   RuntimeCapabilities,
   RuntimeConfigSource,
+  RuntimeInitInfo,
   RuntimeInvokeOptions,
   RuntimeInvokeResult,
+  RuntimeLifecycleHooks,
+  RuntimeToolUseDecision,
+  RuntimeToolUseInfo,
 } from "./runtime/types.ts";
+export type { SettingSource } from "./runtime/setting-sources.ts";
 
 // --- Claude runner (public entry points only) ---
-export { buildClaudeArgs, invokeClaudeCli } from "./claude/process.ts";
+export {
+  buildClaudeArgs,
+  CLAUDE_RESERVED_FLAGS,
+  invokeClaudeCli,
+} from "./claude/process.ts";
 export type { ClaudeInvokeOptions } from "./claude/process.ts";
+export type {
+  ClaudeAssistantBlock,
+  ClaudeAssistantEvent,
+  ClaudeLifecycleHooks,
+  ClaudeResultEvent,
+  ClaudeStreamEvent,
+  ClaudeSystemEvent,
+  ClaudeTextBlock,
+  ClaudeThinkingBlock,
+  ClaudeToolUseBlock,
+  ClaudeToolUseInfo,
+  ClaudeUnknownEvent,
+  ClaudeUserEvent,
+  OnToolUseObservedCallback,
+  ToolUseObservedDecision,
+} from "./claude/stream.ts";
+export { parseClaudeStreamEvent } from "./claude/stream.ts";
 
 // --- Cursor runner ---
 export {

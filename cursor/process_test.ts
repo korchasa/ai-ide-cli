@@ -24,7 +24,7 @@ Deno.test("buildCursorArgs — fresh invocation includes agent -p, model, output
   const args = buildCursorArgs(
     makeInvokeOpts({
       model: "claude-4.6-sonnet",
-      extraArgs: ["--sandbox", "disabled"],
+      extraArgs: { "--sandbox": "disabled" },
     }),
   );
 

@@ -23,6 +23,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     hitl: true,
     transcript: false,
     interactive: true,
+    toolUseObservation: false,
   },
   invoke(opts) {
     return invokeOpenCodeCli(opts);

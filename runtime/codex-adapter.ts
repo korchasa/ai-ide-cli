@@ -29,6 +29,7 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     hitl: false,
     transcript: false,
     interactive: false,
+    toolUseObservation: false,
   },
   invoke(opts) {
     return invokeCodexCli(opts);

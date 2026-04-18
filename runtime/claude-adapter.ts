@@ -66,9 +66,49 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     hitl: true,
     transcript: true,
     interactive: true,
+    toolUseObservation: true,
   },
-  invoke(opts) {
-    return invokeClaudeCli({
+  async invoke(opts) {
+    // Translate runtime-neutral onToolUseObserved into the Claude-specific
+    // callback (just adds `runtime: "claude"` to the info object).
+    const claudeHook = opts.onToolUseObserved
+      ? async (info: {
+        id: string;
+        name: string;
+        input?: Record<string, unknown>;
+        turn: number;
+      }) => {
+        return await opts.onToolUseObserved!({
+          runtime: "claude",
+          id: info.id,
+          name: info.name,
+          input: info.input,
+          turn: info.turn,
+        });
+      }
+      : undefined;
+
+    // Translate runtime-neutral hooks into Claude-specific lifecycle
+    // hooks by producing a thin adapter that emits the neutral shapes.
+    const claudeHooks = opts.hooks
+      ? {
+        onInit: opts.hooks.onInit
+          ? (e: {
+            type: string;
+            model?: string;
+            session_id?: string;
+          }) => {
+            opts.hooks!.onInit!({
+              runtime: "claude",
+              model: e.model,
+              sessionId: e.session_id,
+            });
+          }
+          : undefined,
+      }
+      : undefined;
+
+    const result = await invokeClaudeCli({
       agent: opts.agent,
       systemPrompt: opts.systemPrompt,
       taskPrompt: opts.taskPrompt,
@@ -79,13 +119,19 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       timeoutSeconds: opts.timeoutSeconds,
       maxRetries: opts.maxRetries,
       retryDelaySeconds: opts.retryDelaySeconds,
+      signal: opts.signal,
       onOutput: opts.onOutput,
       streamLogPath: opts.streamLogPath,
       verbosity: opts.verbosity,
       cwd: opts.cwd,
       env: opts.env,
       onEvent: opts.onEvent,
+      hooks: claudeHooks,
+      onToolUseObserved: claudeHook,
+      settingSources: opts.settingSources,
     });
+    if (result.output) opts.hooks?.onResult?.(result.output);
+    return result;
   },
 
   async launchInteractive(

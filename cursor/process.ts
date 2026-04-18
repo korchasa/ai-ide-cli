@@ -3,7 +3,7 @@
  * Cursor CLI process management: builds CLI arguments, spawns the `cursor
  * agent` subprocess with stream-json output, processes NDJSON events in
  * real-time, and returns normalized {@link CliRunOutput}. Includes retry
- * logic with exponential backoff.
+ * logic with exponential backoff and AbortSignal cancellation.
  * Entry point: {@link invokeCursorCli}.
  */
 
@@ -11,8 +11,24 @@ import type { CliRunOutput, Verbosity } from "../types.ts";
 import type {
   RuntimeInvokeOptions,
   RuntimeInvokeResult,
+  RuntimeLifecycleHooks,
 } from "../runtime/types.ts";
+import { expandExtraArgs } from "../runtime/index.ts";
 import { register, unregister } from "../process-registry.ts";
+
+/**
+ * Flags reserved by {@link buildCursorArgs}. Keys in `extraArgs` that
+ * match these throw synchronously — the adapter emits them itself.
+ */
+export const CURSOR_RESERVED_FLAGS: readonly string[] = [
+  "agent",
+  "-p",
+  "--output-format",
+  "--trust",
+  "--resume",
+  "--model",
+  "--yolo",
+];
 
 /**
  * Build CLI arguments for the `cursor agent` command.
@@ -38,9 +54,7 @@ export function buildCursorArgs(opts: RuntimeInvokeOptions): string[] {
     args.push("--yolo");
   }
 
-  if (opts.extraArgs && opts.extraArgs.length > 0) {
-    args.push(...opts.extraArgs);
-  }
+  args.push(...expandExtraArgs(opts.extraArgs, CURSOR_RESERVED_FLAGS));
 
   args.push("--output-format", "stream-json");
   args.push("--trust");
@@ -116,6 +130,9 @@ export function formatCursorEventForOutput(
 export async function invokeCursorCli(
   opts: RuntimeInvokeOptions,
 ): Promise<RuntimeInvokeResult> {
+  if (opts.signal?.aborted) {
+    return { error: "Aborted before start" };
+  }
   const mergedTaskPrompt = opts.systemPrompt
     ? `${opts.systemPrompt}\n\n${opts.taskPrompt}`
     : opts.taskPrompt;
@@ -133,22 +150,42 @@ export async function invokeCursorCli(
         opts.cwd,
         opts.env,
         opts.onEvent,
+        opts.signal,
+        opts.hooks,
       );
       if (output.is_error) {
         lastError = `Cursor CLI returned error: ${output.result}`;
         if (attempt < opts.maxRetries) {
           const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
-          await sleep(delay * 1000);
+          try {
+            await sleep(delay * 1000, opts.signal);
+          } catch (err) {
+            if (isAbortError(err)) {
+              return { output, error: `Aborted: ${abortReason(opts.signal)}` };
+            }
+            throw err;
+          }
           continue;
         }
         return { output, error: lastError };
       }
+      opts.hooks?.onResult?.(output);
       return { output };
     } catch (err) {
+      if (isAbortError(err)) {
+        return { error: `Aborted: ${abortReason(opts.signal)}` };
+      }
       lastError = (err as Error).message;
       if (attempt < opts.maxRetries) {
         const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
-        await sleep(delay * 1000);
+        try {
+          await sleep(delay * 1000, opts.signal);
+        } catch (sleepErr) {
+          if (isAbortError(sleepErr)) {
+            return { error: `Aborted: ${abortReason(opts.signal)}` };
+          }
+          throw sleepErr;
+        }
         continue;
       }
     }
@@ -174,6 +211,8 @@ async function executeCursorProcess(
   cwd?: string,
   env?: Record<string, string>,
   onEvent?: (event: Record<string, unknown>) => void,
+  userSignal?: AbortSignal,
+  hooks?: RuntimeLifecycleHooks,
 ): Promise<CliRunOutput> {
   const cmd = new Deno.Command("cursor", {
     args,
@@ -188,13 +227,18 @@ async function executeCursorProcess(
   register(process);
 
   try {
-    const timeoutId = setTimeout(() => {
+    const timeoutSignal = AbortSignal.timeout(timeoutSeconds * 1000);
+    const combined = userSignal
+      ? AbortSignal.any([userSignal, timeoutSignal])
+      : timeoutSignal;
+    const onAbort = () => {
       try {
         process.kill("SIGTERM");
       } catch {
-        // Process may have already exited
+        // Process may have already exited.
       }
-    }, timeoutSeconds * 1000);
+    };
+    combined.addEventListener("abort", onAbort, { once: true });
 
     let logFile: Deno.FsFile | undefined;
     if (streamLogPath) {
@@ -211,6 +255,7 @@ async function executeCursorProcess(
     const decoder = new TextDecoder();
     let resultEvent: CliRunOutput | undefined;
     let buffer = "";
+    let initEmitted = false;
 
     const stdoutReader = process.stdout.getReader();
     const stdoutDone = (async () => {
@@ -227,6 +272,21 @@ async function executeCursorProcess(
               // deno-lint-ignore no-explicit-any
               const event = JSON.parse(line) as Record<string, any>;
               onEvent?.(event);
+              if (
+                !initEmitted && event.type === "system" &&
+                event.subtype === "init"
+              ) {
+                initEmitted = true;
+                hooks?.onInit?.({
+                  runtime: "cursor",
+                  model: typeof event.model === "string"
+                    ? event.model
+                    : undefined,
+                  sessionId: typeof event.session_id === "string"
+                    ? event.session_id
+                    : undefined,
+                });
+              }
               if (event.type === "result") {
                 resultEvent = extractCursorOutput(event);
               }
@@ -273,9 +333,15 @@ async function executeCursorProcess(
 
     await Promise.all([stdoutDone, stderrDone]);
     const status = await process.status;
-    clearTimeout(timeoutId);
+    combined.removeEventListener("abort", onAbort);
 
     logFile?.close();
+
+    if (userSignal?.aborted) {
+      const err = new Error(`Aborted: ${abortReason(userSignal)}`);
+      (err as Error & { name: string }).name = "AbortError";
+      throw err;
+    }
 
     const stderr = decodeChunks(stderrChunks).trim();
 
@@ -310,6 +376,39 @@ function decodeChunks(chunks: Uint8Array[]): string {
   return new TextDecoder().decode(buf);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timerId = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timerId);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function isAbortError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === "AbortError") return true;
+  if (err instanceof Error && err.name === "AbortError") return true;
+  return false;
+}
+
+function abortReason(signal?: AbortSignal): string {
+  if (!signal) return "manual abort";
+  const reason = signal.reason;
+  if (reason === undefined) return "manual abort";
+  if (typeof reason === "string") return reason;
+  if (reason instanceof Error) return reason.message;
+  try {
+    return JSON.stringify(reason);
+  } catch {
+    return String(reason);
+  }
 }

@@ -21,6 +21,20 @@ import type {
   RuntimeInvokeOptions,
   RuntimeInvokeResult,
 } from "../runtime/types.ts";
+import { expandExtraArgs } from "../runtime/index.ts";
+
+/**
+ * Flags reserved by {@link buildOpenCodeArgs}. Keys in `extraArgs` that
+ * match these throw synchronously — the adapter emits them itself.
+ */
+export const OPENCODE_RESERVED_FLAGS: readonly string[] = [
+  "run",
+  "--format",
+  "--session",
+  "--model",
+  "--agent",
+  "--dangerously-skip-permissions",
+];
 
 /** Build CLI arguments for the opencode command. Exported for testing. */
 export function buildOpenCodeArgs(opts: RuntimeInvokeOptions): string[] {
@@ -42,9 +56,7 @@ export function buildOpenCodeArgs(opts: RuntimeInvokeOptions): string[] {
     args.push("--dangerously-skip-permissions");
   }
 
-  if (opts.extraArgs && opts.extraArgs.length > 0) {
-    args.push(...opts.extraArgs);
-  }
+  args.push(...expandExtraArgs(opts.extraArgs, OPENCODE_RESERVED_FLAGS));
 
   args.push("--format", "json");
   args.push(opts.taskPrompt);
@@ -175,6 +187,9 @@ export function buildOpenCodeConfigContent(
 export async function invokeOpenCodeCli(
   opts: RuntimeInvokeOptions,
 ): Promise<RuntimeInvokeResult> {
+  if (opts.signal?.aborted) {
+    return { error: "Aborted before start" };
+  }
   const mergedTaskPrompt = opts.systemPrompt
     ? `${opts.systemPrompt}\n\n${opts.taskPrompt}`
     : opts.taskPrompt;
@@ -197,22 +212,42 @@ export async function invokeOpenCodeCli(
         configContent,
         opts.env,
         opts.onEvent,
+        opts.signal,
+        opts.hooks,
       );
       if (output.is_error) {
         lastError = `OpenCode returned error: ${output.result}`;
         if (attempt < opts.maxRetries) {
           const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
-          await sleep(delay * 1000);
+          try {
+            await sleep(delay * 1000, opts.signal);
+          } catch (err) {
+            if (isAbortError(err)) {
+              return { output, error: `Aborted: ${abortReason(opts.signal)}` };
+            }
+            throw err;
+          }
           continue;
         }
         return { output, error: lastError };
       }
+      opts.hooks?.onResult?.(output);
       return { output };
     } catch (err) {
+      if (isAbortError(err)) {
+        return { error: `Aborted: ${abortReason(opts.signal)}` };
+      }
       lastError = (err as Error).message;
       if (attempt < opts.maxRetries) {
         const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
-        await sleep(delay * 1000);
+        try {
+          await sleep(delay * 1000, opts.signal);
+        } catch (sleepErr) {
+          if (isAbortError(sleepErr)) {
+            return { error: `Aborted: ${abortReason(opts.signal)}` };
+          }
+          throw sleepErr;
+        }
         continue;
       }
     }
@@ -233,6 +268,8 @@ async function executeOpenCodeProcess(
   configContent?: string,
   env?: Record<string, string>,
   onEvent?: (event: Record<string, unknown>) => void,
+  userSignal?: AbortSignal,
+  hooks?: import("../runtime/types.ts").RuntimeLifecycleHooks,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };
   if (configContent) {
@@ -250,15 +287,24 @@ async function executeOpenCodeProcess(
   const process = cmd.spawn();
   register(process);
 
+  let timedOut = false;
+  let interruptedForHitl = false;
+  let initEmitted = false;
+
   try {
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
+    const timeoutSignal = AbortSignal.timeout(timeoutSeconds * 1000);
+    const combined = userSignal
+      ? AbortSignal.any([userSignal, timeoutSignal])
+      : timeoutSignal;
+    const onAbort = () => {
+      if (timeoutSignal.aborted) timedOut = true;
       try {
         process.kill("SIGTERM");
       } catch {
         // Process may have already exited.
       }
-    }, timeoutSeconds * 1000);
+    };
+    combined.addEventListener("abort", onAbort, { once: true });
 
     let logFile: Deno.FsFile | undefined;
     if (streamLogPath) {
@@ -276,8 +322,6 @@ async function executeOpenCodeProcess(
     let stdoutBuffer = "";
     const stdoutLines: string[] = [];
     const stderrChunks: Uint8Array[] = [];
-    let timedOut = false;
-    let interruptedForHitl = false;
 
     const stdoutReader = process.stdout.getReader();
     const stdoutDone = (async () => {
@@ -307,6 +351,14 @@ async function executeOpenCodeProcess(
                 }
               },
               onEvent,
+              (sessionId, _event) => {
+                if (initEmitted) return;
+                initEmitted = true;
+                hooks?.onInit?.({
+                  runtime: "opencode",
+                  sessionId: sessionId || undefined,
+                });
+              },
             );
           }
         }
@@ -328,6 +380,14 @@ async function executeOpenCodeProcess(
               }
             },
             onEvent,
+            (sessionId, _event) => {
+              if (initEmitted) return;
+              initEmitted = true;
+              hooks?.onInit?.({
+                runtime: "opencode",
+                sessionId: sessionId || undefined,
+              });
+            },
           );
         }
       } catch {
@@ -350,9 +410,15 @@ async function executeOpenCodeProcess(
 
     await Promise.all([stdoutDone, stderrDone]);
     const status = await process.status;
-    clearTimeout(timeoutId);
+    combined.removeEventListener("abort", onAbort);
 
     logFile?.close();
+
+    if (userSignal?.aborted) {
+      const err = new Error(`Aborted: ${abortReason(userSignal)}`);
+      (err as Error & { name: string }).name = "AbortError";
+      throw err;
+    }
 
     const stderr = decodeChunks(stderrChunks).trim();
     const jsonLines = stdoutLines.filter((line) => {
@@ -408,6 +474,7 @@ async function processOpenCodeLine(
   verbosity: Verbosity | undefined,
   onHitlRequest: () => void,
   onEvent?: (event: Record<string, unknown>) => void,
+  onInit?: (sessionId: string, event: Record<string, unknown>) => void,
 ): Promise<void> {
   const line = rawLine.trim();
   if (!line) return;
@@ -419,6 +486,10 @@ async function processOpenCodeLine(
     // deno-lint-ignore no-explicit-any
     const event = JSON.parse(line) as Record<string, any>;
     onEvent?.(event);
+    const sessionId = typeof event.sessionID === "string"
+      ? event.sessionID
+      : "";
+    if (sessionId) onInit?.(sessionId, event);
     const summary = formatOpenCodeEventForOutput(event, verbosity);
     if (summary) {
       onOutput?.(summary);
@@ -494,6 +565,39 @@ function decodeChunks(chunks: Uint8Array[]): string {
   return new TextDecoder().decode(buffer);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timerId = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timerId);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function isAbortError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === "AbortError") return true;
+  if (err instanceof Error && err.name === "AbortError") return true;
+  return false;
+}
+
+function abortReason(signal?: AbortSignal): string {
+  if (!signal) return "manual abort";
+  const reason = signal.reason;
+  if (reason === undefined) return "manual abort";
+  if (typeof reason === "string") return reason;
+  if (reason instanceof Error) return reason.message;
+  try {
+    return JSON.stringify(reason);
+  } catch {
+    return String(reason);
+  }
 }

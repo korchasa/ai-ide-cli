@@ -1,6 +1,6 @@
 {
   "name": "@korchasa/ai-ide-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
@@ -8,6 +8,7 @@
     "./process-registry": "./process-registry.ts",
     "./runtime": "./runtime/index.ts",
     "./runtime/types": "./runtime/types.ts",
+    "./runtime/setting-sources": "./runtime/setting-sources.ts",
     "./claude/process": "./claude/process.ts",
     "./claude/stream": "./claude/stream.ts",
     "./cursor/process": "./cursor/process.ts",

@@ -3,7 +3,8 @@
  * Codex CLI process management: builds CLI arguments for `codex exec
  * --experimental-json`, spawns the subprocess with the user prompt piped on
  * stdin, processes NDJSON events in real-time, and returns normalized
- * {@link CliRunOutput}. Includes retry logic with exponential backoff.
+ * {@link CliRunOutput}. Includes retry logic with exponential backoff and
+ * AbortSignal cancellation.
  *
  * Mirrors the patterns used by Claude / Cursor / OpenCode adapters but
  * accommodates Codex-specific quirks:
@@ -41,7 +42,6 @@
  * - `--skip-git-repo-check`
  * - `--config model_reasoning_effort=…`, `web_search=…`,
  *   `sandbox_workspace_write.network_access=…`, `openai_base_url=…`
- * - `AbortSignal` cancellation
  *
  * Entry point: {@link invokeCodexCli}.
  */
@@ -50,8 +50,23 @@ import type { CliRunOutput, Verbosity } from "../types.ts";
 import type {
   RuntimeInvokeOptions,
   RuntimeInvokeResult,
+  RuntimeLifecycleHooks,
 } from "../runtime/types.ts";
+import { expandExtraArgs } from "../runtime/index.ts";
 import { register, unregister } from "../process-registry.ts";
+
+/**
+ * Flags reserved by {@link buildCodexArgs}. Keys in `extraArgs` that match
+ * these throw synchronously — the adapter emits them itself.
+ */
+export const CODEX_RESERVED_FLAGS: readonly string[] = [
+  "exec",
+  "--experimental-json",
+  "--model",
+  "--cd",
+  "--sandbox",
+  "resume",
+];
 
 /**
  * Build CLI arguments for the `codex` command.
@@ -80,9 +95,7 @@ export function buildCodexArgs(opts: RuntimeInvokeOptions): string[] {
     args.push("--config", `approval_policy="never"`);
   }
 
-  if (opts.extraArgs && opts.extraArgs.length > 0) {
-    args.push(...opts.extraArgs);
-  }
+  args.push(...expandExtraArgs(opts.extraArgs, CODEX_RESERVED_FLAGS));
 
   if (opts.resumeSessionId) {
     args.push("resume", opts.resumeSessionId);
@@ -265,6 +278,9 @@ export function formatCodexEventForOutput(
 export async function invokeCodexCli(
   opts: RuntimeInvokeOptions,
 ): Promise<RuntimeInvokeResult> {
+  if (opts.signal?.aborted) {
+    return { error: "Aborted before start" };
+  }
   const mergedTaskPrompt = opts.systemPrompt
     ? `${opts.systemPrompt}\n\n${opts.taskPrompt}`
     : opts.taskPrompt;
@@ -283,22 +299,42 @@ export async function invokeCodexCli(
         opts.cwd,
         opts.env,
         opts.onEvent,
+        opts.signal,
+        opts.hooks,
       );
       if (output.is_error) {
         lastError = `Codex CLI returned error: ${output.result}`;
         if (attempt < opts.maxRetries) {
           const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
-          await sleep(delay * 1000);
+          try {
+            await sleep(delay * 1000, opts.signal);
+          } catch (err) {
+            if (isAbortError(err)) {
+              return { output, error: `Aborted: ${abortReason(opts.signal)}` };
+            }
+            throw err;
+          }
           continue;
         }
         return { output, error: lastError };
       }
+      opts.hooks?.onResult?.(output);
       return { output };
     } catch (err) {
+      if (isAbortError(err)) {
+        return { error: `Aborted: ${abortReason(opts.signal)}` };
+      }
       lastError = (err as Error).message;
       if (attempt < opts.maxRetries) {
         const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
-        await sleep(delay * 1000);
+        try {
+          await sleep(delay * 1000, opts.signal);
+        } catch (sleepErr) {
+          if (isAbortError(sleepErr)) {
+            return { error: `Aborted: ${abortReason(opts.signal)}` };
+          }
+          throw sleepErr;
+        }
         continue;
       }
     }
@@ -323,6 +359,8 @@ async function executeCodexProcess(
   cwd?: string,
   env?: Record<string, string>,
   onEvent?: (event: Record<string, unknown>) => void,
+  userSignal?: AbortSignal,
+  hooks?: RuntimeLifecycleHooks,
 ): Promise<CliRunOutput> {
   const cmd = new Deno.Command("codex", {
     args,
@@ -337,13 +375,18 @@ async function executeCodexProcess(
   register(process);
 
   try {
-    const timeoutId = setTimeout(() => {
+    const timeoutSignal = AbortSignal.timeout(timeoutSeconds * 1000);
+    const combined = userSignal
+      ? AbortSignal.any([userSignal, timeoutSignal])
+      : timeoutSignal;
+    const onAbort = () => {
       try {
         process.kill("SIGTERM");
       } catch {
-        // Process may have already exited
+        // Process may have already exited.
       }
-    }, timeoutSeconds * 1000);
+    };
+    combined.addEventListener("abort", onAbort, { once: true });
 
     // Feed the prompt on stdin and close it so codex begins processing.
     const stdinWriter = process.stdin.getWriter();
@@ -368,6 +411,7 @@ async function executeCodexProcess(
     const decoder = new TextDecoder();
     const state = createCodexRunState();
     let buffer = "";
+    let initEmitted = false;
 
     const stdoutReader = process.stdout.getReader();
     const stdoutDone = (async () => {
@@ -384,6 +428,15 @@ async function executeCodexProcess(
               // deno-lint-ignore no-explicit-any
               const event = JSON.parse(line) as Record<string, any>;
               onEvent?.(event);
+              if (!initEmitted && event.type === "thread.started") {
+                initEmitted = true;
+                hooks?.onInit?.({
+                  runtime: "codex",
+                  sessionId: typeof event.thread_id === "string"
+                    ? event.thread_id
+                    : undefined,
+                });
+              }
               applyCodexEvent(event, state);
               const logSummary = formatCodexEventForOutput(event);
               if (logFile && logSummary) {
@@ -426,9 +479,15 @@ async function executeCodexProcess(
 
     await Promise.all([stdoutDone, stderrDone]);
     const status = await process.status;
-    clearTimeout(timeoutId);
+    combined.removeEventListener("abort", onAbort);
 
     logFile?.close();
+
+    if (userSignal?.aborted) {
+      const err = new Error(`Aborted: ${abortReason(userSignal)}`);
+      (err as Error & { name: string }).name = "AbortError";
+      throw err;
+    }
 
     const stderr = decodeChunks(stderrChunks).trim();
 
@@ -457,6 +516,39 @@ function decodeChunks(chunks: Uint8Array[]): string {
   return new TextDecoder().decode(buf);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timerId = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timerId);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function isAbortError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === "AbortError") return true;
+  if (err instanceof Error && err.name === "AbortError") return true;
+  return false;
+}
+
+function abortReason(signal?: AbortSignal): string {
+  if (!signal) return "manual abort";
+  const reason = signal.reason;
+  if (reason === undefined) return "manual abort";
+  if (typeof reason === "string") return reason;
+  if (reason instanceof Error) return reason.message;
+  try {
+    return JSON.stringify(reason);
+  } catch {
+    return String(reason);
+  }
 }

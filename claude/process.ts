@@ -3,7 +3,8 @@
  * Claude CLI process management: builds CLI arguments, spawns the claude
  * subprocess with stream-json output, processes NDJSON events in real-time,
  * and returns normalized {@link CliRunOutput}. Includes retry logic with
- * exponential backoff.
+ * exponential backoff, AbortSignal cancellation, observed-tool-use hook,
+ * typed lifecycle hooks, and setting-sources isolation.
  *
  * Upstream reference — consult this when extending flag coverage or when
  * the `stream-json` event shape changes:
@@ -15,13 +16,39 @@
  */
 
 import type { CliRunOutput, Verbosity } from "../types.ts";
-import type { RuntimeInvokeResult } from "../runtime/types.ts";
+import type { ExtraArgsMap, RuntimeInvokeResult } from "../runtime/types.ts";
+import { expandExtraArgs } from "../runtime/index.ts";
+import {
+  defaultClaudeConfigDir,
+  prepareSettingSourcesDir,
+  type SettingSource,
+} from "../runtime/setting-sources.ts";
 import { register, unregister } from "../process-registry.ts";
 import {
+  type ClaudeLifecycleHooks,
+  type ClaudeStreamEvent,
   FileReadTracker,
+  type OnToolUseObservedCallback,
+  parseClaudeStreamEvent,
   processStreamEvent,
   type StreamProcessorState,
 } from "./stream.ts";
+
+/**
+ * Flags reserved by {@link buildClaudeArgs} — the runtime adapter emits
+ * these itself and they MUST NOT appear as keys in `claudeArgs` /
+ * `extraArgs`. Passing any of these throws synchronously.
+ */
+export const CLAUDE_RESERVED_FLAGS: readonly string[] = [
+  "--output-format",
+  "--verbose",
+  "-p",
+  "--agent",
+  "--append-system-prompt",
+  "--model",
+  "--resume",
+  "--permission-mode",
+];
 
 /** Low-level options for a single claude CLI invocation (initial or resume). */
 export interface ClaudeInvokeOptions {
@@ -33,8 +60,11 @@ export interface ClaudeInvokeOptions {
   taskPrompt: string;
   /** Session ID for --resume continuation (omit for initial invocation). */
   resumeSessionId?: string;
-  /** Extra CLI arguments passed to claude command. */
-  claudeArgs?: string[];
+  /**
+   * Extra CLI arguments passed to claude command (map-shape).
+   * See {@link ExtraArgsMap} for value semantics.
+   */
+  claudeArgs?: ExtraArgsMap;
   /** Permission mode (maps to --permission-mode CLI flag). */
   permissionMode?: string;
   /** Claude model override. Skipped on resume (session inherits model). */
@@ -45,6 +75,12 @@ export interface ClaudeInvokeOptions {
   maxRetries: number;
   /** Base delay between retries in seconds (doubled each attempt). */
   retryDelaySeconds: number;
+  /**
+   * External cancellation signal. Combined with the timeout signal via
+   * `AbortSignal.any`. Retry loop exits immediately on abort without
+   * further attempts.
+   */
+  signal?: AbortSignal;
   /** Callback invoked with each formatted stream event line for terminal display. */
   onOutput?: (line: string) => void;
   /** Path to write real-time stream-json log file. */
@@ -60,43 +96,79 @@ export interface ClaudeInvokeOptions {
    * or extraction. Consumer decides what to keep (init metadata, token stats,
    * etc.).
    */
-  onEvent?: (event: Record<string, unknown>) => void;
+  onEvent?: (event: ClaudeStreamEvent) => void;
+  /**
+   * Typed Claude-specific lifecycle hooks (`onInit`, `onAssistant`,
+   * `onResult`). Each hook observes the narrowed event before internal
+   * state mutations.
+   */
+  hooks?: ClaudeLifecycleHooks;
+  /**
+   * Observed-tool-use callback. Fires **post-dispatch but pre-next-turn**:
+   * by the time this hook fires, the tool has already been invoked by
+   * Claude. Returning `"abort"` terminates the run via `SIGTERM` and the
+   * adapter synthesizes a `CliRunOutput` with `is_error: true` and a
+   * single `permission_denials[]` entry describing the observed tool.
+   */
+  onToolUseObserved?: OnToolUseObservedCallback;
+  /**
+   * Filter the set of Claude configuration sources that apply to the run.
+   * When provided, the runner redirects `CLAUDE_CONFIG_DIR` to a temporary
+   * dir populated from the listed sources (see
+   * {@link import("../runtime/setting-sources").prepareSettingSourcesDir}).
+   */
+  settingSources?: SettingSource[];
 }
 
 /** Invoke claude CLI with retry logic. */
 export async function invokeClaudeCli(
   opts: ClaudeInvokeOptions,
 ): Promise<RuntimeInvokeResult> {
+  if (opts.signal?.aborted) {
+    return { error: "Aborted before start" };
+  }
+
   const args = buildClaudeArgs(opts);
   let lastError = "";
 
   for (let attempt = 1; attempt <= opts.maxRetries; attempt++) {
     try {
-      const output = await executeClaudeProcess(
-        args,
-        opts.timeoutSeconds,
-        opts.onOutput,
-        opts.streamLogPath,
-        opts.verbosity,
-        opts.cwd,
-        opts.env,
-        opts.onEvent,
-      );
+      const output = await executeClaudeProcess(args, opts);
       if (output.is_error) {
         lastError = `Claude CLI returned error: ${output.result}`;
         if (attempt < opts.maxRetries) {
           const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
-          await sleep(delay * 1000);
+          try {
+            await sleep(delay * 1000, opts.signal);
+          } catch (err) {
+            if (isAbortError(err)) {
+              return {
+                output,
+                error: `Aborted: ${abortReason(opts.signal)}`,
+              };
+            }
+            throw err;
+          }
           continue;
         }
         return { output, error: lastError };
       }
       return { output };
     } catch (err) {
+      if (isAbortError(err)) {
+        return { error: `Aborted: ${abortReason(opts.signal)}` };
+      }
       lastError = (err as Error).message;
       if (attempt < opts.maxRetries) {
         const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
-        await sleep(delay * 1000);
+        try {
+          await sleep(delay * 1000, opts.signal);
+        } catch (sleepErr) {
+          if (isAbortError(sleepErr)) {
+            return { error: `Aborted: ${abortReason(opts.signal)}` };
+          }
+          throw sleepErr;
+        }
         continue;
       }
     }
@@ -116,10 +188,8 @@ export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
     args.push("--permission-mode", opts.permissionMode);
   }
 
-  // Extra CLI args go next
-  if (opts.claudeArgs && opts.claudeArgs.length > 0) {
-    args.push(...opts.claudeArgs);
-  }
+  // Extra CLI args go next (expanded from the map shape).
+  args.push(...expandExtraArgs(opts.claudeArgs, CLAUDE_RESERVED_FLAGS));
 
   if (opts.resumeSessionId) {
     args.push("--resume", opts.resumeSessionId);
@@ -152,14 +222,22 @@ export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
  */
 async function executeClaudeProcess(
   args: string[],
-  timeoutSeconds: number,
-  onOutput?: (line: string) => void,
-  streamLogPath?: string,
-  verbosity?: Verbosity,
-  cwd?: string,
-  env?: Record<string, string>,
-  onEvent?: (event: Record<string, unknown>) => void,
+  opts: ClaudeInvokeOptions,
 ): Promise<CliRunOutput> {
+  // Optional setting-sources isolation — build a filtered tmp config dir
+  // and redirect CLAUDE_CONFIG_DIR for this run only.
+  let settingCleanup: (() => Promise<void>) | undefined;
+  let env: Record<string, string> = { CLAUDECODE: "", ...(opts.env ?? {}) };
+  if (opts.settingSources) {
+    const prepared = await prepareSettingSourcesDir(
+      opts.settingSources,
+      env.CLAUDE_CONFIG_DIR ?? defaultClaudeConfigDir(),
+      opts.cwd ?? Deno.cwd(),
+    );
+    settingCleanup = prepared.cleanup;
+    env = { ...env, CLAUDE_CONFIG_DIR: prepared.tmpDir };
+  }
+
   // Unset CLAUDECODE to allow nested claude CLI invocations.
   // Claude Code checks this variable and refuses to launch inside another session.
   // Deno.Command merges env with parent, so setting empty string overrides it.
@@ -168,29 +246,47 @@ async function executeClaudeProcess(
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    env: { CLAUDECODE: "", ...env },
-    ...(cwd ? { cwd } : {}),
+    env,
+    ...(opts.cwd ? { cwd: opts.cwd } : {}),
   });
 
   const process = cmd.spawn();
   register(process);
 
-  try {
-    // Set up timeout
-    const timeoutId = setTimeout(() => {
-      try {
-        process.kill("SIGTERM");
-      } catch {
-        // Process may have already exited
-      }
-    }, timeoutSeconds * 1000);
+  // Build a combined abort signal: user signal + timeout. SIGTERM fires
+  // on either source, the retry-sleep reacts to the user signal only.
+  const timeoutSignal = AbortSignal.timeout(opts.timeoutSeconds * 1000);
+  const combined = opts.signal
+    ? AbortSignal.any([opts.signal, timeoutSignal])
+    : timeoutSignal;
+  const runController = new AbortController();
+  const onExternalAbort = () => {
+    try {
+      process.kill("SIGTERM");
+    } catch {
+      // Process may have already exited.
+    }
+  };
+  combined.addEventListener("abort", onExternalAbort, { once: true });
 
+  // Local aborts from onToolUseObserved go through runController so we can
+  // tell them apart from user/timeout aborts.
+  const onRunAbort = () => {
+    try {
+      process.kill("SIGTERM");
+    } catch {
+      // Process may have already exited.
+    }
+  };
+  runController.signal.addEventListener("abort", onRunAbort, { once: true });
+
+  try {
     // Open stream log file for real-time writing (append mode)
     let logFile: Deno.FsFile | undefined;
-    if (streamLogPath) {
-      const dir = streamLogPath.replace(/\/[^/]+$/, "");
+    if (opts.streamLogPath) {
+      const dir = opts.streamLogPath.replace(/\/[^/]+$/, "");
       await Deno.mkdir(dir, { recursive: true });
-      logFile = await Deno.open(streamLogPath, {
+      logFile = await Deno.open(opts.streamLogPath, {
         write: true,
         create: true,
         append: true,
@@ -204,9 +300,12 @@ async function executeClaudeProcess(
       tracker: new FileReadTracker(),
       logFile,
       encoder: new TextEncoder(),
-      onOutput,
-      verbosity,
-      onEvent,
+      onOutput: opts.onOutput,
+      verbosity: opts.verbosity,
+      onEvent: opts.onEvent,
+      hooks: opts.hooks,
+      onToolUseObserved: opts.onToolUseObserved,
+      abortController: runController,
     };
     const stdoutDecoder = new TextDecoder();
     let buffer = "";
@@ -221,23 +320,16 @@ async function executeClaudeProcess(
           const lines = buffer.split("\n");
           buffer = lines.pop()!;
           for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              // deno-lint-ignore no-explicit-any
-              const event = JSON.parse(line) as Record<string, any>;
+            const event = parseClaudeStreamEvent(line);
+            if (event) {
               await processStreamEvent(event, state);
-            } catch {
-              // Skip malformed JSON lines
             }
           }
         }
         // Process remaining buffer
         if (buffer.trim()) {
-          try {
-            // deno-lint-ignore no-explicit-any
-            const event = JSON.parse(buffer) as Record<string, any>;
-            await processStreamEvent(event, state);
-          } catch { /* skip */ }
+          const event = parseClaudeStreamEvent(buffer);
+          if (event) await processStreamEvent(event, state);
         }
       } catch { /* stream closed */ }
     })();
@@ -257,7 +349,8 @@ async function executeClaudeProcess(
 
     await Promise.all([stdoutDone, stderrDone]);
     const status = await process.status;
-    clearTimeout(timeoutId);
+    combined.removeEventListener("abort", onExternalAbort);
+    runController.signal.removeEventListener("abort", onRunAbort);
 
     // Close log file
     if (logFile) {
@@ -276,6 +369,34 @@ async function executeClaudeProcess(
     };
     const stderr = new TextDecoder().decode(concat(stderrChunks)).trim();
 
+    // Hook-driven abort takes precedence: synthesize a terminal output.
+    if (state.denied) {
+      return {
+        runtime: "claude",
+        result: "Aborted by onToolUseObserved callback",
+        session_id: state.lastSessionId ?? state.resultEvent?.session_id ?? "",
+        total_cost_usd: 0,
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: state.turnCount,
+        is_error: true,
+        permission_denials: [
+          {
+            tool_name: state.denied.tool,
+            tool_input: { id: state.denied.id, reason: state.denied.reason },
+          },
+        ],
+      };
+    }
+
+    // External abort (user signal or timeout): surface as an error. The
+    // retry loop treats this as terminal and does not retry.
+    if (opts.signal?.aborted) {
+      const err = new Error(`Aborted: ${abortReason(opts.signal)}`);
+      (err as Error & { name: string }).name = "AbortError";
+      throw err;
+    }
+
     if (state.resultEvent) {
       return state.resultEvent;
     }
@@ -293,9 +414,54 @@ async function executeClaudeProcess(
     );
   } finally {
     unregister(process);
+    if (settingCleanup) {
+      await settingCleanup();
+    }
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Sleep `ms` milliseconds, abortable via the optional signal.
+ * On abort, rejects with `DOMException("Aborted", "AbortError")`.
+ */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timerId = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timerId);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Check whether a caught error represents an abort. */
+function isAbortError(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === "AbortError") return true;
+  if (err instanceof Error && err.name === "AbortError") return true;
+  return false;
+}
+
+/**
+ * Extract a human-readable abort reason from an `AbortSignal`.
+ * Returns `"manual abort"` when no reason is set.
+ */
+function abortReason(signal?: AbortSignal): string {
+  if (!signal) return "manual abort";
+  const reason = signal.reason;
+  if (reason === undefined) return "manual abort";
+  if (typeof reason === "string") return reason;
+  if (reason instanceof Error) return reason.message;
+  try {
+    return JSON.stringify(reason);
+  } catch {
+    return String(reason);
+  }
 }

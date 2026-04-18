@@ -74,7 +74,7 @@ Deno.test("buildCodexArgs — resume appends `resume <id>` at the end", () => {
 
 Deno.test("buildCodexArgs — extraArgs are passed through in order", () => {
   const args = buildCodexArgs(
-    makeInvokeOpts({ extraArgs: ["--add-dir", "/mnt/data"] }),
+    makeInvokeOpts({ extraArgs: { "--add-dir": "/mnt/data" } }),
   );
   const addIdx = args.indexOf("--add-dir");
   assert(addIdx >= 0);

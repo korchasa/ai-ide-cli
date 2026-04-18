@@ -5,6 +5,21 @@ import type {
   Verbosity,
 } from "../types.ts";
 import type { SkillDef } from "../skill/types.ts";
+import type { SettingSource } from "./setting-sources.ts";
+
+/**
+ * Map-shaped extra CLI arguments.
+ *
+ * Value semantics (matches {@link import("./index").expandExtraArgs}):
+ * - `""` (empty string) emits a bare boolean flag — `--key`.
+ * - any other string emits a key/value pair — `--key value`.
+ * - `null` suppresses the flag (useful when a downstream cascade level
+ *   wants to override a parent-supplied value).
+ *
+ * Insertion order is preserved verbatim in argv, so callers control flag
+ * ordering by controlling insertion order into the map.
+ */
+export type ExtraArgsMap = Record<string, string | null>;
 
 /** Capability flags advertised by a runtime adapter. */
 export interface RuntimeCapabilities {
@@ -16,7 +31,61 @@ export interface RuntimeCapabilities {
   transcript: boolean;
   /** Whether the runtime supports interactive CLI mode (stdin-based REPL). */
   interactive: boolean;
+  /**
+   * Whether the runtime surfaces a per-tool-use observation hook
+   * (`onToolUseObserved`). Currently only Claude.
+   */
+  toolUseObservation: boolean;
 }
+
+/**
+ * Info passed to the runtime-neutral `onInit` lifecycle hook.
+ * Each adapter translates its native init event into this minimal shape.
+ */
+export interface RuntimeInitInfo {
+  /** Runtime that produced the init event. */
+  runtime: RuntimeId;
+  /** Active model identifier, if the runtime exposes one. */
+  model?: string;
+  /** Session/thread ID assigned by the runtime, if known at init time. */
+  sessionId?: string;
+}
+
+/**
+ * Runtime-neutral lifecycle hooks invoked by every adapter (with
+ * best-effort translation from each runtime's native events).
+ */
+export interface RuntimeLifecycleHooks {
+  /** Fires once at session start. */
+  onInit?: (info: RuntimeInitInfo) => void;
+  /** Fires exactly once after the run terminates with its final output. */
+  onResult?: (output: CliRunOutput) => void;
+}
+
+/**
+ * Info passed to the runtime-neutral observed-tool-use callback.
+ * Honored by Claude; other adapters ignore the hook.
+ */
+export interface RuntimeToolUseInfo {
+  /** Runtime that dispatched the tool. */
+  runtime: RuntimeId;
+  /** Unique tool invocation id from the runtime event. */
+  id: string;
+  /** Tool name (e.g. "Read", "Bash"). */
+  name: string;
+  /** Tool input map (opaque, preserved verbatim). */
+  input?: Record<string, unknown>;
+  /** Current assistant turn index (1-based). */
+  turn: number;
+}
+
+/** Decision returned from a runtime-neutral observed-tool-use callback. */
+export type RuntimeToolUseDecision = "allow" | "abort";
+
+/** Runtime-neutral observed-tool-use callback. */
+export type OnRuntimeToolUseObservedCallback = (
+  info: RuntimeToolUseInfo,
+) => RuntimeToolUseDecision | Promise<RuntimeToolUseDecision>;
 
 /** Low-level options for a single runtime invocation (initial or resume). */
 export interface RuntimeInvokeOptions {
@@ -28,8 +97,19 @@ export interface RuntimeInvokeOptions {
   taskPrompt: string;
   /** Existing session ID for continuation/resume. */
   resumeSessionId?: string;
-  /** Additional CLI flags forwarded to the runtime. */
-  extraArgs?: string[];
+  /**
+   * Additional CLI flags forwarded to the runtime.
+   *
+   * Map-shape: `{ "--flag": "value" }`, `{ "--bool": "" }` (boolean flag),
+   * `{ "--inherited": null }` (suppress a flag set by a parent cascade
+   * level). See {@link ExtraArgsMap} for exact semantics and
+   * {@link import("./index").expandExtraArgs} for the expansion rules.
+   *
+   * Each runtime reserves the flags it emits itself (e.g. Claude reserves
+   * `--output-format`, `--verbose`, `-p`, `--resume`, …). Passing a
+   * reserved key throws at invocation time.
+   */
+  extraArgs?: ExtraArgsMap;
   /** Runtime-specific permission mode. */
   permissionMode?: string;
   /** Model identifier understood by the selected runtime. */
@@ -40,6 +120,14 @@ export interface RuntimeInvokeOptions {
   maxRetries: number;
   /** Base delay between retries in seconds. */
   retryDelaySeconds: number;
+  /**
+   * External cancellation signal. When aborted, the runtime's underlying
+   * subprocess receives SIGTERM, retry loops exit immediately, and the
+   * adapter returns `{ error: "Aborted: <reason>" }` without attempting
+   * further retries. Combined with the internal timeout signal via
+   * `AbortSignal.any` (requires Deno ≥ 1.39).
+   */
+  signal?: AbortSignal;
   /** Callback for streaming terminal output. */
   onOutput?: (line: string) => void;
   /** Optional path for the runtime stream log file. */
@@ -80,6 +168,30 @@ export interface RuntimeInvokeOptions {
    * etc.).
    */
   onEvent?: (event: Record<string, unknown>) => void;
+  /**
+   * Typed runtime-neutral lifecycle hooks. Each adapter translates its
+   * native events into the minimal {@link RuntimeInitInfo} /
+   * {@link CliRunOutput} shape.
+   */
+  hooks?: RuntimeLifecycleHooks;
+  /**
+   * Observed-tool-use callback. Fires **post-dispatch but pre-next-turn**:
+   * by the time the hook runs, the runtime has already invoked the tool.
+   * Returning `"abort"` stops the run but cannot un-execute the tool.
+   * Currently honored by the Claude adapter only; other adapters ignore
+   * the callback.
+   */
+  onToolUseObserved?: OnRuntimeToolUseObservedCallback;
+  /**
+   * Filter the set of Claude configuration sources that apply to the run.
+   * When omitted, Claude uses its default discovery (all sources). When
+   * provided, the Claude adapter redirects `CLAUDE_CONFIG_DIR` to a
+   * temporary dir populated from the listed sources (see
+   * {@link import("./setting-sources").prepareSettingSourcesDir}).
+   *
+   * Currently honored by the Claude adapter only; other adapters ignore.
+   */
+  settingSources?: SettingSource[];
 }
 
 /** Result returned by a runtime adapter invocation. */
@@ -127,8 +239,8 @@ export interface RuntimeAdapter {
 export interface ResolvedRuntimeConfig {
   /** Selected runtime ID. */
   runtime: RuntimeId;
-  /** Effective extra CLI args for the selected runtime. */
-  args: string[];
+  /** Effective map-shaped extra CLI args for the selected runtime. */
+  args: ExtraArgsMap;
   /** Effective model value after precedence resolution. */
   model?: string;
   /** Effective permission mode after precedence resolution. */
@@ -150,6 +262,9 @@ export interface RuntimeConfigSource {
   model?: string;
   /** Permission mode applied at this cascade level (runtime-specific). */
   permission_mode?: string;
-  /** Generic extra CLI args forwarded to any runtime. */
-  runtime_args?: string[];
+  /**
+   * Generic map-shaped extra CLI args forwarded to any runtime.
+   * See {@link ExtraArgsMap} for value semantics.
+   */
+  runtime_args?: ExtraArgsMap;
 }
