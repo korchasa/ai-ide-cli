@@ -53,9 +53,8 @@ for the full rationale.
 ### Notes
 
 - Consumers that pass `runtime_args: ["--foo", "bar"]` must migrate to
-  `runtime_args: { "--foo": "bar" }`. No loader shim is provided — the
-  array shape is dropped outright and downstream consumers
-  (`@korchasa/flowai-workflow`) switch in a companion update.
+  `runtime_args: { "--foo": "bar" }`. `@korchasa/flowai-workflow` gets a
+  loader-side shim in a companion update.
 
 ## 0.2.0 — 2026-04-18
 
