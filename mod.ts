@@ -84,12 +84,27 @@ export {
 export {
   applyCodexEvent,
   buildCodexArgs,
+  buildCodexHitlConfigArgs,
+  CODEX_RESERVED_FLAGS,
+  codexItemToToolUseInfo,
   createCodexRunState,
+  defaultCodexSessionsDir,
+  extractCodexHitlRequest,
   extractCodexOutput,
+  findCodexSessionFile,
   formatCodexEventForOutput,
   invokeCodexCli,
+  permissionModeToCodexArgs,
 } from "./codex/process.ts";
 export type { CodexRunState } from "./codex/process.ts";
+
+// --- Codex HITL MCP entry (required for consumer sub-process dispatch) ---
+export {
+  CODEX_HITL_MCP_SERVER_NAME,
+  CODEX_HITL_MCP_TOOL_NAME,
+  INTERNAL_CODEX_HITL_MCP_ARG,
+  runCodexHitlMcpServer,
+} from "./codex/hitl-mcp.ts";
 
 // --- OpenCode runner ---
 export {
@@ -103,8 +118,17 @@ export {
 // --- OpenCode HITL MCP entry (required for consumer sub-process dispatch) ---
 export {
   INTERNAL_OPENCODE_HITL_MCP_ARG,
+  OPENCODE_HITL_MCP_SERVER_NAME,
+  OPENCODE_HITL_MCP_TOOL_NAME,
   runOpenCodeHitlMcpServer,
 } from "./opencode/hitl-mcp.ts";
+
+// --- Shared HITL MCP server primitives ---
+export {
+  normalizeHumanInputRequest,
+  REQUEST_HUMAN_INPUT_TOOL,
+  runHitlMcpServer,
+} from "./hitl-mcp.ts";
 
 // --- Skill model ---
 export type { SkillDef, SkillFrontmatter } from "./skill/types.ts";

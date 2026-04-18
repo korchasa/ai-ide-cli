@@ -1,5 +1,23 @@
 import { invokeCodexCli } from "../codex/process.ts";
-import type { InteractiveResult, RuntimeAdapter } from "./types.ts";
+import type {
+  InteractiveOptions,
+  InteractiveResult,
+  RuntimeAdapter,
+} from "./types.ts";
+import { join } from "@std/path";
+import { copy } from "@std/fs";
+
+/**
+ * Resolve the Codex user-level skills directory.
+ *
+ * Codex discovers user-level skills under `~/.agents/skills/<name>/SKILL.md`
+ * (verified 2026-04-16; same convention as documented in flow-cli's
+ * `scope.ts`). The `~/.codex/` tree is reserved for Codex's own state and
+ * agent TOML sidecars.
+ */
+function codexSkillsDir(): string {
+  return join(Deno.env.get("HOME") ?? Deno.cwd(), ".agents", "skills");
+}
 
 /**
  * Runtime adapter for the OpenAI Codex CLI.
@@ -13,31 +31,87 @@ import type { InteractiveResult, RuntimeAdapter } from "./types.ts";
  * {@link import("../codex/process.ts")} for transport details (argv
  * construction, NDJSON event parsing, and `CliRunOutput` extraction).
  *
- * Capabilities:
- * - `permissionMode: false` — Codex has no first-class `--permission-mode`
- *   flag; the wrapper only recognizes `bypassPermissions` and maps it to
- *   `--sandbox danger-full-access` + `approval_policy="never"`.
- * - `hitl: false` — no engine-managed HITL resume flow.
- * - `transcript: false` — Codex does not expose an external transcript file.
- * - `interactive: false` — interactive CLI mode is the Codex TUI, which the
- *   wrapper does not drive; callers should invoke `codex` directly for that.
+ * Capabilities (full parity with Claude / OpenCode where Codex permits):
+ * - `permissionMode: true` — `default` / `plan` / `acceptEdits` /
+ *   `bypassPermissions` are mapped to `--sandbox` + `approval_policy`
+ *   overrides. Codex-native modes (`read-only`, `workspace-write`,
+ *   `danger-full-access`, `never`, `on-request`, `on-failure`,
+ *   `untrusted`) are accepted as pass-through values.
+ * - `hitl: true` — registers a per-invocation local stdio MCP server via
+ *   `--config mcp_servers.hitl.command/args` and intercepts `mcp_tool_call`
+ *   events for the `request_human_input` tool. Same engine flow as
+ *   OpenCode; the consumer must supply `hitlMcpCommandBuilder` returning
+ *   an argv that ends in {@link import("../codex/hitl-mcp.ts").runCodexHitlMcpServer}.
+ * - `transcript: true` — Codex persists each session as
+ *   `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`; the runner
+ *   resolves the path post-completion and returns it as
+ *   `CliRunOutput.transcript_path`.
+ * - `interactive: true` — `launchInteractive` spawns the Codex TUI with
+ *   stdin/stdout/stderr inherited and copies bundled skills into
+ *   `~/.agents/skills/<name>/` for the lifetime of the session.
+ * - `toolUseObservation: true` — fires `onToolUseObserved` once per
+ *   `item.completed` for `command_execution`, `file_change`,
+ *   `mcp_tool_call`, and `web_search` items; an `"abort"` decision
+ *   SIGTERMs Codex and synthesizes a `permission_denials[]` entry.
  */
 export const codexRuntimeAdapter: RuntimeAdapter = {
   id: "codex",
   capabilities: {
-    permissionMode: false,
-    hitl: false,
-    transcript: false,
-    interactive: false,
-    toolUseObservation: false,
+    permissionMode: true,
+    hitl: true,
+    transcript: true,
+    interactive: true,
+    toolUseObservation: true,
   },
   invoke(opts) {
     return invokeCodexCli(opts);
   },
 
-  launchInteractive(): Promise<InteractiveResult> {
-    throw new Error(
-      "Codex has no headless interactive mode — use `codex` TUI directly",
-    );
+  async launchInteractive(
+    opts: InteractiveOptions,
+  ): Promise<InteractiveResult> {
+    const injectedPaths: string[] = [];
+    try {
+      if (opts.skills && opts.skills.length > 0) {
+        const skillsDir = codexSkillsDir();
+        await Deno.mkdir(skillsDir, { recursive: true });
+        for (const skill of opts.skills) {
+          const targetDir = join(skillsDir, skill.frontmatter.name);
+          await copy(skill.rootPath, targetDir, { overwrite: true });
+          injectedPaths.push(targetDir);
+        }
+      }
+
+      const args: string[] = [];
+      if (opts.systemPrompt) {
+        // Codex has no `--append-system-prompt`; the closest stable
+        // mechanism is a TOML config override on `base_instructions`.
+        args.push(
+          "--config",
+          `base_instructions=${JSON.stringify(opts.systemPrompt)}`,
+        );
+      }
+
+      const cmd = new Deno.Command("codex", {
+        args,
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+        ...(opts.env ? { env: opts.env } : {}),
+        ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      });
+
+      const process = cmd.spawn();
+      const status = await process.status;
+      return { exitCode: status.code };
+    } finally {
+      for (const p of injectedPaths) {
+        try {
+          await Deno.remove(p, { recursive: true });
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+    }
   },
 };

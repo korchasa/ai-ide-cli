@@ -86,7 +86,7 @@ with `_` for test isolation.
 
 **`runtime/types.ts`:**
 - `RuntimeCapabilities` — feature flags per adapter: `permissionMode`, `hitl`,
-  `transcript`, `interactive`.
+  `transcript`, `interactive`, `toolUseObservation`.
 - `RuntimeInvokeOptions` — normalized invocation options: `taskPrompt`,
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
@@ -251,11 +251,38 @@ processing with log file + terminal output forwarding.
 
 ### Runtime capability matrix
 
-| Runtime  | permissionMode | hitl  | transcript | interactive |
-|----------|----------------|-------|------------|-------------|
-| claude   | true           | true  | true       | true        |
-| opencode | true           | true  | false      | true        |
-| cursor   | false          | false | false      | false       |
+| Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation |
+|----------|----------------|-------|------------|-------------|--------------------|
+| claude   | true           | true  | true       | true        | true               |
+| opencode | true           | true  | false      | true        | false              |
+| cursor   | false          | false | false      | false       | false              |
+| codex    | true           | true  | true       | true        | true               |
+
+**Codex specifics:**
+- `permissionMode` — normalized values (`default` / `plan` / `acceptEdits` /
+  `bypassPermissions`) map to `--sandbox` + `approval_policy` overrides;
+  Codex-native pass-through values (`read-only` / `workspace-write` /
+  `danger-full-access` / `never` / `on-request` / `on-failure` / `untrusted`)
+  emit a single matching flag. See `permissionModeToCodexArgs` in
+  `codex/process.ts`.
+- `hitl` — the runner registers a per-invocation local stdio MCP server via
+  `--config mcp_servers.hitl.command/args` overrides and intercepts
+  `mcp_tool_call` items targeting `hitl.request_human_input`. Same engine
+  flow as OpenCode; the consumer supplies `hitlMcpCommandBuilder` whose
+  argv must dispatch into `runCodexHitlMcpServer` (alias of the shared
+  NDJSON MCP runner in `hitl-mcp.ts`).
+- `transcript` — Codex persists each session as
+  `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`; the runner
+  resolves the matching path post-run via `findCodexSessionFile` and
+  surfaces it as `CliRunOutput.transcript_path`.
+- `interactive` — `launchInteractive` spawns the `codex` TUI with
+  `stdin/stdout/stderr` inherited; bundled skills are copied into
+  `~/.agents/skills/<name>/` for the duration of the session and removed
+  on exit. `systemPrompt` is forwarded via `--config base_instructions=…`.
+- `toolUseObservation` — fires `onToolUseObserved` once per
+  `item.completed` for `command_execution`, `file_change`, `mcp_tool_call`,
+  and `web_search` items; an `"abort"` decision SIGTERMs Codex and the
+  runner synthesizes a `permission_denials[]` entry for the observed item.
 
 
 ## 5. Constraints

@@ -60,7 +60,8 @@ stable — never renumber on move.
   - [x] `RuntimeAdapter` interface with `id`, `capabilities`, `invoke()`,
     `launchInteractive()`. Evidence: `ai-ide-cli/runtime/types.ts:113-124`.
   - [x] `RuntimeCapabilities` flags: `permissionMode`, `hitl`, `transcript`,
-    `interactive`. Evidence: `ai-ide-cli/runtime/types.ts:9-19`.
+    `interactive`, `toolUseObservation`. Evidence:
+    `ai-ide-cli/runtime/types.ts:9-19`.
   - [x] `getRuntimeAdapter(id)` returns adapter from registry.
     Evidence: `ai-ide-cli/runtime/index.ts:18-20`.
   - [x] `resolveRuntimeConfig()` merges map-shape `runtime_args` across
@@ -350,11 +351,32 @@ stable — never renumber on move.
   - [x] Retry loop with exponential backoff (same policy as other runtimes).
     Evidence: `ai-ide-cli/codex/process.ts`.
   - [x] Adapter registered with capabilities
-    `{ permissionMode: false, hitl: false, transcript: false, interactive: false }`;
-    `launchInteractive()` throws. Evidence:
+    `{ permissionMode: true, hitl: true, transcript: true, interactive: true, toolUseObservation: true }`;
+    `launchInteractive()` spawns the Codex TUI with skill injection at
+    `~/.agents/skills/<name>/`. Evidence:
     `ai-ide-cli/runtime/codex-adapter.ts`, `ai-ide-cli/runtime/index.ts`.
-  - [x] Sub-path export `@korchasa/ai-ide-cli/codex/process`.
-    Evidence: `ai-ide-cli/deno.json` exports.
+  - [x] `permissionMode` mapping covers `default` / `plan` / `acceptEdits` /
+    `bypassPermissions` (mapped to `--sandbox` + `approval_policy`) and
+    Codex-native pass-through values. Evidence:
+    `ai-ide-cli/codex/process.ts:permissionModeToCodexArgs`,
+    `ai-ide-cli/codex/process_test.ts`.
+  - [x] HITL via `--config mcp_servers.hitl.command/args` overrides;
+    `mcp_tool_call` items targeting `hitl.request_human_input` are
+    intercepted and surfaced as `CliRunOutput.hitl_request`. Evidence:
+    `ai-ide-cli/codex/process.ts:buildCodexHitlConfigArgs`,
+    `ai-ide-cli/codex/hitl-mcp.ts`.
+  - [x] Transcript path resolved post-run from
+    `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` and
+    surfaced as `CliRunOutput.transcript_path`. Evidence:
+    `ai-ide-cli/codex/process.ts:findCodexSessionFile`.
+  - [x] `onToolUseObserved` fires for `command_execution`, `file_change`,
+    `mcp_tool_call`, `web_search` items; `"abort"` SIGTERMs Codex and
+    synthesizes `permission_denials[]`. Evidence:
+    `ai-ide-cli/codex/process.ts:codexItemToToolUseInfo` and
+    `executeCodexProcess`.
+  - [x] Sub-path exports `@korchasa/ai-ide-cli/codex/process` and
+    `@korchasa/ai-ide-cli/codex/hitl-mcp`. Evidence:
+    `ai-ide-cli/deno.json` exports.
 
 ### 3.14 FR-L14: Map-shaped `extraArgs` / `runtime_args`
 

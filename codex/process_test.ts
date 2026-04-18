@@ -1,13 +1,23 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import {
   applyCodexEvent,
   buildCodexArgs,
+  buildCodexHitlConfigArgs,
+  codexItemToToolUseInfo,
   type CodexRunState,
   createCodexRunState,
+  extractCodexHitlRequest,
   extractCodexOutput,
+  findCodexSessionFile,
   formatCodexEventForOutput,
+  permissionModeToCodexArgs,
 } from "./process.ts";
+import {
+  CODEX_HITL_MCP_SERVER_NAME,
+  CODEX_HITL_MCP_TOOL_NAME,
+} from "./hitl-mcp.ts";
 import type { RuntimeInvokeOptions } from "../runtime/types.ts";
+import { join } from "@std/path";
 
 function makeInvokeOpts(
   overrides?: Partial<RuntimeInvokeOptions>,
@@ -58,10 +68,52 @@ Deno.test("buildCodexArgs — bypassPermissions maps to danger-full-access + app
   assertEquals(args.includes(`approval_policy="never"`), true);
 });
 
-Deno.test("buildCodexArgs — other permission modes do not emit sandbox/config overrides", () => {
+Deno.test("buildCodexArgs — default permission mode does not emit sandbox/config overrides", () => {
   const args = buildCodexArgs(makeInvokeOpts({ permissionMode: "default" }));
   assertEquals(args.includes("--sandbox"), false);
   assertEquals(args.includes("--config"), false);
+});
+
+Deno.test("permissionModeToCodexArgs — plan maps to read-only + approval=never", () => {
+  const args = permissionModeToCodexArgs("plan");
+  assertEquals(args, [
+    "--sandbox",
+    "read-only",
+    "--config",
+    `approval_policy="never"`,
+  ]);
+});
+
+Deno.test("permissionModeToCodexArgs — acceptEdits maps to workspace-write + approval=never", () => {
+  const args = permissionModeToCodexArgs("acceptEdits");
+  assertEquals(args, [
+    "--sandbox",
+    "workspace-write",
+    "--config",
+    `approval_policy="never"`,
+  ]);
+});
+
+Deno.test("permissionModeToCodexArgs — Codex-native sandbox values pass through bare", () => {
+  for (const mode of ["read-only", "workspace-write", "danger-full-access"]) {
+    if (mode === "danger-full-access") continue; // exercised via bypassPermissions test
+    assertEquals(permissionModeToCodexArgs(mode), ["--sandbox", mode]);
+  }
+});
+
+Deno.test("permissionModeToCodexArgs — Codex-native approval values pass through as config", () => {
+  for (const mode of ["never", "on-request", "on-failure", "untrusted"]) {
+    assertEquals(permissionModeToCodexArgs(mode), [
+      "--config",
+      `approval_policy="${mode}"`,
+    ]);
+  }
+});
+
+Deno.test("permissionModeToCodexArgs — undefined and unrecognized modes return empty", () => {
+  assertEquals(permissionModeToCodexArgs(undefined), []);
+  assertEquals(permissionModeToCodexArgs("default"), []);
+  assertEquals(permissionModeToCodexArgs("garbage"), []);
 });
 
 Deno.test("buildCodexArgs — resume appends `resume <id>` at the end", () => {
@@ -261,4 +313,251 @@ Deno.test("formatCodexEventForOutput — turn.failed emits error message", () =>
     error: { message: "boom" },
   });
   assertEquals(line, "[stream] turn.failed: boom");
+});
+
+Deno.test("formatCodexEventForOutput — HITL mcp_tool_call emits hitl_request summary", () => {
+  const line = formatCodexEventForOutput({
+    type: "item.completed",
+    item: {
+      type: "mcp_tool_call",
+      server: CODEX_HITL_MCP_SERVER_NAME,
+      tool: CODEX_HITL_MCP_TOOL_NAME,
+      status: "completed",
+      arguments: { question: "Approve?" },
+    },
+  });
+  assertEquals(line, "[stream] hitl_request: Approve?");
+});
+
+// --- buildCodexHitlConfigArgs ---
+
+Deno.test("buildCodexHitlConfigArgs — no hitlConfig returns empty array", () => {
+  assertEquals(buildCodexHitlConfigArgs(makeInvokeOpts()), []);
+});
+
+Deno.test("buildCodexHitlConfigArgs — single-arg builder emits only command override", () => {
+  const args = buildCodexHitlConfigArgs(makeInvokeOpts({
+    hitlConfig: {
+      ask_script: "ask.sh",
+      check_script: "check.sh",
+      poll_interval: 60,
+      timeout: 7200,
+    },
+    hitlMcpCommandBuilder: () => ["/usr/local/bin/myhitl"],
+  }));
+  assertEquals(args, [
+    "--config",
+    `mcp_servers.${CODEX_HITL_MCP_SERVER_NAME}.command="/usr/local/bin/myhitl"`,
+  ]);
+});
+
+Deno.test("buildCodexHitlConfigArgs — multi-arg builder emits command + args TOML array", () => {
+  const args = buildCodexHitlConfigArgs(makeInvokeOpts({
+    hitlConfig: {
+      ask_script: "ask.sh",
+      check_script: "check.sh",
+      poll_interval: 60,
+      timeout: 7200,
+    },
+    hitlMcpCommandBuilder: () => ["deno", "run", "-A", "cli.ts", "--mcp"],
+  }));
+  assertEquals(args, [
+    "--config",
+    `mcp_servers.${CODEX_HITL_MCP_SERVER_NAME}.command="deno"`,
+    "--config",
+    `mcp_servers.${CODEX_HITL_MCP_SERVER_NAME}.args=["run", "-A", "cli.ts", "--mcp"]`,
+  ]);
+});
+
+Deno.test("buildCodexHitlConfigArgs — missing builder with configured hitl throws", () => {
+  assertThrows(
+    () =>
+      buildCodexHitlConfigArgs(makeInvokeOpts({
+        hitlConfig: {
+          ask_script: "ask.sh",
+          check_script: "check.sh",
+          poll_interval: 60,
+          timeout: 7200,
+        },
+      })),
+    Error,
+    "hitlMcpCommandBuilder",
+  );
+});
+
+Deno.test("buildCodexHitlConfigArgs — builder returning empty argv throws", () => {
+  assertThrows(
+    () =>
+      buildCodexHitlConfigArgs(makeInvokeOpts({
+        hitlConfig: {
+          ask_script: "ask.sh",
+          check_script: "check.sh",
+          poll_interval: 60,
+          timeout: 7200,
+        },
+        hitlMcpCommandBuilder: () => [],
+      })),
+    Error,
+    "empty argv",
+  );
+});
+
+// --- extractCodexHitlRequest ---
+
+Deno.test("extractCodexHitlRequest — populated payload returns normalized request", () => {
+  const req = extractCodexHitlRequest({
+    question: "Continue?",
+    header: "Approval needed",
+    options: [
+      { label: "yes" },
+      { label: "no", description: "stop now" },
+    ],
+    multiSelect: false,
+  });
+  assertEquals(req?.question, "Continue?");
+  assertEquals(req?.header, "Approval needed");
+  assertEquals(req?.options?.length, 2);
+  assertEquals(req?.options?.[1].description, "stop now");
+  assertEquals(req?.multiSelect, false);
+});
+
+Deno.test("extractCodexHitlRequest — missing question returns undefined", () => {
+  assertEquals(extractCodexHitlRequest({ header: "x" }), undefined);
+  assertEquals(extractCodexHitlRequest({ question: "   " }), undefined);
+  assertEquals(extractCodexHitlRequest(undefined), undefined);
+});
+
+// --- applyCodexEvent HITL detection ---
+
+Deno.test("applyCodexEvent — HITL mcp_tool_call captured into state.hitlRequest", () => {
+  const state = createCodexRunState();
+  applyCodexEvent({
+    type: "item.completed",
+    item: {
+      type: "mcp_tool_call",
+      server: CODEX_HITL_MCP_SERVER_NAME,
+      tool: CODEX_HITL_MCP_TOOL_NAME,
+      status: "completed",
+      arguments: { question: "Approve?" },
+    },
+  }, state);
+  assertEquals(state.hitlRequest?.question, "Approve?");
+});
+
+Deno.test("applyCodexEvent — non-HITL mcp_tool_call leaves state.hitlRequest empty", () => {
+  const state = createCodexRunState();
+  applyCodexEvent({
+    type: "item.completed",
+    item: {
+      type: "mcp_tool_call",
+      server: "other",
+      tool: "search",
+      status: "completed",
+      arguments: { q: "test" },
+    },
+  }, state);
+  assertEquals(state.hitlRequest, undefined);
+});
+
+Deno.test("applyCodexEvent — only the first HITL request is captured", () => {
+  const state = createCodexRunState();
+  for (const q of ["first", "second"]) {
+    applyCodexEvent({
+      type: "item.completed",
+      item: {
+        type: "mcp_tool_call",
+        server: CODEX_HITL_MCP_SERVER_NAME,
+        tool: CODEX_HITL_MCP_TOOL_NAME,
+        status: "completed",
+        arguments: { question: q },
+      },
+    }, state);
+  }
+  assertEquals(state.hitlRequest?.question, "first");
+});
+
+Deno.test("extractCodexOutput — propagates hitlRequest into output", () => {
+  const state = createCodexRunState();
+  state.threadId = "thrd_h";
+  state.hitlRequest = { question: "?" };
+  const output = extractCodexOutput(state);
+  assertEquals(output.hitl_request?.question, "?");
+});
+
+// --- codexItemToToolUseInfo ---
+
+Deno.test("codexItemToToolUseInfo — command_execution maps to neutral tool info", () => {
+  const info = codexItemToToolUseInfo({
+    id: "x1",
+    type: "command_execution",
+    command: "ls -la",
+    status: "completed",
+    exit_code: 0,
+  });
+  assertEquals(info?.id, "x1");
+  assertEquals(info?.name, "command_execution");
+  assertEquals(info?.input.command, "ls -la");
+});
+
+Deno.test("codexItemToToolUseInfo — mcp_tool_call name combines server.tool", () => {
+  const info = codexItemToToolUseInfo({
+    id: "m1",
+    type: "mcp_tool_call",
+    server: "search",
+    tool: "web",
+    status: "completed",
+    arguments: { q: "hi" },
+  });
+  assertEquals(info?.name, "search.web");
+});
+
+Deno.test("codexItemToToolUseInfo — agent_message returns undefined", () => {
+  const info = codexItemToToolUseInfo({
+    id: "a1",
+    type: "agent_message",
+    text: "hi",
+  });
+  assertEquals(info, undefined);
+});
+
+// --- findCodexSessionFile ---
+
+Deno.test("findCodexSessionFile — locates rollout file by thread id", async () => {
+  const tmp = await Deno.makeTempDir({ prefix: "codex-sessions-" });
+  try {
+    const now = new Date();
+    const y = now.getFullYear().toString().padStart(4, "0");
+    const m = (now.getMonth() + 1).toString().padStart(2, "0");
+    const d = now.getDate().toString().padStart(2, "0");
+    const dayDir = join(tmp, y, m, d);
+    await Deno.mkdir(dayDir, { recursive: true });
+    const filename = `rollout-${y}-${m}-${d}T12-00-00-thrd_test.jsonl`;
+    await Deno.writeTextFile(join(dayDir, filename), "{}\n");
+
+    const found = await findCodexSessionFile("thrd_test", Date.now(), tmp);
+    assertEquals(found, join(dayDir, filename));
+  } finally {
+    await Deno.remove(tmp, { recursive: true });
+  }
+});
+
+Deno.test("findCodexSessionFile — empty thread id returns undefined", async () => {
+  assertEquals(await findCodexSessionFile(""), undefined);
+});
+
+Deno.test("findCodexSessionFile — missing sessions dir returns undefined", async () => {
+  assertEquals(
+    await findCodexSessionFile("any", Date.now(), "/does/not/exist"),
+    undefined,
+  );
+});
+
+Deno.test("findCodexSessionFile — no matching file returns undefined", async () => {
+  const tmp = await Deno.makeTempDir({ prefix: "codex-sessions-" });
+  try {
+    const found = await findCodexSessionFile("thrd_missing", Date.now(), tmp);
+    assertEquals(found, undefined);
+  } finally {
+    await Deno.remove(tmp, { recursive: true });
+  }
 });

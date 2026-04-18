@@ -109,6 +109,14 @@ export interface CliRunOutput {
   permission_denials?: PermissionDenial[];
   /** Runtime-normalized human-input request captured from a structured tool call. */
   hitl_request?: HumanInputRequest;
+  /**
+   * Absolute path to the runtime's persisted session transcript file, when
+   * the runtime exposes one (Codex writes a NDJSON rollout to
+   * `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`). Consumers
+   * can copy or stream this file as the canonical conversation log. Absent
+   * for runtimes without a discoverable transcript.
+   */
+  transcript_path?: string;
 }
 
 // --- HITL Configuration ---

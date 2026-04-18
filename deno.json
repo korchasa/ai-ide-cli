@@ -13,8 +13,10 @@
     "./claude/stream": "./claude/stream.ts",
     "./cursor/process": "./cursor/process.ts",
     "./codex/process": "./codex/process.ts",
+    "./codex/hitl-mcp": "./codex/hitl-mcp.ts",
     "./opencode/process": "./opencode/process.ts",
     "./opencode/hitl-mcp": "./opencode/hitl-mcp.ts",
+    "./hitl-mcp": "./hitl-mcp.ts",
     "./skill": "./skill/mod.ts"
   },
   "tasks": {
