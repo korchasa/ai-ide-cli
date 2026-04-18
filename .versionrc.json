@@ -1,0 +1,21 @@
+{
+  "$comment": "standard-version defaults to package.json. Deno project — canonical version lives in deno.json. packageFiles is the read source; bumpFiles is the write target (same file).",
+  "types": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "refactor", "section": "Code Refactoring" },
+    { "type": "perf", "section": "Performance Improvements" },
+    { "type": "docs", "section": "Documentation" },
+    { "type": "test", "section": "Tests" },
+    { "type": "ci", "section": "Continuous Integration" },
+    { "type": "build", "section": "Build System" },
+    { "type": "chore", "section": "Chores" }
+  ],
+  "commitUrlFormat": "{{host}}/{{owner}}/{{repository}}/commit/{{hash}}",
+  "compareUrlFormat": "{{host}}/{{owner}}/{{repository}}/compare/{{previousTag}}...{{currentTag}}",
+  "issueUrlFormat": "{{host}}/{{owner}}/{{repository}}/issues/{{id}}",
+  "bumpFiles": [
+    { "filename": "deno.json", "type": "json" }
+  ],
+  "packageFiles": [{ "filename": "deno.json", "type": "json" }]
+}
