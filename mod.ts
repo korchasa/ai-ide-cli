@@ -48,6 +48,17 @@ export {
   invokeCursorCli,
 } from "./cursor/process.ts";
 
+// --- Codex runner ---
+export {
+  applyCodexEvent,
+  buildCodexArgs,
+  createCodexRunState,
+  extractCodexOutput,
+  formatCodexEventForOutput,
+  invokeCodexCli,
+} from "./codex/process.ts";
+export type { CodexRunState } from "./codex/process.ts";
+
 // --- OpenCode runner ---
 export {
   buildOpenCodeArgs,

@@ -67,8 +67,8 @@ stable — never renumber on move.
     Evidence: `ai-ide-cli/runtime/index.ts:30-53`.
   - [x] `RuntimeConfigSource` structural type — no workflow imports.
     Evidence: `ai-ide-cli/runtime/types.ts:112-121`.
-  - [x] Three adapters registered: `claude`, `opencode`, `cursor`.
-    Evidence: `ai-ide-cli/runtime/index.ts:11-15`.
+  - [x] Four adapters registered: `claude`, `opencode`, `cursor`, `codex`.
+    Evidence: `ai-ide-cli/runtime/index.ts:11-17`.
 
 
 ### 3.2 FR-L2: Normalized Output Shape (`CliRunOutput`)
@@ -89,6 +89,8 @@ stable — never renumber on move.
     `runtime: "opencode"`. Evidence: `ai-ide-cli/opencode/process.ts:90-145`.
   - [x] Cursor `extractCursorOutput()` returns `CliRunOutput` with
     `runtime: "cursor"`. Evidence: `ai-ide-cli/cursor/process.ts:62-74`.
+  - [x] Codex `extractCodexOutput()` returns `CliRunOutput` with
+    `runtime: "codex"`. Evidence: `ai-ide-cli/codex/process.ts`.
 
 
 ### 3.3 FR-L3: Process Registry
@@ -304,6 +306,45 @@ stable — never renumber on move.
     Evidence: `ai-ide-cli/runtime/opencode-adapter.ts:22-63`.
   - [x] Cursor adapter: throws UnsupportedError.
     Evidence: `ai-ide-cli/runtime/cursor-adapter.ts:16-20`.
+
+
+### 3.13 FR-L13: Codex CLI Wrapper
+
+- **Description:** `invokeCodexCli(opts)` spawns `codex exec
+  --experimental-json`, writes the merged `systemPrompt`+`taskPrompt` to the
+  child's stdin (codex does not accept the prompt as argv), processes NDJSON
+  events in real-time, and returns normalized `CliRunOutput`. Session resume
+  via the positional subcommand `resume <threadId>`. Permission bypass via
+  `--sandbox danger-full-access` plus `--config approval_policy="never"` when
+  `permissionMode === "bypassPermissions"`. `buildCodexArgs(opts)` constructs
+  CLI argv (no prompt); `applyCodexEvent()` folds each event into a
+  `CodexRunState` accumulator; `extractCodexOutput()` finalizes the
+  accumulator into `CliRunOutput`. `formatCodexEventForOutput()` produces
+  one-line summaries with `semi-verbose` filtering that suppresses reasoning,
+  tool, and patch items. Modeled after `@openai/codex-sdk` but implemented as
+  a direct subprocess wrapper to keep the package dependency-free for Deno.
+- **Motivation:** Add OpenAI's Codex CLI as a first-class runtime alongside
+  Claude Code / OpenCode / Cursor, without bundling an npm SDK.
+- **Acceptance:**
+  - [x] `buildCodexArgs()` emits `exec`, `--experimental-json`, `--model`,
+    `--cd`, `--sandbox`, `--config`, `resume <id>`; prompt is NOT in argv.
+    Evidence: `ai-ide-cli/codex/process.ts`,
+    `ai-ide-cli/codex/process_test.ts`.
+  - [x] `invokeCodexCli()` writes prompt to stdin, closes stdin, then reads
+    NDJSON from stdout. Evidence: `ai-ide-cli/codex/process.ts`.
+  - [x] Event aggregation: `thread.started` → `session_id`,
+    `item.completed`/`agent_message` → `result`, `turn.completed` →
+    `num_turns` + token counts, `turn.failed`/`error` → `is_error`.
+    Evidence: `ai-ide-cli/codex/process.ts`,
+    `ai-ide-cli/codex/process_test.ts`.
+  - [x] Retry loop with exponential backoff (same policy as other runtimes).
+    Evidence: `ai-ide-cli/codex/process.ts`.
+  - [x] Adapter registered with capabilities
+    `{ permissionMode: false, hitl: false, transcript: false, interactive: false }`;
+    `launchInteractive()` throws. Evidence:
+    `ai-ide-cli/runtime/codex-adapter.ts`, `ai-ide-cli/runtime/index.ts`.
+  - [x] Sub-path export `@korchasa/ai-ide-cli/codex/process`.
+    Evidence: `ai-ide-cli/deno.json` exports.
 
 ## 4. Non-Functional Requirements
 

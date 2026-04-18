@@ -11,6 +11,7 @@
     "./claude/process": "./claude/process.ts",
     "./claude/stream": "./claude/stream.ts",
     "./cursor/process": "./cursor/process.ts",
+    "./codex/process": "./codex/process.ts",
     "./opencode/process": "./opencode/process.ts",
     "./opencode/hitl-mcp": "./opencode/hitl-mcp.ts",
     "./skill": "./skill/mod.ts"

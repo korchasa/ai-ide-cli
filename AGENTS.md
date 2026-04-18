@@ -1,7 +1,7 @@
 # AGENTS.md — @korchasa/ai-ide-cli
 
 Thin Deno/TypeScript wrapper library around agent-CLI runtimes
-(Claude Code, OpenCode, Cursor) plus a HITL MCP server and skill parser.
+(Claude Code, OpenCode, Cursor, Codex) plus a HITL MCP server and skill parser.
 Published on JSR as [`@korchasa/ai-ide-cli`](https://jsr.io/@korchasa/ai-ide-cli).
 
 ## Scope
@@ -15,12 +15,14 @@ import this package to invoke IDE CLIs uniformly.
 - `mod.ts` — barrel export for the default entry.
 - `types.ts` — shared runtime identifiers and value types.
 - `runtime/` — runtime adapter abstraction (`getRuntimeAdapter`, per-runtime
-  adapters for Claude / OpenCode / Cursor).
+  adapters for Claude / OpenCode / Cursor / Codex).
 - `claude/process.ts`, `claude/stream.ts` — Claude CLI invocation and
   streaming output parser.
 - `opencode/process.ts`, `opencode/hitl-mcp.ts` — OpenCode invocation and
   HITL-permission MCP server.
 - `cursor/process.ts` — Cursor CLI invocation.
+- `codex/process.ts` — Codex (`codex exec --experimental-json`) invocation and
+  event-stream aggregator (mirrors `@openai/codex-sdk`).
 - `skill/` — SKILL.md parser and typed skill model.
 - `process-registry.ts` — cross-runtime child process registry with graceful
   shutdown hooks.

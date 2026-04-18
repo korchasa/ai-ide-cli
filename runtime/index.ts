@@ -5,6 +5,7 @@ import type {
   RuntimeConfigSource,
 } from "./types.ts";
 import { claudeRuntimeAdapter } from "./claude-adapter.ts";
+import { codexRuntimeAdapter } from "./codex-adapter.ts";
 import { cursorRuntimeAdapter } from "./cursor-adapter.ts";
 import { opencodeRuntimeAdapter } from "./opencode-adapter.ts";
 
@@ -12,6 +13,7 @@ const ADAPTERS: Record<RuntimeId, RuntimeAdapter> = {
   claude: claudeRuntimeAdapter,
   opencode: opencodeRuntimeAdapter,
   cursor: cursorRuntimeAdapter,
+  codex: codexRuntimeAdapter,
 };
 
 /** Return the adapter implementation for the given runtime ID. */
