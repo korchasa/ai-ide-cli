@@ -3,6 +3,12 @@
  * Claude CLI stream-json event processing: parses NDJSON events, extracts
  * {@link CliRunOutput} from result events, formats one-line summaries
  * for terminal and log output, and tracks repeated file reads.
+ *
+ * Upstream reference for event shapes (system init, assistant, user,
+ * tool_use / tool_result, result): Anthropic's Claude Agent SDK for
+ * TypeScript — https://github.com/anthropics/claude-agent-sdk-typescript
+ * Use it as source of truth when porting new event kinds or fields.
+ *
  * Entry points: {@link processStreamEvent}, {@link extractClaudeOutput}.
  */
 

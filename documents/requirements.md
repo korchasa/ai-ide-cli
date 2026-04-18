@@ -119,6 +119,9 @@ stable — never renumber on move.
   the `result` event. Retry with exponential backoff. `buildClaudeArgs(opts)`
   constructs CLI argv. Supports `--permission-mode`, `--agent`,
   `--append-system-prompt`, `--model`, `--resume`.
+  Upstream reference — use this when porting additional flags or when the
+  `stream-json` event shape evolves: Anthropic's Claude Agent SDK for
+  TypeScript — https://github.com/anthropics/claude-agent-sdk-typescript
 - **Acceptance:**
   - [x] `buildClaudeArgs()` emits correct flags for fresh and resume modes.
     Evidence: `ai-ide-cli/claude/process.ts:94-127`.
@@ -323,6 +326,11 @@ stable — never renumber on move.
   one-line summaries with `semi-verbose` filtering that suppresses reasoning,
   tool, and patch items. Modeled after `@openai/codex-sdk` but implemented as
   a direct subprocess wrapper to keep the package dependency-free for Deno.
+  Upstream reference — use this when porting additional features (images,
+  `--output-schema`, `--add-dir`, reasoning effort, web search, `AbortSignal`,
+  etc.): https://github.com/openai/codex/tree/main/sdk/typescript (see
+  `src/exec.ts` for argv/env wiring, `src/thread.ts` for event aggregation,
+  `src/events.ts` and `src/items.ts` for the event/item type union).
 - **Motivation:** Add OpenAI's Codex CLI as a first-class runtime alongside
   Claude Code / OpenCode / Cursor, without bundling an npm SDK.
 - **Acceptance:**

@@ -4,6 +4,13 @@
  * subprocess with stream-json output, processes NDJSON events in real-time,
  * and returns normalized {@link CliRunOutput}. Includes retry logic with
  * exponential backoff.
+ *
+ * Upstream reference — consult this when extending flag coverage or when
+ * the `stream-json` event shape changes:
+ * https://github.com/anthropics/claude-agent-sdk-typescript
+ * (Anthropic's TypeScript SDK for Claude Code headless mode — source of
+ * truth for CLI flags, NDJSON event types, permission/HITL semantics).
+ *
  * Entry point: {@link invokeClaudeCli}.
  */
 

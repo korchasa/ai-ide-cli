@@ -1,3 +1,14 @@
+/**
+ * @module
+ * Runtime adapter for Anthropic's Claude Code CLI.
+ *
+ * Modeled after Anthropic's Claude Agent SDK (TypeScript) but implemented as
+ * a direct subprocess wrapper to keep the package dependency-free for Deno
+ * consumers. Upstream reference — use this as source of truth when porting
+ * additional flags, event types, or session-management features:
+ * https://github.com/anthropics/claude-agent-sdk-typescript
+ */
+
 import { invokeClaudeCli } from "../claude/process.ts";
 import type {
   InteractiveOptions,

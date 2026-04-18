@@ -16,8 +16,32 @@
  * - Approval policy / sandbox mode are expressed as TOML config overrides
  *   (`--config key=value`) rather than dedicated flags.
  *
- * Event shape reference:
- * https://github.com/openai/codex/blob/main/sdk/typescript/src/events.ts
+ * Upstream reference — keep this list in sync when porting more features.
+ * This adapter intentionally does NOT depend on `@openai/codex-sdk`, but
+ * mirrors its CLI contract. When extending (images, output schema, extra
+ * dirs, reasoning effort, etc.), copy the flag construction and event
+ * handling from the SDK rather than reverse-engineering:
+ *
+ * - SDK repo:     https://github.com/openai/codex/tree/main/sdk/typescript
+ * - `exec.ts`:    https://github.com/openai/codex/blob/main/sdk/typescript/src/exec.ts
+ *   (argv construction, config-override serialization, stdin/stdout wiring,
+ *   env vars `CODEX_API_KEY`, `CODEX_INTERNAL_ORIGINATOR_OVERRIDE`)
+ * - `thread.ts`:  https://github.com/openai/codex/blob/main/sdk/typescript/src/thread.ts
+ *   (event aggregation, `Turn`/`StreamedTurn`, `normalizeInput` for images)
+ * - `events.ts`:  https://github.com/openai/codex/blob/main/sdk/typescript/src/events.ts
+ *   (`ThreadEvent` union, `Usage`, `ThreadError`)
+ * - `items.ts`:   https://github.com/openai/codex/blob/main/sdk/typescript/src/items.ts
+ *   (`ThreadItem` variants: command_execution, file_change, mcp_tool_call,
+ *   agent_message, reasoning, web_search, todo_list, error)
+ *
+ * Not yet wired here — pick up from the SDK when needed:
+ * - `--image <path>` (repeatable) for local-image user inputs
+ * - `--output-schema <file>` for JSON-schema-constrained responses
+ * - `--add-dir <dir>` (repeatable) for additional workspace directories
+ * - `--skip-git-repo-check`
+ * - `--config model_reasoning_effort=…`, `web_search=…`,
+ *   `sandbox_workspace_write.network_access=…`, `openai_base_url=…`
+ * - `AbortSignal` cancellation
  *
  * Entry point: {@link invokeCodexCli}.
  */

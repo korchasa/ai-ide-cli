@@ -6,8 +6,12 @@ import type { InteractiveResult, RuntimeAdapter } from "./types.ts";
  *
  * Modeled after the `@openai/codex-sdk` TypeScript SDK but implemented as a
  * direct subprocess wrapper so the package stays dependency-free for Deno
- * consumers. See {@link import("../codex/process.ts")} for transport details
- * (argv construction, NDJSON event parsing, and `CliRunOutput` extraction).
+ * consumers. Upstream reference:
+ * https://github.com/openai/codex/tree/main/sdk/typescript — use this as the
+ * source of truth when porting additional features (images, output schema,
+ * reasoning effort, web search, etc.). See
+ * {@link import("../codex/process.ts")} for transport details (argv
+ * construction, NDJSON event parsing, and `CliRunOutput` extraction).
  *
  * Capabilities:
  * - `permissionMode: false` — Codex has no first-class `--permission-mode`
