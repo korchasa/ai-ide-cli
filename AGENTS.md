@@ -32,12 +32,22 @@ import this package to invoke IDE CLIs uniformly.
 - `mod.ts` — barrel export for the default entry.
 - `types.ts` — shared runtime identifiers and value types.
 - `runtime/` — runtime adapter abstraction (`getRuntimeAdapter`, per-runtime
-  adapters for Claude / OpenCode / Cursor / Codex).
+  adapters for Claude / OpenCode / Cursor / Codex), plus:
+  - `runtime/event-queue.ts` — shared `SessionEventQueue<T>` backing every
+    `session.events` iterable.
+  - `runtime/session-adapter.ts` — shared `adaptRuntimeSession` /
+    `adaptEventCallback` helpers that translate runtime-specific sessions
+    into runtime-neutral `RuntimeSession` handles.
+  - `runtime/session_contract_test.ts` — backend-agnostic contract tests +
+    compile-time negative-type assertion that `pid` is absent from
+    `RuntimeSession`.
 - `claude/process.ts`, `claude/stream.ts`, `claude/session.ts` — Claude CLI
-  invocation, streaming output parser, and session resume helpers.
-- `opencode/process.ts`, `opencode/hitl-mcp.ts` — OpenCode invocation and
-  HITL-permission MCP server.
-- `cursor/process.ts` — Cursor CLI invocation.
+  invocation, streaming output parser, and streaming-input session.
+- `opencode/process.ts`, `opencode/session.ts`, `opencode/hitl-mcp.ts` —
+  OpenCode invocation, server-backed streaming-input session, HITL MCP
+  handler.
+- `cursor/process.ts`, `cursor/session.ts` — Cursor CLI invocation and the
+  faux streaming-input session (`create-chat` + per-send subprocess).
 - `codex/process.ts`, `codex/hitl-mcp.ts`, `codex/app-server.ts`,
   `codex/session.ts` — Codex (`codex exec --experimental-json`) invocation,
   event-stream aggregator (mirrors `@openai/codex-sdk`), HITL MCP server,
