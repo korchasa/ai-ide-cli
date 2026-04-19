@@ -81,20 +81,6 @@ export const RUNTIME_SPECS: Record<RuntimeId, RuntimeMatrixSpec> = {
   },
 };
 
-/**
- * Resolve the hard-ceiling (ms) for a scenario × runtime pair, falling
- * back to the default when the scenario has no runtime-specific override.
- *
- * @param scenario Scenario whose ceiling overrides to consult.
- * @param runtime Runtime the scenario is being executed against.
- */
-export function ceilingForRuntime(
-  scenario: MatrixScenario,
-  runtime: RuntimeId,
-): number {
-  return scenario.ceilingMs?.[runtime] ?? DEFAULT_CEILING_MS;
-}
-
 /** Fetch the adapter and assert it implements `openSession`. */
 function sessionAdapter(runtime: RuntimeId) {
   const adapter = getRuntimeAdapter(runtime);

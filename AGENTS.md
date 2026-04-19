@@ -411,6 +411,6 @@ constructor(foo: string) { ... }
 
 - **Module level**: each module gets an `AGENTS.md` describing its responsibility and key decisions (e.g. `runtime/AGENTS.md`).
 - **Code level**: JSDoc for exported classes, methods, and functions — JSR slow-types enforces this on public API. Focus on *why* and *how*, not *what*. Skip trivial comments — they add noise without value.
-- **Requirement traceability**: when code implements a requirement from SRS (`documents/requirements.md`), add a `// FR-L<N>` comment next to the implementing logic. Code references requirements, not the reverse — SRS must not contain file paths. Exceptions: requirements verified by benchmarks or proven by file existence need no comment.
+- **Requirement traceability**: when code implements a requirement from SRS (`documents/requirements.md`), add a `// FR-L<N>` comment **directly above the exported symbol** (function, class, const) that implements the requirement — a module-level comment above the imports does not satisfy this, because future reorganization separates the comment from the logic it traces. Code references requirements, not the reverse — SRS must not contain file paths. Exceptions: requirements verified by benchmarks or proven by file existence need no comment.
 
 > **Before you start:** read `documents/requirements.md` (SRS) and `documents/design.md` (SDS) if you haven't in this session. They contain project requirements and architecture that inform every task.

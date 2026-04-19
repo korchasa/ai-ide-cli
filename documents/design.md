@@ -202,6 +202,16 @@ with `_` for test isolation.
   temp `CLAUDE_CONFIG_DIR` symlinking the user-level `settings.json` when
   `'user'` is selected. `'project'`/`'local'` are recognized but not yet
   isolated — they still come from CWD.
+- **Host-auth caveat.** Only `settings.json` is symlinked; Claude CLI's
+  `.credentials.json` (where `/login`-authenticated hosts store their
+  session token) is **not** carried into the cleanroom. Hosts with
+  `ANTHROPIC_API_KEY` in the environment survive `settingSources: []`;
+  login-based hosts fail with
+  `"Claude CLI returned error: Not logged in · Please run /login"`
+  until they set an API key. Tests and benchmarks that depend on auth
+  must either assume an API-key host or assert only that the CLI
+  returned within the timeout (see `e2e/claude_settings_e2e_test.ts`
+  for the portable shape).
 
 **`runtime/content.ts` — Normalized Content Extraction (FR-L23):**
 
