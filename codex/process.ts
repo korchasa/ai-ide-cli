@@ -8,6 +8,19 @@
  * tool-use callback, HITL interception via local stdio MCP, and persisted
  * transcript discovery.
  *
+ * **Parallel protocol warning.** This file parses the `codex exec
+ * --experimental-json` NDJSON stream — item types are **snake_case**
+ * (`agent_message`, `command_execution`, `file_change`, `mcp_tool_call`,
+ * `web_search`, `reasoning`, `todo_list`, `error`) and live at
+ * `event.item.*` on `item.completed` events. The streaming-input session
+ * in `codex/session.ts` uses a DIFFERENT protocol (`codex app-server
+ * --listen stdio://`, JSON-RPC v2) with **camelCase** item types
+ * (`agentMessage`, `commandExecution`, `fileChange`, `mcpToolCall`,
+ * `webSearch`, `dynamicToolCall`) and a slightly different field layout
+ * (e.g. `aggregatedOutput` vs no output field). Do NOT cross-reference
+ * helpers between the two files without re-verifying against
+ * `codex app-server generate-ts --out <dir>` (`v2/ThreadItem.ts`).
+ *
  * Mirrors the patterns used by the Claude / OpenCode adapters but
  * accommodates Codex-specific quirks:
  *

@@ -11,6 +11,23 @@
  * cancellation (`turn/interrupt`), which `codex exec` cannot express
  * because it closes stdin immediately.
  *
+ * **Parallel protocol warning.** This file consumes the `codex app-server`
+ * JSON-RPC v2 transport — item types are **camelCase** (`agentMessage`,
+ * `commandExecution`, `fileChange`, `mcpToolCall`, `webSearch`,
+ * `dynamicToolCall`, `collabAgentToolCall`, `reasoning`, `plan`,
+ * `imageView`, …), field names are camelCase
+ * (`aggregatedOutput`, `exitCode`, `threadId`, `turnId`), and final
+ * assistant text lives at `params.item.text` (not `content[*].text`).
+ * The one-shot `codex/process.ts` file uses a DIFFERENT protocol
+ * (`codex exec --experimental-json` NDJSON) with **snake_case** item
+ * types (`agent_message`, `command_execution`, `file_change`,
+ * `mcp_tool_call`, `web_search`) and slightly different fields. Do NOT
+ * cross-reference helpers between the two files — a helper like
+ * `codexItemToToolUseInfo` only recognizes the NDJSON literals and will
+ * silently return nothing when fed app-server events. Canonical source
+ * for this file's types: `codex app-server generate-ts --out <dir>`
+ * (`v2/ThreadItem.ts`, `v2/ItemCompletedNotification.ts`).
+ *
  * Thread/turn semantics:
  *
  * 1. Spawn the app-server client.
