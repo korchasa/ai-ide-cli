@@ -38,9 +38,11 @@ import this package to invoke IDE CLIs uniformly.
 - `opencode/process.ts`, `opencode/hitl-mcp.ts` — OpenCode invocation and
   HITL-permission MCP server.
 - `cursor/process.ts` — Cursor CLI invocation.
-- `codex/process.ts`, `codex/hitl-mcp.ts` — Codex
-  (`codex exec --experimental-json`) invocation, event-stream aggregator
-  (mirrors `@openai/codex-sdk`), and HITL MCP server.
+- `codex/process.ts`, `codex/hitl-mcp.ts`, `codex/app-server.ts`,
+  `codex/session.ts` — Codex (`codex exec --experimental-json`) invocation,
+  event-stream aggregator (mirrors `@openai/codex-sdk`), HITL MCP server,
+  plus streaming-input session backed by the experimental
+  `codex app-server --listen stdio://` JSON-RPC transport (`openCodexSession`).
 - `skill/` — SKILL.md parser and typed skill model.
 - `process-registry.ts` — cross-runtime child process registry with graceful
   shutdown hooks.

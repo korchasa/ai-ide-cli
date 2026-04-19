@@ -508,7 +508,7 @@ stable — never renumber on move.
 - **Description:** Long-lived agent session with push-based user input:
   caller opens a session, streams zero or more user messages into the
   running subprocess, consumes normalized events, and closes the session
-  gracefully (`endInput`) or forcefully (`abort`). Four layers:
+  gracefully (`endInput`) or forcefully (`abort`). Five layers:
   - **Claude-specific.** `openClaudeSession(opts)` spawns `claude -p
     --input-format stream-json --output-format stream-json --verbose` with
     piped stdin. Returns `ClaudeSession { pid, send, events, endInput,
@@ -547,40 +547,55 @@ stable — never renumber on move.
     suppressed on resume. Model selection is silently dropped (Cursor's
     `--resume` rejects `--model`). `createCursorChat()` and
     `buildCursorSendArgs()` are exported for advanced callers and tests.
+  - **Codex-specific.** `openCodexSession(opts)` spawns `codex app-server
+    --listen stdio://` (the **experimental** bidirectional JSON-RPC
+    transport — NOT `codex exec`, which closes stdin after the first
+    prompt). Performs `initialize`/`initialized` handshake, then
+    `thread/start` (fresh) or `thread/resume` (on `resumeSessionId`).
+    Returns `CodexSession { pid, threadId, send, events, endInput, abort,
+    done }`. First `send` maps to `turn/start`; subsequent `send` calls
+    while a turn is active map to `turn/steer` with `expectedTurnId` taken
+    from the latest `turn/started` notification (not the `turn/start`
+    response — those can arrive in either order, the notification is
+    authoritative). `turn/completed` clears the active turn. The
+    underlying `CodexAppServerClient` is transport-only; thread/turn
+    semantics live in `codex/session.ts`. Targets `codex-cli >= 0.121.0`.
   - **Runtime-neutral.** `RuntimeAdapter.openSession?(opts):
     Promise<RuntimeSession>` is optional; callers check
-    `capabilities.session` before invoking. Claude, OpenCode, and Cursor
-    adapters implement it by delegating to their runtime-specific opener
-    and translating events to `RuntimeSessionEvent { runtime, type, raw }`
-    (raw payload preserved for consumers that need runtime-specific
-    typing). `codex` adapter sets `session: false` and omits the method.
+    `capabilities.session` before invoking. Claude, OpenCode, Cursor, and
+    Codex adapters all implement it by delegating to their runtime-specific
+    opener and translating native events into `RuntimeSessionEvent
+    { runtime, type, raw }` (raw payload preserved for consumers that need
+    runtime-specific typing).
 - **Motivation:** SDK-parity bidirectional sessions — callers can push
   follow-up messages without respawning the CLI from scratch or losing
   context; fits interactive use cases (`/compact`-style flows, human
   correction loops, multi-turn orchestrators). The Cursor faux path gives
   consumers a uniform `openSession` API despite the CLI's lack of a real
-  streaming-input transport.
+  streaming-input transport; Codex adds mid-turn steering, which the
+  one-shot `codex exec` transport cannot express.
 - **Acceptance:**
   - [x] `openClaudeSession()`, `ClaudeSession`, `ClaudeSessionOptions`,
         `ClaudeSessionStatus`, `ClaudeSessionUserInput`,
         `buildClaudeSessionArgs()` exported. Evidence:
         `ai-ide-cli/claude/session.ts`, `ai-ide-cli/mod.ts`,
         `ai-ide-cli/deno.json` (`./claude/session` sub-path).
-  - [x] Transport flags: `-p --input-format stream-json --output-format
-    stream-json --verbose`; empirically verified against real binary.
-        Evidence: `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
-        `ai-ide-cli/scripts/smoke.ts` `session` group.
-  - [x] `send()` emits JSONL user-message shape; `endInput()` closes stdin
-    gracefully; `abort()` SIGTERMs and is idempotent; `done` resolves with
-    exit code + signal + stderr. Evidence:
+  - [x] Claude transport flags: `-p --input-format stream-json
+    --output-format stream-json --verbose`; empirically verified against
+    real binary. Evidence:
+    `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
+    `ai-ide-cli/scripts/smoke.ts` `session` group.
+  - [x] Claude `send()` emits JSONL user-message shape; `endInput()`
+    closes stdin gracefully; `abort()` SIGTERMs and is idempotent; `done`
+    resolves with exit code + signal + stderr. Evidence:
     `ai-ide-cli/claude/session_test.ts`.
-  - [x] `capabilities.session: true` on Claude, OpenCode, and Cursor;
-    `false` on `codex`; `openSession?` implemented by Claude, OpenCode, and
-    Cursor adapters; `RuntimeSession`, `RuntimeSessionOptions`,
-    `RuntimeSessionEvent`, `RuntimeSessionStatus` exported from `mod.ts`.
-    Evidence: `ai-ide-cli/runtime/types.ts`,
-    `ai-ide-cli/runtime/{claude,opencode,cursor}-adapter.ts`,
-    `ai-ide-cli/runtime/codex-adapter.ts`, `ai-ide-cli/mod.ts`.
+  - [x] `capabilities.session: true` on Claude, OpenCode, Cursor, and
+    Codex; `openSession?` implemented on every adapter;
+    `RuntimeSession`, `RuntimeSessionOptions`, `RuntimeSessionEvent`,
+    `RuntimeSessionStatus` exported from `mod.ts`. Evidence:
+    `ai-ide-cli/runtime/types.ts`,
+    `ai-ide-cli/runtime/{claude,opencode,cursor,codex}-adapter.ts`,
+    `ai-ide-cli/mod.ts`.
   - [x] `openOpenCodeSession()`, `OpenCodeSession`, `OpenCodeSessionOptions`,
     `OpenCodeSessionStatus`, `OpenCodeSessionEvent` exported. Evidence:
     `ai-ide-cli/opencode/session.ts`, `ai-ide-cli/mod.ts`,
@@ -598,16 +613,33 @@ stable — never renumber on move.
     serialized worker queue; synthetic `system.init` emits chat ID.
     Evidence: `ai-ide-cli/cursor/session.ts`,
     `ai-ide-cli/cursor/session_test.ts`, `ai-ide-cli/mod.ts`.
-  - [x] Adapter-level tests for all three runtimes use a PATH-stubbed
+  - [x] `openCodexSession()`, `CodexSession`,
+    `permissionModeToThreadStartFields()`, `expandCodexSessionExtraArgs()`,
+    `updateActiveTurnId()`, `CODEX_SESSION_CLIENT_VERSION` exported.
+    Evidence: `ai-ide-cli/codex/session.ts`, `ai-ide-cli/mod.ts`,
+    `ai-ide-cli/deno.json` (`./codex/session` sub-path).
+  - [x] `CodexAppServerClient`, `CodexAppServerError`,
+    `CODEX_APP_SERVER_RESERVED_FLAGS` exported. Transport reserves
+    `app-server` and `--listen` flags. Evidence:
+    `ai-ide-cli/codex/app-server.ts`, `ai-ide-cli/mod.ts`,
+    `ai-ide-cli/deno.json` (`./codex/app-server` sub-path).
+  - [x] Codex session `send()` routes first call → `turn/start`,
+    subsequent calls during an active turn → `turn/steer`;
+    `endInput()` closes the JSON-RPC stdin gracefully; `abort()` SIGTERMs
+    and is idempotent; post-`endInput` `send` throws. Evidence:
+    `ai-ide-cli/codex/session_test.ts` (stub-binary integration tests).
+  - [x] Adapter-level tests for all four runtimes use a PATH-stubbed
     binary: Claude stub emits NDJSON on stdout; OpenCode stub execs a Deno
     fake HTTP+SSE server; Cursor stub dispatches on `create-chat`/`-p` and
-    `exec`s the send script so SIGTERM propagates. Claude additionally
-    has a smoke test running two live turns + mid-session abort against
-    the real binary. Evidence:
+    `exec`s the send script so SIGTERM propagates; Codex stub speaks
+    JSON-RPC (app-server protocol) on stdio. Claude additionally has a
+    smoke test running two live turns + mid-session abort against the
+    real binary. Evidence:
     `ai-ide-cli/runtime/claude-adapter_test.ts`,
     `ai-ide-cli/runtime/opencode-adapter_test.ts`,
     `ai-ide-cli/opencode/session_test.ts`,
     `ai-ide-cli/cursor/session_test.ts`,
+    `ai-ide-cli/codex/session_test.ts`,
     `ai-ide-cli/scripts/smoke.ts`.
 
 ### 3.20 FR-L20: Capability Inventory (LLM-probed)

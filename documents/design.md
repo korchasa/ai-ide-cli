@@ -43,6 +43,18 @@ ai-ide-cli/
     session.ts          — openCursorSession, createCursorChat,
                           buildCursorSendArgs, CursorSession (faux streaming
                           session: create-chat + resume-per-send)
+  codex/
+    process.ts          — buildCodexArgs, invokeCodexCli, applyCodexEvent,
+                          extractCodexOutput, findCodexSessionFile,
+                          permissionModeToCodexArgs, formatCodexEventForOutput
+    hitl-mcp.ts         — runCodexHitlMcpServer (stdio MCP for HITL tool)
+    app-server.ts       — CodexAppServerClient, CodexAppServerError,
+                          CodexAppServerNotification (JSON-RPC transport for
+                          `codex app-server --listen stdio://`)
+    session.ts          — openCodexSession, CodexSession,
+                          permissionModeToThreadStartFields,
+                          expandCodexSessionExtraArgs, updateActiveTurnId
+                          (streaming-input session over app-server)
   skill/
     types.ts            — SkillDef, SkillFrontmatter (union of all IDE fields)
     parser.ts           — parseSkill(dir) → SkillDef
@@ -373,6 +385,84 @@ Model selection is ignored (Cursor's `--resume` rejects `--model`).
   directory for additional files. Error on: missing SKILL.md, invalid YAML,
   unterminated frontmatter, missing required fields.
 
+
+### 3.11 `codex/app-server.ts` — JSON-RPC Transport
+
+`CodexAppServerClient.spawn(opts)` starts `codex app-server --listen
+stdio://` with piped stdin/stdout/stderr. Pure transport layer — knows
+nothing about threads or turns. Line-delimited JSON-RPC 2.0:
+
+- `request<T>(method, params)` — monotonic numeric id, registers a
+  resolver, rejects with `CodexAppServerError` on server error response,
+  or a generic Error when the stream closes before a response arrives.
+- `notify(method, params)` — fire-and-forget; used for `initialized`.
+- `notifications: AsyncIterable<CodexAppServerNotification>` — inbound
+  messages without an `id`, delivered via a single-consumer async FIFO
+  queue that closes when stdout EOFs.
+- `close()` — graceful: EOF stdin, await exit. Pending-but-unanswered
+  requests reject when the stream closes.
+- `abort(reason?)` — SIGTERM; idempotent.
+- `done: Promise<CodexAppServerStatus>` — resolves with exit code,
+  signal, and captured stderr after stdout/stderr drain.
+
+External `AbortSignal` composed via listener; process registry
+(`register`/`unregister`) wraps the subprocess lifecycle. Reserved argv
+flags: `app-server`, `--listen` (set in `CODEX_APP_SERVER_RESERVED_FLAGS`).
+
+**Experimental upstream.** Method names, param shapes, and notification
+payloads can shift between `codex-cli` versions; client targets
+`codex-cli >= 0.121.0`. Generate current TS bindings with `codex
+app-server generate-ts --out <dir>` when protocol drift is suspected.
+
+
+### 3.12 `codex/session.ts` — Streaming-Input Session
+
+`openCodexSession(opts)` spawns a `CodexAppServerClient`, performs the
+`initialize`/`initialized` handshake, then starts (`thread/start`) or
+resumes (`thread/resume`) a thread and returns `CodexSession extends
+RuntimeSession` with `threadId`, `send`, `events`, `endInput`, `abort`,
+`done`.
+
+Thread/turn semantics:
+
+- First `send(content)` issues `turn/start` with `input: [{type:"text",
+  text, text_elements: []}]` (the sibling `text_elements` array is
+  required by the protocol due to serde Rust conventions — omitting it
+  yields `-32602` "invalid params").
+- Subsequent `send(content)` calls while a turn is active issue
+  `turn/steer` with `expectedTurnId` taken from the most recent
+  `turn/started` notification. The `turn/start` response can arrive
+  before or after the matching notification; only the notification path
+  drives `activeTurnId` to avoid a race where `expectedTurnId` points at
+  a turn the server hasn't yet acknowledged.
+- Inbound notifications are mapped to `RuntimeSessionEvent
+  { runtime: "codex", type: lastPathSegment(method), raw: {method,
+  params} }` and pushed into a single-consumer FIFO `EventQueue`.
+- `activeTurnId` tracking is a single-writer side-channel in the
+  notification pump; `updateActiveTurnId(current, note)` is exported as
+  a pure helper.
+
+Permission-mode mapping mirrors `permissionModeToCodexArgs` in
+`codex/process.ts` but emits structured `{approvalPolicy?, sandbox?}`
+params for `thread/start`/`thread/resume`:
+
+- `plan` → `approvalPolicy: "never"`, `sandbox: "read-only"`.
+- `acceptEdits` → `approvalPolicy: "never"`, `sandbox: "workspace-write"`.
+- `bypassPermissions` → `approvalPolicy: "never"`,
+  `sandbox: "danger-full-access"`.
+- Native pass-through modes (`read-only`/`workspace-write`/
+  `danger-full-access`/`never`/`on-request`/`on-failure`/`untrusted`) emit
+  a single matching field.
+
+`expandCodexSessionExtraArgs(map)` converts an `ExtraArgsMap` to the
+`--config key=value` argv list the app-server subprocess accepts;
+`null` values drop the flag. `CODEX_SESSION_CLIENT_VERSION` is advertised
+via the `initialize` handshake (visible in Codex logs).
+
+Handshake failure tears down the subprocess (`abort` → `await done`) so
+callers never see a zombie process on rejection.
+
+
 ## 4. Data
 
 ### Runtime capability matrix
@@ -382,13 +472,14 @@ Model selection is ignored (Cursor's `--resume` rejects `--model`).
 | claude   | true           | true  | true       | true        | true               | true    | true                |
 | opencode | true           | true  | false      | true        | false              | true    | true                |
 | cursor   | false          | false | false      | false       | false              | true    | true                |
-| codex    | true           | true  | true       | true        | true               | false   | true                |
+| codex    | true           | true  | true       | true        | true               | true    | true                |
 
 **`session` specifics:**
 
 - When `true`, adapter implements `openSession(opts)` returning a long-lived
   `RuntimeSession` with push-based `send()`, async-iterable `events`,
-  graceful `endInput()`, SIGTERM `abort()`. See FR-L19 and §3.6 / §3.8 / §3.10.1.
+  graceful `endInput()`, SIGTERM `abort()`. See FR-L19 and §3.6 / §3.8 /
+  §3.10.1 / §3.11-3.12.
 - **Claude** — real streaming-input transport backed by `claude/session.ts`
   (`claude -p --input-format stream-json --output-format stream-json
   --verbose`); one long-lived subprocess with piped stdin/stdout.
@@ -406,8 +497,14 @@ Model selection is ignored (Cursor's `--resume` rejects `--model`).
   subprocess (or `0` while idle). Model selection is silently dropped
   (Cursor's `--resume` rejects `--model`); `systemPrompt` is merged into
   the first user message of newly created chats.
-- Codex could theoretically back this via `codex mcp-server` / `app-server`;
-  deferred until a concrete need lands.
+- **Codex** — `codex/session.ts` + `codex/app-server.ts`. Spawns the
+  experimental `codex app-server --listen stdio://` JSON-RPC transport
+  (NOT `codex exec`, which closes stdin immediately and cannot accept
+  follow-ups), does `initialize`/`initialized` handshake, then
+  `thread/start` (fresh) or `thread/resume` (on `resumeSessionId`). First
+  `send` → `turn/start`; subsequent sends during an active turn →
+  `turn/steer` with `expectedTurnId` from the most recent `turn/started`
+  notification. Targets `codex-cli >= 0.121.0`.
 - Callers MUST check `adapter.capabilities.session` before invoking
   `openSession`; the method is optional on `RuntimeAdapter`.
 

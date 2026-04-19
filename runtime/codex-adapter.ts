@@ -1,8 +1,11 @@
 import { invokeCodexCli } from "../codex/process.ts";
+import { openCodexSession } from "../codex/session.ts";
 import type {
   InteractiveOptions,
   InteractiveResult,
   RuntimeAdapter,
+  RuntimeSession,
+  RuntimeSessionOptions,
 } from "./types.ts";
 import {
   CAPABILITY_INVENTORY_SCHEMA,
@@ -59,6 +62,12 @@ function codexSkillsDir(): string {
  *   `item.completed` for `command_execution`, `file_change`,
  *   `mcp_tool_call`, and `web_search` items; an `"abort"` decision
  *   SIGTERMs Codex and synthesizes a `permission_denials[]` entry.
+ * - `session: true` — {@link openSession} uses Codex's **experimental**
+ *   `codex app-server --listen stdio://` JSON-RPC transport (NOT `codex
+ *   exec`), which supports follow-up user messages mid-turn via
+ *   `turn/steer`. Backed by {@link import("../codex/session.ts").openCodexSession}.
+ *   The one-shot `invoke` path still uses `codex exec` and cannot accept
+ *   follow-ups.
  */
 export const codexRuntimeAdapter: RuntimeAdapter = {
   id: "codex",
@@ -68,11 +77,14 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     transcript: true,
     interactive: true,
     toolUseObservation: true,
-    session: false,
+    session: true,
     capabilityInventory: true,
   },
   invoke(opts) {
     return invokeCodexCli(opts);
+  },
+  openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    return openCodexSession(opts);
   },
 
   async fetchCapabilitiesSlow(

@@ -134,6 +134,27 @@ export {
 } from "./codex/process.ts";
 export type { CodexRunState } from "./codex/process.ts";
 
+// --- Codex app-server transport + streaming session ---
+export {
+  CODEX_APP_SERVER_RESERVED_FLAGS,
+  CodexAppServerClient,
+  CodexAppServerError,
+} from "./codex/app-server.ts";
+export type {
+  CodexAppServerClientOptions,
+  CodexAppServerNotification,
+  CodexAppServerRpcError,
+  CodexAppServerStatus,
+} from "./codex/app-server.ts";
+export {
+  CODEX_SESSION_CLIENT_VERSION,
+  expandCodexSessionExtraArgs,
+  openCodexSession,
+  permissionModeToThreadStartFields,
+  updateActiveTurnId,
+} from "./codex/session.ts";
+export type { CodexSession } from "./codex/session.ts";
+
 // --- Codex HITL MCP entry (required for consumer sub-process dispatch) ---
 export {
   CODEX_HITL_MCP_SERVER_NAME,
