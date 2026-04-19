@@ -21,6 +21,8 @@ import {
   SYNTHETIC_TURN_END,
 } from "../runtime/types.ts";
 import type { RuntimeSession, RuntimeSessionEvent } from "../runtime/types.ts";
+import { extractSessionContent } from "../runtime/content.ts";
+import type { NormalizedContent } from "../runtime/content.ts";
 import {
   ceiling,
   LONG_COUNT_PROMPT,
@@ -403,6 +405,92 @@ export async function scenarioTwoTurns(runtime: RuntimeId): Promise<void> {
   }
 }
 
+/**
+ * Scenario 7 — FR-L23 cross-runtime event normalization. For a
+ * single-word reply prompt, every adapter's raw event stream must:
+ *   - be parseable without throwing when passed to
+ *     {@link extractSessionContent};
+ *   - yield at least one {@link NormalizedContent} of kind `text` or
+ *     `final` before the first synthetic turn-end (proof that the
+ *     adapter's native text/final events are recognised);
+ *   - produce content whose concatenated text contains the expected
+ *     reply word (case-insensitive) — this is the uniformity check:
+ *     the same prompt on different CLIs collapses to the same neutral
+ *     rendering primitive;
+ *   - map every synthetic event (turn-end, plus Cursor's open-time
+ *     init and per-turn `send_failed`) to `[]`.
+ *
+ * Accumulation rule: concat every `kind:"text"` and `kind:"final"`
+ * entry verbatim. Codex emits deltas (`cumulative:false`); the other
+ * three emit cumulative snapshots — either way the joined buffer
+ * contains the reply as a substring.
+ */
+export async function scenarioContentNormalization(
+  runtime: RuntimeId,
+): Promise<void> {
+  const adapter = sessionAdapter(runtime);
+  const session = await adapter.openSession!({});
+  const runtimeCeiling = runtime === "cursor"
+    ? CURSOR_CEILING_MS
+    : DEFAULT_CEILING_MS;
+  const cancel = ceiling(runtimeCeiling, () => session.abort("e2e-ceiling"));
+  try {
+    const contents: NormalizedContent[] = [];
+    let nonSyntheticWithContent = 0;
+    let syntheticEventsSeen = 0;
+    let syntheticViolations = 0;
+
+    const { drainer } = startDrain(session, async (ev) => {
+      const extracted = extractSessionContent(ev);
+      if (ev.synthetic === true) {
+        syntheticEventsSeen++;
+        if (extracted.length !== 0) syntheticViolations++;
+      } else if (extracted.length > 0) {
+        nonSyntheticWithContent++;
+        contents.push(...extracted);
+      }
+      if (ev.type === SYNTHETIC_TURN_END) {
+        await session.endInput();
+      }
+    });
+
+    await session.send(ONE_WORD_OK);
+    await session.done;
+    await drainer;
+
+    assertEquals(
+      syntheticViolations,
+      0,
+      `synthetic events must map to [] from extractSessionContent (violations: ${syntheticViolations}/${syntheticEventsSeen})`,
+    );
+    assert(
+      nonSyntheticWithContent > 0,
+      "extractSessionContent produced no content for the whole turn",
+    );
+    const textual = contents
+      .filter((
+        c,
+      ): c is Extract<NormalizedContent, { kind: "text" | "final" }> =>
+        c.kind === "text" || c.kind === "final"
+      )
+      .map((c) => c.text)
+      .join("");
+    assert(
+      textual.length > 0,
+      `no text/final content emitted; contents=${JSON.stringify(contents)}`,
+    );
+    assert(
+      textual.toLowerCase().includes("ok"),
+      `reply missing expected 'ok' token; joined text=${
+        JSON.stringify(textual)
+      }`,
+    );
+  } finally {
+    cancel();
+    await finalizeSession(session);
+  }
+}
+
 /** Session-contract matrix — driven by the generator in the test file. */
 // FR-L24
 export const SESSION_CONTRACT_MATRIX: MatrixScenario[] = [
@@ -438,5 +526,10 @@ export const SESSION_CONTRACT_MATRIX: MatrixScenario[] = [
     id: "two-turns",
     ceilingMs: { cursor: CURSOR_CEILING_MS },
     run: scenarioTwoTurns,
+  },
+  {
+    id: "content-normalization",
+    ceilingMs: { cursor: CURSOR_CEILING_MS },
+    run: scenarioContentNormalization,
   },
 ];

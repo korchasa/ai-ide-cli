@@ -681,6 +681,14 @@ Opt-in Deno-native suite; does not run under `deno task check`. Layered:
      OpenCode serve catch SIGTERM and exit cleanly (`0`, null signal),
      so the portable invariant is the elapsed-time bound.
   7. `two-turns` — two sends, two turn-ends, clean `endInput` + `done`.
+  8. `content-normalization` — cross-runtime FR-L23 check: every
+     event in a single-word-reply turn passes through
+     `extractSessionContent` without throwing, synthetic events map
+     to `[]`, non-synthetic events yield ≥1 `NormalizedContent`, and
+     the concatenation of `kind:"text"` + `kind:"final"` entries
+     contains the reply word on every adapter. Closes the loop
+     between the stub-based contract test in
+     `runtime/session_contract_test.ts` and real CLI behaviour.
 
 **`e2e/session_matrix_e2e_test.ts`:** iterates `RuntimeId ×
 SESSION_CONTRACT_MATRIX`, filters via `only`/`skip`, and registers one

@@ -930,6 +930,13 @@ stable — never renumber on move.
         event sequence through the Claude stub adapter. Evidence:
         `ai-ide-cli/runtime/session_contract_test.ts`
         (`extractSessionContent surfaces normalized stream` test).
+  - [x] Real-binary cross-runtime uniformity: `extractSessionContent`
+        applied to every event in a live single-word-reply turn on
+        each of the four adapters yields a non-empty
+        `NormalizedContent[]` whose joined text/final entries contain
+        the reply word, without ever throwing. Evidence:
+        `ai-ide-cli/e2e/_matrix.ts:scenarioContentNormalization`
+        (FR-L24 matrix entry).
   - [x] `// FR-L23` traceability comment on the
         `extractSessionContent` dispatcher. Evidence:
         `ai-ide-cli/runtime/content.ts`.
