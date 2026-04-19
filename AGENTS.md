@@ -302,6 +302,7 @@ implements:
 
 ## TDD Flow
 
+0. **BASELINE (hard gate)**: Before your first edit, run `deno task check` (or at minimum `deno task test`) to confirm the baseline is green. If it fails, stop and report — do not layer new changes on top of pre-existing failures, because any subsequent red test will be ambiguous. Add this as the first item of your session TodoWrite.
 1. **RED**: Write a failing test (`deno task test <path>`) for new or changed logic.
 2. **GREEN**: Write minimal code to pass the test.
 3. **REFACTOR**: Improve code and tests without changing behavior. Re-run the failing test.
@@ -317,6 +318,27 @@ implements:
 - Run all tests before finishing, not just the ones you changed.
 - When a test fails, fix the source code — not the test. Do not modify a failing test to make it pass, do not add error swallowing or skip logic.
 - Do not create source files with guessed or fabricated data to satisfy imports — if the data source is missing, that is a blocker (see Diagnosing Failures).
+
+### Autonomous Test Execution
+
+Run tests and safe real-IDE experiments proactively — do not ask permission for reads, dry-runs, or stubbed probes. Specifically authorized without prompting:
+
+- **Deno verification suite:** `deno task check`, `deno task test [path]`, `deno task fmt`, `deno lint .`, `deno doc --lint <entry>`, `deno check <file>`, `deno publish --dry-run`.
+- **Real-binary smoke tests** against installed CLIs (Claude, OpenCode, Cursor, Codex) via `scripts/smoke.ts` or ad-hoc scripts, provided the scenario is **safe**:
+  - Short test prompts (e.g. "Reply with the word: ok") — token cost is negligible.
+  - `settingSources: []` cleanroom runs.
+  - `permissionMode: "plan"` or unspecified (read-only/no-write).
+  - `cwd` pointing to the repo worktree or a `Deno.makeTempDir()` scratch dir.
+  - `AbortSignal` with a ceiling (e.g. 60s) so a misconfigured backend cannot hang.
+- **Stub-based integration probes:** PATH-override bash stubs for adapter tests (the pattern in `claude/session_test.ts`, `opencode/session_test.ts`, etc.). Always safe — no real binary, no tokens.
+
+**Ask first** before running:
+- `permissionMode: "bypassPermissions"` / `--yolo` / `--sandbox danger-full-access` against a real binary.
+- Any scenario that spawns writes outside the project worktree (`cwd: "/"`, `$HOME`, system paths).
+- Long-running benchmarks (> ~30s real-binary time, heavy token spend).
+- Anything that touches shared state (git push, JSR publish, posting to external APIs).
+
+The goal is fast iteration: if a check is read-only and reversible, just run it and report the result. Do not narrate "should I run X?" — run X, then narrate.
 
 ## Diagnosing Failures
 
@@ -348,11 +370,30 @@ When the root cause is outside your control (missing API keys/URLs, missing gene
 
 ### Detected Commands
 
-- `deno task check` — full verification (fmt, lint, type check, tests, `deno publish --dry-run`). Authoritative.
-- `deno task test` — unit tests only (`deno test -A --no-check .`).
+- `deno task check` — full verification (fmt, lint, type check, **full test suite**, doc-lint, `deno publish --dry-run`). Authoritative. **Supersedes `deno task test`** — the pipeline already invokes `deno test -A`, so running both back-to-back duplicates ~40s of work.
+- `deno task test` — unit tests only (`deno test -A --no-check .`). Use during TDD RED/GREEN iterations on specific files; `check` subsumes it for final verification.
 - `deno task fmt` — format in place.
 - `deno task release` — `standard-version` version bump (CI-invoked).
-- `deno run -A scripts/smoke.ts [abort|settings]` — real-binary behavioural checks (AbortSignal SIGTERM, timeout, `settingSources`). Manual; not part of `deno task check`.
+- `deno run -A scripts/smoke.ts [abort|settings|session|session-cursor|session-opencode|session-codex]` — real-binary behavioural checks against installed CLIs. Manual; not part of `deno task check`.
+
+**Iteration tip — avoid the big-bang pipeline loop.** `deno task check` takes ~40s because it runs the full suite. For fast fmt/lint/JSDoc iteration, run the cheap sub-steps individually first:
+
+- `deno fmt --check` — format issues (~1s)
+- `deno lint .` — style/lint issues (~2s, catches `prefer-as-const` and similar)
+- `deno doc --lint mod.ts` — JSR slow-types + `missing-jsdoc` (~3s)
+
+Only invoke the full `deno task check` once those three pass.
+
+**JSDoc quirk (`deno doc --lint`):** exported class constructors need a *leading summary line* before any `@param` tags. A docblock with only `@param` lines fails `missing-jsdoc`. Use this shape:
+
+```ts
+/**
+ * One-line summary of what the constructor is for.
+ *
+ * @param foo ...
+ */
+constructor(foo: string) { ... }
+```
 
 ### Command Scripts
 
