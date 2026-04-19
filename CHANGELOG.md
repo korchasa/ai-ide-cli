@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.3](https://github.com/korchasa/ai-ide-cli/compare/v0.5.2...v0.5.3) (2026-04-19)
+
+
+### Features
+
+* **runtime:** normalize session event content across adapters (FR-L23) ([435197a](https://github.com/korchasa/ai-ide-cli/commit/435197a6f978f19490d8d12a810f2063e89f85f5)), closes [#2](https://github.com/korchasa/ai-ide-cli/issues/2)
+
+
+### Documentation
+
+* **agents:** add baseline gate, autonomous test rule, check/test iteration tip ([265c67e](https://github.com/korchasa/ai-ide-cli/commit/265c67e49380d23485db468a2051ad0b91916b76))
+* **codex:** warn about parallel wire protocols in [@module](https://github.com/module) docblocks ([13f1041](https://github.com/korchasa/ai-ide-cli/commit/13f10418cb57b428c3341cd1793755b9baeaddec))
+
 ### [0.5.2](https://github.com/korchasa/ai-ide-cli/compare/v0.5.1...v0.5.2) (2026-04-19)
 
 
