@@ -137,6 +137,13 @@ export {
   formatOpenCodeEventForOutput,
   invokeOpenCodeCli,
 } from "./opencode/process.ts";
+export { openOpenCodeSession } from "./opencode/session.ts";
+export type {
+  OpenCodeSession,
+  OpenCodeSessionEvent,
+  OpenCodeSessionOptions,
+  OpenCodeSessionStatus,
+} from "./opencode/session.ts";
 
 // --- OpenCode HITL MCP entry (required for consumer sub-process dispatch) ---
 export {

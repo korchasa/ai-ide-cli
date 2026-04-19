@@ -34,6 +34,8 @@ ai-ide-cli/
   opencode/
     process.ts          — buildOpenCodeArgs, invokeOpenCodeCli, extractOpenCodeOutput,
                           formatOpenCodeEventForOutput, buildOpenCodeConfigContent
+    session.ts          — openOpenCodeSession, OpenCodeSession (streaming-input
+                          session backed by `opencode serve` + HTTP + SSE)
     hitl-mcp.ts         — runOpenCodeHitlMcpServer (stdio MCP for HITL tool)
   cursor/
     process.ts          — buildCursorArgs, invokeCursorCli, extractCursorOutput,
@@ -247,7 +249,54 @@ to `HumanInputRequest`. On detection → SIGTERM process → return output with
 `hitl_request` populated.
 
 
-### 3.8 `opencode/hitl-mcp.ts` — HITL MCP Server
+### 3.8 `opencode/session.ts` — OpenCode Streaming-Input Session
+
+`openOpenCodeSession(opts)`: spawns `Deno.Command("opencode")` with
+`["serve", "--hostname", <host>, "--port", <free>]`, `stdin: "null"`,
+`stdout/stderr: "piped"`. `pickFreePort()` allocates via ephemeral
+`Deno.listen({port:0})` then closes — accepts a small race window. Stdout
+pump parses lines until `"listening on "` is seen, resolving a ready latch.
+Stderr pump forwards decoded lines to `onStderr` and retains bytes for
+terminal aggregation. If the subprocess exits before ready, the latch
+rejects and the registry is cleaned up.
+
+Once ready, either reuses `opts.resumeSessionId` or `POST /session → {id}`.
+Returns `OpenCodeSession { pid, sessionId, baseUrl, send, events, endInput,
+abort, done }`:
+- `send(content)` — `POST /session/:id/prompt_async` with body
+  `{ parts: [{type:"text", text:content}], agent?, model?, system? }`.
+  `model` string of shape `"<providerID>/<modelID>"` is split into
+  `{providerID, modelID}`; any other string passes through. Throws
+  `OpenCodeSession: aborted` after `abort()` and `OpenCodeSession: input
+  already closed` after `endInput()`.
+- `events` — single-consumer async iterable backed by a local `EventQueue`
+  (same FIFO, resolver-pending pattern as `claude/session.ts`). SSE pump
+  reads `GET /event`, splits on `\n\n`, delegates each frame to
+  `parseOpenCodeSseFrame`, dispatches session-scoped events (by
+  `extractOpenCodeSessionId`) onto the queue, fires `onEvent` for every
+  frame (including global). Tracks `isIdle` from `session.status` and
+  `session.idle` events for graceful-close gating.
+- `endInput()` — if a send was issued within the last 500 ms, races a
+  short wait on the next `session.status | session.idle` event before
+  checking `isIdle`; loops on `waitForNext(idle)` until idle; then aborts
+  the SSE fetch and SIGTERMs the server. Idempotent.
+- `abort(reason?)` — sets `aborted=true`, fires-and-forgets
+  `POST /session/:id/abort`, aborts the SSE fetch, SIGTERMs the server.
+  Idempotent.
+- `done` — resolves with
+  `OpenCodeSessionStatus { exitCode, signal, stderr }` after stdout/stderr/
+  SSE pumps drain and process exits. External `AbortSignal` composed via
+  listener; process-registry (`register`/`unregister`) wraps the
+  subprocess lifecycle.
+
+`parseOpenCodeSseFrame(frame)` and `extractOpenCodeSessionId(event)` are
+exported for unit testing. `extractOpenCodeSessionId` checks
+`properties.sessionID`, then nested `properties.part.sessionID` and
+`properties.info.sessionID` where the server places it for
+`message.part.*` / `message.updated` variants.
+
+
+### 3.9 `opencode/hitl-mcp.ts` — HITL MCP Server
 
 `runOpenCodeHitlMcpServer()`: stdio MCP server exposing
 `request_human_input` tool. Tool schema: `question` (required string),
@@ -259,7 +308,7 @@ Constants: `OPENCODE_HITL_MCP_SERVER_NAME = "hitl"`,
 `OPENCODE_HITL_MCP_TOOL_NAME = "hitl_request_human_input"`.
 
 
-### 3.9 `cursor/process.ts` — Cursor Runner
+### 3.10 `cursor/process.ts` — Cursor Runner
 
 `buildCursorArgs(opts)`: `agent` → `-p` → `--resume` → `--model` →
 `--yolo` → `extraArgs` → `--output-format stream-json` → `--trust` →
@@ -276,7 +325,7 @@ dedicated flag). Retry loop with exponential backoff. Real-time NDJSON
 processing with log file + terminal output forwarding.
 
 
-### 3.10 `skill/` — Skill Model
+### 3.11 `skill/` — Skill Model
 
 **`skill/types.ts`:**
 - `SkillFrontmatter` — union of all known SKILL.md frontmatter fields across
@@ -303,18 +352,22 @@ processing with log file + terminal output forwarding.
 | Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation | session | capabilityInventory |
 |----------|----------------|-------|------------|-------------|--------------------|---------|---------------------|
 | claude   | true           | true  | true       | true        | true               | true    | true                |
-| opencode | true           | true  | false      | true        | false              | false   | true                |
+| opencode | true           | true  | false      | true        | false              | true    | true                |
 | cursor   | false          | false | false      | false       | false              | false   | true                |
 | codex    | true           | true  | true       | true        | true               | false   | true                |
 
 **`session` specifics:**
 - When `true`, adapter implements `openSession(opts)` returning a long-lived
   `RuntimeSession` with push-based `send()`, async-iterable `events`,
-  graceful `endInput()`, SIGTERM `abort()`. See FR-L19 and §3.6.
-- Currently only Claude (backed by `claude/session.ts`). Codex/OpenCode have
-  bidirectional transport capabilities (`codex mcp-server`/`app-server`,
-  `opencode serve`+ACP) that would require per-adapter implementations with
-  very different lifecycle handling; deferred until a concrete need lands.
+  graceful `endInput()`, SIGTERM `abort()`. See FR-L19 and §3.6 / §3.8.
+- Claude (backed by `claude/session.ts`) uses `claude -p --input-format
+  stream-json --output-format stream-json --verbose` with piped stdin/stdout.
+  OpenCode (backed by `opencode/session.ts`) spawns a dedicated `opencode
+  serve` subprocess, creates a session via `POST /session`, and consumes
+  `GET /event` SSE — each `openSession` call spawns its own server (no
+  pooling). Codex could theoretically back this via `codex mcp-server`/
+  `app-server`; deferred until a concrete need lands. Cursor has no
+  bidirectional transport.
 - Callers MUST check `adapter.capabilities.session` before invoking
   `openSession`; the method is optional on `RuntimeAdapter`.
 

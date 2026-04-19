@@ -1,8 +1,15 @@
 import { invokeOpenCodeCli } from "../opencode/process.ts";
+import {
+  type OpenCodeSessionEvent,
+  openOpenCodeSession,
+} from "../opencode/session.ts";
 import type {
   InteractiveOptions,
   InteractiveResult,
   RuntimeAdapter,
+  RuntimeSession,
+  RuntimeSessionEvent,
+  RuntimeSessionOptions,
 } from "./types.ts";
 import {
   type CapabilityInventory,
@@ -29,7 +36,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     transcript: false,
     interactive: true,
     toolUseObservation: false,
-    session: false,
+    session: true,
     capabilityInventory: true,
   },
   invoke(opts) {
@@ -44,6 +51,56 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       (inner) => this.invoke(inner),
       opts,
     );
+  },
+
+  async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    const wrappedOnEvent = opts.onEvent
+      ? (event: OpenCodeSessionEvent) => {
+        opts.onEvent!({
+          runtime: "opencode",
+          type: event.type,
+          raw: event.raw,
+        });
+      }
+      : undefined;
+
+    const inner = await openOpenCodeSession({
+      agent: opts.agent,
+      systemPrompt: opts.systemPrompt,
+      model: opts.model,
+      resumeSessionId: opts.resumeSessionId,
+      cwd: opts.cwd,
+      env: opts.env,
+      signal: opts.signal,
+      onEvent: wrappedOnEvent,
+      onStderr: opts.onStderr,
+    });
+
+    const events: AsyncIterable<RuntimeSessionEvent> = {
+      async *[Symbol.asyncIterator]() {
+        for await (const event of inner.events) {
+          yield {
+            runtime: "opencode",
+            type: event.type,
+            raw: event.raw,
+          };
+        }
+      },
+    };
+
+    return {
+      runtime: "opencode",
+      pid: inner.pid,
+      send: (content: string) => inner.send(content),
+      events,
+      endInput: () => inner.endInput(),
+      abort: (reason) => inner.abort(reason),
+      done: inner.done.then((status) => ({
+        exitCode: status.exitCode,
+        signal: status.signal,
+        stderr: status.stderr,
+      })),
+    };
   },
 
   async launchInteractive(
