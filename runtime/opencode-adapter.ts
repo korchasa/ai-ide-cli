@@ -4,6 +4,11 @@ import type {
   InteractiveResult,
   RuntimeAdapter,
 } from "./types.ts";
+import {
+  type CapabilityInventory,
+  type FetchCapabilitiesOptions,
+  fetchInventoryViaInvoke,
+} from "./capabilities.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -25,9 +30,20 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     interactive: true,
     toolUseObservation: false,
     session: false,
+    capabilityInventory: true,
   },
   invoke(opts) {
     return invokeOpenCodeCli(opts);
+  },
+
+  fetchCapabilitiesSlow(
+    opts?: FetchCapabilitiesOptions,
+  ): Promise<CapabilityInventory> {
+    return fetchInventoryViaInvoke(
+      "opencode",
+      (inner) => this.invoke(inner),
+      opts,
+    );
   },
 
   async launchInteractive(

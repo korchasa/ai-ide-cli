@@ -4,6 +4,12 @@ import type {
   InteractiveResult,
   RuntimeAdapter,
 } from "./types.ts";
+import {
+  CAPABILITY_INVENTORY_SCHEMA,
+  type CapabilityInventory,
+  type FetchCapabilitiesOptions,
+  fetchInventoryViaInvoke,
+} from "./capabilities.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -63,9 +69,37 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     interactive: true,
     toolUseObservation: true,
     session: false,
+    capabilityInventory: true,
   },
   invoke(opts) {
     return invokeCodexCli(opts);
+  },
+
+  async fetchCapabilitiesSlow(
+    opts?: FetchCapabilitiesOptions,
+  ): Promise<CapabilityInventory> {
+    const schemaPath = await Deno.makeTempFile({
+      prefix: "codex-capability-schema-",
+      suffix: ".json",
+    });
+    try {
+      await Deno.writeTextFile(
+        schemaPath,
+        JSON.stringify(CAPABILITY_INVENTORY_SCHEMA),
+      );
+      return await fetchInventoryViaInvoke(
+        "codex",
+        (inner) => this.invoke(inner),
+        opts,
+        { "--output-schema": schemaPath },
+      );
+    } finally {
+      try {
+        await Deno.remove(schemaPath);
+      } catch {
+        // best-effort cleanup
+      }
+    }
   },
 
   async launchInteractive(

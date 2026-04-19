@@ -7,7 +7,7 @@ Design specification for `@korchasa/ai-ide-cli`.
 - **Purpose:** Design of the `@korchasa/ai-ide-cli` library — thin wrapper
   around agent-CLI binaries providing normalized invocation, stream parsing,
   retry, and HITL wiring.
-- **Relation to SRS:** Implements FR-L1..FR-L19 from
+- **Relation to SRS:** Implements FR-L1..FR-L20 from
   [requirements.md](requirements.md).
 
 ## 2. Architecture
@@ -20,6 +20,8 @@ ai-ide-cli/
   runtime/
     types.ts            — RuntimeAdapter, RuntimeConfigSource, capabilities
     index.ts            — adapter registry + resolveRuntimeConfig()
+    capabilities.ts     — CapabilityInventory types + shared LLM-probe driver
+                          (fetchInventoryViaInvoke, parseCapabilityInventoryResponse)
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
@@ -88,7 +90,8 @@ with `_` for test isolation.
 
 **`runtime/types.ts`:**
 - `RuntimeCapabilities` — feature flags per adapter: `permissionMode`, `hitl`,
-  `transcript`, `interactive`, `toolUseObservation`, `session`.
+  `transcript`, `interactive`, `toolUseObservation`, `session`,
+  `capabilityInventory`.
 - `RuntimeInvokeOptions` — normalized invocation options: `taskPrompt`,
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
@@ -109,7 +112,12 @@ with `_` for test isolation.
 - `RuntimeSessionStatus` — `{ exitCode, signal, stderr }`.
 - `RuntimeAdapter` — interface: `id`, `capabilities`, `invoke(opts)`,
   `launchInteractive(opts)`, optional `openSession?(opts)` (only when
-  `capabilities.session === true`).
+  `capabilities.session === true`), optional `fetchCapabilitiesSlow?(opts)`
+  (only when `capabilities.capabilityInventory === true`).
+- `CapabilityInventory` — `{ runtime, skills: CapabilityRef[], commands:
+  CapabilityRef[] }`. `CapabilityRef` — `{ name: string; plugin?: string }`.
+- `FetchCapabilitiesOptions` — `{ cwd?, signal?, timeoutSeconds?, env?,
+  model? }`. See `capabilityInventory` specifics in §4 and FR-L20.
 - `ResolvedRuntimeConfig` — effective config after cascade resolution.
 - `RuntimeConfigSource` — structural shape for cascade input. No workflow
   type dependency.
@@ -292,12 +300,12 @@ processing with log file + terminal output forwarding.
 
 ### Runtime capability matrix
 
-| Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation | session |
-|----------|----------------|-------|------------|-------------|--------------------|---------|
-| claude   | true           | true  | true       | true        | true               | true    |
-| opencode | true           | true  | false      | true        | false              | false   |
-| cursor   | false          | false | false      | false       | false              | false   |
-| codex    | true           | true  | true       | true        | true               | false   |
+| Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation | session | capabilityInventory |
+|----------|----------------|-------|------------|-------------|--------------------|---------|---------------------|
+| claude   | true           | true  | true       | true        | true               | true    | true                |
+| opencode | true           | true  | false      | true        | false              | false   | true                |
+| cursor   | false          | false | false      | false       | false              | false   | true                |
+| codex    | true           | true  | true       | true        | true               | false   | true                |
 
 **`session` specifics:**
 - When `true`, adapter implements `openSession(opts)` returning a long-lived
@@ -309,6 +317,27 @@ processing with log file + terminal output forwarding.
   very different lifecycle handling; deferred until a concrete need lands.
 - Callers MUST check `adapter.capabilities.session` before invoking
   `openSession`; the method is optional on `RuntimeAdapter`.
+
+**`capabilityInventory` specifics:**
+- When `true`, adapter implements `fetchCapabilitiesSlow(opts)` which spawns
+  the IDE CLI via `adapter.invoke`, sends a fixed system + task prompt
+  (`CAPABILITY_INVENTORY_SYSTEM_PROMPT` / `CAPABILITY_INVENTORY_PROMPT`),
+  and parses the JSON reply through `parseCapabilityInventoryResponse`.
+  Returns `CapabilityInventory = { runtime, skills, commands }`. See FR-L20.
+- Schema enforcement per runtime:
+  - Claude — `--json-schema <inline-json>` + `--max-turns 1` (strict).
+  - Codex — writes `CAPABILITY_INVENTORY_SCHEMA` to a temp file and passes
+    `--output-schema <path>`; temp file cleaned in `finally` (strict).
+  - OpenCode — no schema flag; relies on the prompt alone.
+  - Cursor — no schema flag; relies on the prompt alone.
+- Parser tolerates pure minified JSON, markdown-fenced JSON, and
+  prose-embedded JSON (first/last-brace slice); throws a descriptive error
+  with truncated raw payload when no shape matches.
+- **Expensive.** One full LLM turn per call, seconds-to-minutes latency,
+  model-priced. The `Slow` suffix is intentional; callers should cache.
+- Callers MUST check `adapter.capabilities.capabilityInventory` before
+  invoking `fetchCapabilitiesSlow`; the method is optional on
+  `RuntimeAdapter`.
 
 **Codex specifics:**
 - `permissionMode` — normalized values (`default` / `plan` / `acceptEdits` /

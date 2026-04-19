@@ -573,6 +573,52 @@ stable — never renumber on move.
     `ai-ide-cli/scripts/smoke.ts`.
 
 
+### 3.20 FR-L20: Capability Inventory (LLM-probed)
+
+- **Description:** Enumerate every skill and slash command the runtime
+  currently exposes in a given `cwd`, without scanning the filesystem.
+  Implementation is uniform across all four adapters: issue one LLM turn
+  via `adapter.invoke` with a fixed system + task prompt, then parse the
+  JSON reply into a {runtime, skills, commands} shape. Method is
+  advertised as **expensive** (full LLM turn per call, seconds-to-minutes,
+  model-priced) via the `Slow` suffix, and callers should cache results.
+  - **Runtime-neutral.** `RuntimeAdapter.fetchCapabilitiesSlow?(opts):
+    Promise<CapabilityInventory>` is optional; callers check
+    `capabilities.capabilityInventory` before invoking.
+    `CapabilityInventory = { runtime, skills: CapabilityRef[], commands:
+    CapabilityRef[] }`. `CapabilityRef = { name: string; plugin?: string }`.
+    Skills and slash commands are kept as separate arrays even where a
+    runtime (Claude) conceptually conflates them.
+  - **Schema enforcement.** Claude passes
+    `--json-schema <inline-json>` + `--max-turns 1`; Codex writes
+    `CAPABILITY_INVENTORY_SCHEMA` to a temp file and passes
+    `--output-schema <path>`; OpenCode and Cursor have no schema flag and
+    rely on the prompt alone (parser tolerates pure JSON, markdown-fenced
+    JSON, and prose-embedded JSON via first/last-brace slice).
+- **Motivation:** Consumers (dashboards, IDE selectors, workflow planners)
+  need to know what is actually available in a given project without
+  replicating per-IDE filesystem/plugin discovery logic (skills may live
+  on disk, in plugin caches, or in cloud-hosted plugin scopes). Probing
+  the agent itself keeps the library OS- and storage-agnostic.
+- **Acceptance:**
+  - [x] `fetchCapabilitiesSlow?` implemented on all four adapters; each
+    advertises `capabilities.capabilityInventory: true`. Evidence:
+    `ai-ide-cli/runtime/{claude,codex,cursor,opencode}-adapter.ts`.
+  - [x] Shared driver `fetchInventoryViaInvoke(runtime, invoke, opts,
+    extraArgs?)` routes the fixed prompt through the adapter's own
+    `invoke` and parses `CliRunOutput.result`. Evidence:
+    `ai-ide-cli/runtime/capabilities.ts:fetchInventoryViaInvoke`.
+  - [x] Tolerant JSON parser `parseCapabilityInventoryResponse(text,
+    runtime)` accepts pure JSON, markdown-fenced JSON, and prose-embedded
+    JSON; throws a descriptive error with truncated raw payload when no
+    shape matches. Evidence:
+    `ai-ide-cli/runtime/capabilities_test.ts` (8 unit tests).
+  - [x] `CapabilityInventory`, `CapabilityRef`, `FetchCapabilitiesOptions`,
+    `CAPABILITY_INVENTORY_{SYSTEM_PROMPT, PROMPT, SCHEMA}`,
+    `parseCapabilityInventoryResponse`, `fetchInventoryViaInvoke`
+    exported from `mod.ts`. Evidence: `ai-ide-cli/mod.ts`.
+
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

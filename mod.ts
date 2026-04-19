@@ -50,6 +50,18 @@ export type {
   RuntimeToolUseInfo,
 } from "./runtime/types.ts";
 export type { SettingSource } from "./runtime/setting-sources.ts";
+export {
+  CAPABILITY_INVENTORY_PROMPT,
+  CAPABILITY_INVENTORY_SCHEMA,
+  CAPABILITY_INVENTORY_SYSTEM_PROMPT,
+  fetchInventoryViaInvoke,
+  parseCapabilityInventoryResponse,
+} from "./runtime/capabilities.ts";
+export type {
+  CapabilityInventory,
+  CapabilityRef,
+  FetchCapabilitiesOptions,
+} from "./runtime/capabilities.ts";
 
 // --- Claude runner (public entry points only) ---
 export {

@@ -6,6 +6,10 @@ import type {
 } from "../types.ts";
 import type { SkillDef } from "../skill/types.ts";
 import type { SettingSource } from "./setting-sources.ts";
+import type {
+  CapabilityInventory,
+  FetchCapabilitiesOptions,
+} from "./capabilities.ts";
 
 /**
  * Map-shaped extra CLI arguments.
@@ -42,6 +46,11 @@ export interface RuntimeCapabilities {
    * this to `false` and do not implement `openSession`.
    */
   session: boolean;
+  /**
+   * Whether the runtime implements {@link RuntimeAdapter.fetchCapabilitiesSlow}
+   * for enumerating skills and slash commands via an LLM prompt.
+   */
+  capabilityInventory: boolean;
 }
 
 /**
@@ -342,6 +351,23 @@ export interface RuntimeAdapter {
    * check the capability flag or be prepared for `undefined`.
    */
   openSession?(opts: RuntimeSessionOptions): Promise<RuntimeSession>;
+  /**
+   * **Expensive** — spawns the IDE CLI and consumes one full LLM turn per
+   * call. Asks the runtime's agent to emit a JSON list of every skill and
+   * slash command currently available, then parses the reply into a
+   * {@link CapabilityInventory}. Expected latency is seconds-to-minutes
+   * and cost is model-dependent; callers should cache results.
+   *
+   * Only implemented by adapters with
+   * `capabilities.capabilityInventory === true`. Callers MUST check the
+   * flag or be prepared for `undefined`.
+   *
+   * Throws when the runtime returns a response that cannot be parsed into
+   * the expected shape.
+   */
+  fetchCapabilitiesSlow?(
+    opts?: FetchCapabilitiesOptions,
+  ): Promise<CapabilityInventory>;
 }
 
 /** Effective runtime configuration after defaults/parent/node resolution. */

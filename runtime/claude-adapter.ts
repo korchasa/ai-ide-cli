@@ -20,6 +20,12 @@ import type {
   RuntimeSessionEvent,
   RuntimeSessionOptions,
 } from "./types.ts";
+import {
+  CAPABILITY_INVENTORY_SCHEMA,
+  type CapabilityInventory,
+  type FetchCapabilitiesOptions,
+  fetchInventoryViaInvoke,
+} from "./capabilities.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -73,6 +79,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     interactive: true,
     toolUseObservation: true,
     session: true,
+    capabilityInventory: true,
   },
   async invoke(opts) {
     // Translate runtime-neutral onToolUseObserved into the Claude-specific
@@ -193,6 +200,20 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
         stderr: status.stderr,
       })),
     };
+  },
+
+  fetchCapabilitiesSlow(
+    opts?: FetchCapabilitiesOptions,
+  ): Promise<CapabilityInventory> {
+    return fetchInventoryViaInvoke(
+      "claude",
+      (inner) => this.invoke(inner),
+      opts,
+      {
+        "--json-schema": JSON.stringify(CAPABILITY_INVENTORY_SCHEMA),
+        "--max-turns": "1",
+      },
+    );
   },
 
   async launchInteractive(
