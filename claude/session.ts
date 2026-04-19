@@ -18,6 +18,7 @@
 
 import type { ExtraArgsMap } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
+import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   defaultClaudeConfigDir,
   prepareSettingSourcesDir,
@@ -93,8 +94,10 @@ export interface ClaudeSession {
    */
   readonly events: AsyncIterable<ClaudeStreamEvent>;
   /**
-   * Close stdin. The CLI finishes the current turn, emits a terminal `result`
-   * event, and exits. Subsequent {@link send} calls throw.
+   * Close stdin (signal-only — returns promptly after the EOF is flushed).
+   * The CLI finishes the current turn, emits a terminal `result` event, and
+   * exits; full shutdown is observable via {@link done}. Subsequent
+   * {@link send} calls throw.
    */
   endInput(): Promise<void>;
   /**
@@ -209,7 +212,7 @@ export async function openClaudeSession(
   let stdinClosed = false;
   let aborted = false;
 
-  const queue = new EventQueue();
+  const queue = new SessionEventQueue<ClaudeStreamEvent>("ClaudeSession");
 
   const stdoutPump = (async () => {
     const decoder = new TextDecoder();
@@ -376,62 +379,6 @@ export async function openClaudeSession(
     abort,
     done,
   };
-}
-
-/**
- * Unbounded FIFO queue backing {@link ClaudeSession.events}. Async iterator
- * blocks on `next()` until a new event arrives or the queue is closed. Can be
- * iterated at most once; re-iteration throws.
- */
-class EventQueue implements AsyncIterable<ClaudeStreamEvent> {
-  private items: ClaudeStreamEvent[] = [];
-  private resolvers: Array<(r: IteratorResult<ClaudeStreamEvent>) => void> = [];
-  private closed = false;
-  private iterated = false;
-
-  push(event: ClaudeStreamEvent): void {
-    if (this.closed) return;
-    const resolver = this.resolvers.shift();
-    if (resolver) {
-      resolver({ value: event, done: false });
-      return;
-    }
-    this.items.push(event);
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    for (const resolver of this.resolvers) {
-      resolver({ value: undefined, done: true });
-    }
-    this.resolvers.length = 0;
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<ClaudeStreamEvent> {
-    if (this.iterated) {
-      throw new Error("ClaudeSession.events can only be iterated once");
-    }
-    this.iterated = true;
-    return {
-      next: (): Promise<IteratorResult<ClaudeStreamEvent>> => {
-        const item = this.items.shift();
-        if (item !== undefined) {
-          return Promise.resolve({ value: item, done: false });
-        }
-        if (this.closed) {
-          return Promise.resolve({ value: undefined, done: true });
-        }
-        return new Promise((resolve) => {
-          this.resolvers.push(resolve);
-        });
-      },
-      return: (): Promise<IteratorResult<ClaudeStreamEvent>> => {
-        this.close();
-        return Promise.resolve({ value: undefined, done: true });
-      },
-    };
-  }
 }
 
 /** Concatenate a list of byte chunks and decode as UTF-8. */

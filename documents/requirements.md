@@ -508,7 +508,27 @@ stable — never renumber on move.
 - **Description:** Long-lived agent session with push-based user input:
   caller opens a session, streams zero or more user messages into the
   running subprocess, consumes normalized events, and closes the session
-  gracefully (`endInput`) or forcefully (`abort`). Five layers:
+  gracefully (`endInput`) or forcefully (`abort`).
+
+  **Uniform contract (all four runtimes):**
+  - `send(content)` resolves once the runtime has **accepted** the input.
+    It never waits for turn completion. Transport/runtime errors during
+    turn processing surface via `events` and `done`, not via the `send`
+    promise. `send` throws only when (a) input has been closed, (b) the
+    session has been aborted, or (c) the adapter fails to deliver the
+    message (e.g. HTTP non-2xx for OpenCode, closed stdin for Claude).
+  - `endInput()` signals "no more sends will come" and returns
+    **promptly**. Full-shutdown observation is `await session.done`.
+  - `abort(reason?)` is a best-effort forceful stop. Idempotent.
+  - `events` is a single-consumer async iterable; re-iteration throws.
+    Completes when the underlying transport terminates.
+  - `done` always resolves (never rejects) with `RuntimeSessionStatus`
+    once the backing transport has fully terminated.
+  - `RuntimeSession` does NOT expose `pid`. Runtime-specific handles
+    (`ClaudeSession`, `CursorSession`, `OpenCodeSession`, `CodexSession`)
+    may expose `pid` / native session ids as their own fields.
+
+  Five layers:
   - **Claude-specific.** `openClaudeSession(opts)` spawns `claude -p
     --input-format stream-json --output-format stream-json --verbose` with
     piped stdin. Returns `ClaudeSession { pid, send, events, endInput,
@@ -536,11 +556,15 @@ stable — never renumber on move.
     so `openCursorSession(opts)` emulates a session by obtaining a chat ID
     via `cursor agent create-chat` once (or accepting `resumeSessionId`)
     and then spawning one short-lived `cursor agent -p --resume <chatId>
-    <message> --output-format stream-json --trust` subprocess per `send()`.
-    Sends are serialized through an internal worker queue; a synthetic
+    <message> --output-format stream-json --trust` subprocess per queued
+    send. Sends are serialized through an internal worker queue;
+    `send(content)` **enqueues and returns immediately** — it does not
+    wait for the subprocess to spawn or complete. A synthetic
     `{type:"system",subtype:"init",synthetic:true,session_id:<chatId>}`
     event is pushed at open time so consumers see the chat ID before the
-    first turn. Returns `CursorSession { runtime, pid, chatId, send,
+    first turn; per-turn subprocess failures emit a synthetic
+    `{type:"error",subtype:"send_failed"}` event instead of rejecting the
+    send promise. Returns `CursorSession { runtime, pid, chatId, send,
     events, endInput, abort, done }`; `pid` is a getter reflecting the
     currently-active subprocess (or `0` while idle). `systemPrompt` is
     merged into the first user message of newly created chats and
@@ -566,7 +590,11 @@ stable — never renumber on move.
     Codex adapters all implement it by delegating to their runtime-specific
     opener and translating native events into `RuntimeSessionEvent
     { runtime, type, raw }` (raw payload preserved for consumers that need
-    runtime-specific typing).
+    runtime-specific typing). Event conversion and `onEvent` wrapping go
+    through `runtime/session-adapter.ts` (`adaptRuntimeSession` +
+    `adaptEventCallback`) so every adapter emits the same shape with no
+    duplicated boilerplate. All four `events` iterables share a single
+    `runtime/event-queue.ts` (`SessionEventQueue<T>`) implementation.
 - **Motivation:** SDK-parity bidirectional sessions — callers can push
   follow-up messages without respawning the CLI from scratch or losing
   context; fits interactive use cases (`/compact`-style flows, human
@@ -586,9 +614,18 @@ stable — never renumber on move.
     `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
     `ai-ide-cli/scripts/smoke.ts` `session` group.
   - [x] Claude `send()` emits JSONL user-message shape; `endInput()`
-    closes stdin gracefully; `abort()` SIGTERMs and is idempotent; `done`
-    resolves with exit code + signal + stderr. Evidence:
-    `ai-ide-cli/claude/session_test.ts`.
+    closes stdin gracefully and returns promptly (signal-only);
+    `abort()` SIGTERMs and is idempotent; `done` resolves with exit code +
+    signal + stderr. Evidence: `ai-ide-cli/claude/session_test.ts`.
+  - [x] Uniform `RuntimeSession` contract: `send` resolves on input
+    acceptance (never blocks for turn completion); `endInput` is
+    signal-only (full-shutdown observable via `done`); `events` is
+    single-consumer; `done` always resolves; `pid` is NOT on the neutral
+    interface. Evidence: `ai-ide-cli/runtime/session_contract_test.ts`.
+  - [x] Shared `SessionEventQueue<T>` and adapter wrappers
+    (`adaptRuntimeSession`, `adaptEventCallback`) — no per-adapter
+    EventQueue copy-paste. Evidence: `ai-ide-cli/runtime/event-queue.ts`,
+    `ai-ide-cli/runtime/session-adapter.ts`.
   - [x] `capabilities.session: true` on Claude, OpenCode, Cursor, and
     Codex; `openSession?` implemented on every adapter;
     `RuntimeSession`, `RuntimeSessionOptions`, `RuntimeSessionEvent`,
@@ -603,15 +640,20 @@ stable — never renumber on move.
   - [x] OpenCode transport: spawns `opencode serve`, creates a session via
     `POST /session`, consumes `GET /event` SSE, forwards `send()` to
     `POST /session/:id/prompt_async`, `abort()` to
-    `POST /session/:id/abort`. Evidence:
+    `POST /session/:id/abort`. `endInput()` is signal-only — schedules
+    the wait-idle-then-SIGTERM in a background task; `done` is the source
+    of truth for full shutdown. Evidence:
     `ai-ide-cli/opencode/session.ts:openOpenCodeSession`.
   - [x] `openCursorSession()`, `createCursorChat()`, `buildCursorSendArgs()`,
     `CursorSession`, `CursorSessionOptions`, `CursorSessionStatus`,
     `CursorStreamEvent` exported. Faux session obtains a chat ID via
     `cursor agent create-chat` when `resumeSessionId` is omitted, then
-    spawns `cursor agent -p --resume <id> <msg>` once per send;
-    serialized worker queue; synthetic `system.init` emits chat ID.
-    Evidence: `ai-ide-cli/cursor/session.ts`,
+    spawns `cursor agent -p --resume <id> <msg>` once per queued send;
+    `send()` enqueues and returns immediately; `endInput()` is
+    signal-only; serialized worker queue; synthetic `system.init` emits
+    chat ID; per-turn failures surface as synthetic
+    `{type:"error",subtype:"send_failed"}` events. Evidence:
+    `ai-ide-cli/cursor/session.ts`,
     `ai-ide-cli/cursor/session_test.ts`, `ai-ide-cli/mod.ts`.
   - [x] `openCodexSession()`, `CodexSession`,
     `permissionModeToThreadStartFields()`, `expandCodexSessionExtraArgs()`,
@@ -625,9 +667,11 @@ stable — never renumber on move.
     `ai-ide-cli/deno.json` (`./codex/app-server` sub-path).
   - [x] Codex session `send()` routes first call → `turn/start`,
     subsequent calls during an active turn → `turn/steer`;
-    `endInput()` closes the JSON-RPC stdin gracefully; `abort()` SIGTERMs
-    and is idempotent; post-`endInput` `send` throws. Evidence:
-    `ai-ide-cli/codex/session_test.ts` (stub-binary integration tests).
+    `endInput()` closes the JSON-RPC stdin (signal-only — returns after
+    the EOF is flushed, does not wait for subprocess exit);
+    `abort()` SIGTERMs and is idempotent; post-`endInput` `send` throws.
+    Evidence: `ai-ide-cli/codex/session_test.ts` (stub-binary integration
+    tests), `ai-ide-cli/codex/app-server.ts:CodexAppServerClient.closeStdin`.
   - [x] Adapter-level tests for all four runtimes use a PATH-stubbed
     binary: Claude stub emits NDJSON on stdout; OpenCode stub execs a Deno
     fake HTTP+SSE server; Cursor stub dispatches on `create-chat`/`-p` and

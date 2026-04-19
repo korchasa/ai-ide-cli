@@ -22,6 +22,11 @@ ai-ide-cli/
     index.ts            — adapter registry + resolveRuntimeConfig()
     capabilities.ts     — CapabilityInventory types + shared LLM-probe driver
                           (fetchInventoryViaInvoke, parseCapabilityInventoryResponse)
+    event-queue.ts      — SessionEventQueue<T>: shared single-consumer async
+                          FIFO used by every runtime's `session.events`
+    session-adapter.ts  — adaptRuntimeSession, adaptEventCallback: shared
+                          helpers that translate runtime-specific sessions
+                          into runtime-neutral RuntimeSession handles
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
@@ -119,9 +124,17 @@ with `_` for test isolation.
   `resumeSessionId`, `extraArgs`, `permissionMode`, `model`, `signal`, `cwd`,
   `env`, `settingSources`, `onEvent`, `onStderr`. Omits one-shot-only fields
   (`taskPrompt`, retries, timeouts, hooks).
-- `RuntimeSession` — live handle: `runtime`, `pid`, `send(content)`,
+- `RuntimeSession` — live handle: `runtime`, `send(content)`,
   `events: AsyncIterable<RuntimeSessionEvent>`, `endInput()`, `abort(reason?)`,
-  `done: Promise<RuntimeSessionStatus>`.
+  `done: Promise<RuntimeSessionStatus>`. The neutral interface deliberately
+  omits `pid` — it's a leaky implementation detail that cannot be stable
+  across runtimes (Cursor has no long-lived backing process). Runtime-specific
+  handles may expose `pid`.
+- **Uniform session contract:** `send` resolves on input acceptance (never
+  blocks for turn completion); `endInput` is signal-only and returns
+  promptly (full shutdown observed via `done`); `abort` is idempotent;
+  `events` is single-consumer; `done` always resolves. Verified by
+  `runtime/session_contract_test.ts`.
 - `RuntimeSessionEvent` — `{ runtime, type, raw }`; raw payload preserved for
   runtime-specific typed access.
 - `RuntimeSessionStatus` — `{ exitCode, signal, stderr }`.
@@ -229,11 +242,16 @@ is reserved (added to `CLAUDE_RESERVED_FLAGS`).
 `prepareSettingSourcesDir`). Returns `ClaudeSession`:
 
 - `send(content)` — writes `{"type":"user","message":{"role":"user","content":…}}\n`
-  to stdin. Accepts string or pre-built `ClaudeSessionUserInput`.
-- `events` — single-consumer async iterable backed by a local `EventQueue`
-  (FIFO, resolver-pending pattern). Background stdout pump decodes NDJSON,
-  parses via `parseClaudeStreamEvent`, enqueues events and fires `onEvent`.
-- `endInput()` — closes stdin writer; CLI finishes turn and exits.
+  to stdin. Accepts string or pre-built `ClaudeSessionUserInput`. Resolves
+  as soon as the JSONL envelope is flushed (the CLI processes it
+  asynchronously; turn completion is observable via `events`).
+- `events` — single-consumer async iterable backed by the shared
+  `SessionEventQueue<T>` from `runtime/event-queue.ts`. Background stdout
+  pump decodes NDJSON, parses via `parseClaudeStreamEvent`, enqueues events
+  and fires `onEvent`.
+- `endInput()` — closes the stdin writer and returns promptly
+  (signal-only). The CLI finishes the current turn and exits on its own;
+  full shutdown is observable via `done`.
 - `abort(reason?)` — idempotent SIGTERM; `forceCloseStdin()` in parallel.
 - `done` — resolves with `ClaudeSessionStatus { exitCode, signal, stderr }`
   after stdout/stderr pumps drain and process exits. Always force-closes
@@ -278,20 +296,22 @@ abort, done }`:
 - `send(content)` — `POST /session/:id/prompt_async` with body
   `{ parts: [{type:"text", text:content}], agent?, model?, system? }`.
   `model` string of shape `"<providerID>/<modelID>"` is split into
-  `{providerID, modelID}`; any other string passes through. Throws
-  `OpenCodeSession: aborted` after `abort()` and `OpenCodeSession: input
-  already closed` after `endInput()`.
-- `events` — single-consumer async iterable backed by a local `EventQueue`
-  (same FIFO, resolver-pending pattern as `claude/session.ts`). SSE pump
-  reads `GET /event`, splits on `\n\n`, delegates each frame to
+  `{providerID, modelID}`; any other string passes through. Resolves on
+  HTTP 204 (input accepted); turn completion is observable via `events`.
+  Throws `OpenCodeSession: aborted` after `abort()` and `OpenCodeSession:
+  input already closed` after `endInput()`.
+- `events` — single-consumer async iterable backed by the shared
+  `SessionEventQueue<T>` from `runtime/event-queue.ts`. SSE pump reads
+  `GET /event`, splits on `\n\n`, delegates each frame to
   `parseOpenCodeSseFrame`, dispatches session-scoped events (by
   `extractOpenCodeSessionId`) onto the queue, fires `onEvent` for every
   frame (including global). Tracks `isIdle` from `session.status` and
   `session.idle` events for graceful-close gating.
-- `endInput()` — if a send was issued within the last 500 ms, races a
-  short wait on the next `session.status | session.idle` event before
-  checking `isIdle`; loops on `waitForNext(idle)` until idle; then aborts
-  the SSE fetch and SIGTERMs the server. Idempotent.
+- `endInput()` — signal-only: flips the `inputClosed` flag and returns
+  promptly. A background task (`waitForIdleAndTeardown`) waits for the
+  next session-scoped `session.idle` event (with a 500 ms grace for a
+  just-issued send) and then aborts the SSE fetch and SIGTERMs the
+  server. Full shutdown is observable via `done`. Idempotent.
 - `abort(reason?)` — sets `aborted=true`, fires-and-forgets
   `POST /session/:id/abort`, aborts the SSE fetch, SIGTERMs the server.
   Idempotent.
@@ -351,13 +371,21 @@ timeout via `AbortSignal.timeout`.
 `openCursorSession(opts)`: resolves chat ID (create-chat or
 `resumeSessionId`), pushes a synthetic `{type:"system", subtype:"init",
 synthetic:true, session_id:<chatId>, runtime:"cursor"}` event, starts an
-internal worker loop. `send(content)` queues a message; the worker
-spawns one `cursor agent -p --resume <id> <msg>` subprocess per dequeued
-item, streams its NDJSON output into the shared event queue, waits for
-exit, and resolves the send's promise. `pid` is a getter returning the
-active subprocess PID or `0` while idle. `endInput()` closes the queue
-gracefully after drain. `abort(reason?)` SIGTERMs the active subprocess,
-rejects pending sends, closes the queue; idempotent. External
+internal worker loop. `send(content)` **enqueues and returns
+immediately** — it does not wait for the subprocess to spawn or
+complete. The worker spawns one `cursor agent -p --resume <id> <msg>`
+subprocess per dequeued item, streams its NDJSON output into the shared
+event queue, and waits for exit before processing the next. Per-turn
+subprocess failures emit a synthetic
+`{type:"error", subtype:"send_failed", runtime:"cursor", error:…,
+synthetic:true}` event on the event stream instead of rejecting the send
+promise; the last exit code is also reflected on `done`. `pid` is a
+getter returning the active subprocess PID or `0` while idle (concrete
+`CursorSession` only — not on the neutral `RuntimeSession`).
+`endInput()` is signal-only: flips `inputClosed`, wakes the worker, and
+returns. The worker drains any remaining queued sends and closes the
+event stream; full shutdown is observable via `done`. `abort(reason?)`
+SIGTERMs the active subprocess, closes the queue; idempotent. External
 `AbortSignal` is wired to `abort()`. `done` resolves with
 `{exitCode, signal, stderr}` (last subprocess exit + concatenated
 stderr across all turns). `systemPrompt` is merged into the **first**
@@ -428,16 +456,23 @@ Thread/turn semantics:
 - First `send(content)` issues `turn/start` with `input: [{type:"text",
   text, text_elements: []}]` (the sibling `text_elements` array is
   required by the protocol due to serde Rust conventions — omitting it
-  yields `-32602` "invalid params").
+  yields `-32602` "invalid params"). Resolves on the RPC ack (input
+  accepted by the server); turn completion is observable via events.
 - Subsequent `send(content)` calls while a turn is active issue
   `turn/steer` with `expectedTurnId` taken from the most recent
   `turn/started` notification. The `turn/start` response can arrive
   before or after the matching notification; only the notification path
   drives `activeTurnId` to avoid a race where `expectedTurnId` points at
   a turn the server hasn't yet acknowledged.
+- `endInput()` is signal-only — calls
+  `CodexAppServerClient.closeStdin()` (EOFs stdin and returns after
+  flush) and resolves. Full shutdown is observable via `done`. The
+  legacy `CodexAppServerClient.close()` (EOF + await done) is retained
+  for callers that want to block until the process has exited.
 - Inbound notifications are mapped to `RuntimeSessionEvent
   { runtime: "codex", type: lastPathSegment(method), raw: {method,
-  params} }` and pushed into a single-consumer FIFO `EventQueue`.
+  params} }` and pushed into the shared `SessionEventQueue<T>` from
+  `runtime/event-queue.ts`.
 - `activeTurnId` tracking is a single-writer side-channel in the
   notification pump; `updateActiveTurnId(current, note)` is exported as
   a pure helper.
@@ -478,8 +513,12 @@ callers never see a zombie process on rejection.
 
 - When `true`, adapter implements `openSession(opts)` returning a long-lived
   `RuntimeSession` with push-based `send()`, async-iterable `events`,
-  graceful `endInput()`, SIGTERM `abort()`. See FR-L19 and §3.6 / §3.8 /
-  §3.10.1 / §3.11-3.12.
+  signal-only `endInput()`, SIGTERM `abort()`. Uniform contract:
+  `send` resolves on input acceptance; `endInput` returns promptly; `done`
+  is the source of truth for full shutdown; `pid` is NOT on the neutral
+  interface. See FR-L19 and §3.6 / §3.8 / §3.10.1 / §3.11-3.12, and
+  `runtime/session_contract_test.ts` for the backend-independent
+  invariants.
 - **Claude** — real streaming-input transport backed by `claude/session.ts`
   (`claude -p --input-format stream-json --output-format stream-json
   --verbose`); one long-lived subprocess with piped stdin/stdout.

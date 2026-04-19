@@ -18,6 +18,7 @@
  */
 
 import { register, unregister } from "../process-registry.ts";
+import { SessionEventQueue } from "../runtime/event-queue.ts";
 
 /** Parsed SSE event from the OpenCode server's `/event` endpoint. */
 export interface OpenCodeSessionEvent {
@@ -105,10 +106,11 @@ export interface OpenCodeSession {
    */
   readonly events: AsyncIterable<OpenCodeSessionEvent>;
   /**
-   * Wait for the session to become idle (when a send is in flight) and then
-   * SIGTERM the server. Idempotent. Blocks indefinitely if the agent never
-   * reaches `session.idle`; callers with stricter timing should use
-   * {@link OpenCodeSessionOptions.signal} or {@link abort}.
+   * Signal no more sends will arrive. Returns promptly. A background task
+   * waits for the next session-scoped `session.idle` event and SIGTERMs the
+   * server; the full shutdown is observable via {@link done}. Idempotent.
+   * For stricter timing, combine with {@link OpenCodeSessionOptions.signal}
+   * or call {@link abort} directly.
    */
   endInput(): Promise<void>;
   /**
@@ -285,7 +287,9 @@ export async function openOpenCodeSession(
     sessionId = body.id;
   }
 
-  const queue = new EventQueue();
+  const queue = new SessionEventQueue<OpenCodeSessionEvent>(
+    "OpenCodeSession",
+  );
   const waiters: Array<{
     predicate: (e: OpenCodeSessionEvent) => boolean;
     resolve: () => void;
@@ -411,10 +415,7 @@ export async function openOpenCodeSession(
     }
   }
 
-  async function endInput(): Promise<void> {
-    if (aborted) return;
-    if (inputClosed) return;
-    inputClosed = true;
+  async function waitForIdleAndTeardown(): Promise<void> {
     // If a send was just issued, the `session.status busy` event may not
     // have arrived yet. Wait for it (or idle) before relying on `isIdle`.
     if (hasSentAny && Date.now() - lastSendAt < 500) {
@@ -426,7 +427,7 @@ export async function openOpenCodeSession(
         new Promise<void>((resolve) => setTimeout(resolve, 500)),
       ]);
     }
-    while (!isIdle) {
+    while (!isIdle && !aborted) {
       await waitForNext((e) =>
         (e.type === "session.idle" ||
           (e.type === "session.status" &&
@@ -435,8 +436,22 @@ export async function openOpenCodeSession(
         extractOpenCodeSessionId(e) === sessionId
       );
     }
-    sseController.abort();
-    doKill();
+    if (!aborted) {
+      sseController.abort();
+      doKill();
+    }
+  }
+
+  function endInput(): Promise<void> {
+    if (aborted) return Promise.resolve();
+    if (inputClosed) return Promise.resolve();
+    inputClosed = true;
+    // Signal-only: schedule the wait-idle-then-SIGTERM in the background.
+    // Full-shutdown observation lives on `session.done`.
+    waitForIdleAndTeardown().catch(() => {
+      // best-effort — abort() path will tear the server down.
+    });
+    return Promise.resolve();
   }
 
   function abort(_reason?: string): void {
@@ -548,64 +563,6 @@ async function pickFreePort(hostname: string): Promise<number> {
   // binds it.
   await Promise.resolve();
   return port;
-}
-
-/**
- * Unbounded FIFO queue backing {@link OpenCodeSession.events}. Mirrors the
- * pattern used by {@link import("../claude/session").openClaudeSession}'s
- * event queue: async iterator blocks on `next()` until a new event arrives or
- * the queue is closed. Can be iterated at most once; re-iteration throws.
- */
-class EventQueue implements AsyncIterable<OpenCodeSessionEvent> {
-  private items: OpenCodeSessionEvent[] = [];
-  private resolvers: Array<(r: IteratorResult<OpenCodeSessionEvent>) => void> =
-    [];
-  private closed = false;
-  private iterated = false;
-
-  push(event: OpenCodeSessionEvent): void {
-    if (this.closed) return;
-    const resolver = this.resolvers.shift();
-    if (resolver) {
-      resolver({ value: event, done: false });
-      return;
-    }
-    this.items.push(event);
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    for (const resolver of this.resolvers) {
-      resolver({ value: undefined, done: true });
-    }
-    this.resolvers.length = 0;
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<OpenCodeSessionEvent> {
-    if (this.iterated) {
-      throw new Error("OpenCodeSession.events can only be iterated once");
-    }
-    this.iterated = true;
-    return {
-      next: (): Promise<IteratorResult<OpenCodeSessionEvent>> => {
-        const item = this.items.shift();
-        if (item !== undefined) {
-          return Promise.resolve({ value: item, done: false });
-        }
-        if (this.closed) {
-          return Promise.resolve({ value: undefined, done: true });
-        }
-        return new Promise((resolve) => {
-          this.resolvers.push(resolve);
-        });
-      },
-      return: (): Promise<IteratorResult<OpenCodeSessionEvent>> => {
-        this.close();
-        return Promise.resolve({ value: undefined, done: true });
-      },
-    };
-  }
 }
 
 function decodeConcat(chunks: Uint8Array[]): string {

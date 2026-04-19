@@ -20,6 +20,7 @@ import type {
   RuntimeSessionEvent,
   RuntimeSessionOptions,
 } from "./types.ts";
+import { adaptEventCallback, adaptRuntimeSession } from "./session-adapter.ts";
 import {
   CAPABILITY_INVENTORY_SCHEMA,
   type CapabilityInventory,
@@ -28,6 +29,16 @@ import {
 } from "./capabilities.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
+
+function claudeEventToRuntime(event: ClaudeStreamEvent): RuntimeSessionEvent {
+  const raw = event as unknown as Record<string, unknown>;
+  const typeField = raw["type"];
+  return {
+    runtime: "claude",
+    type: typeof typeField === "string" ? typeField : "unknown",
+    raw,
+  };
+}
 
 /**
  * Resolve the user-level Claude skills directory.
@@ -148,16 +159,6 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
-    const wrappedOnEvent = opts.onEvent
-      ? (event: ClaudeStreamEvent) => {
-        opts.onEvent!({
-          runtime: "claude",
-          type: event.type,
-          raw: event as unknown as Record<string, unknown>,
-        });
-      }
-      : undefined;
-
     const inner = await openClaudeSession({
       agent: opts.agent,
       systemPrompt: opts.systemPrompt,
@@ -169,37 +170,10 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       env: opts.env,
       signal: opts.signal,
       settingSources: opts.settingSources,
-      onEvent: wrappedOnEvent,
+      onEvent: adaptEventCallback(opts.onEvent, claudeEventToRuntime),
       onStderr: opts.onStderr,
     });
-
-    const events: AsyncIterable<RuntimeSessionEvent> = {
-      async *[Symbol.asyncIterator]() {
-        for await (const event of inner.events) {
-          const raw = event as unknown as Record<string, unknown>;
-          const typeField = raw["type"];
-          yield {
-            runtime: "claude",
-            type: typeof typeField === "string" ? typeField : "unknown",
-            raw,
-          };
-        }
-      },
-    };
-
-    return {
-      runtime: "claude",
-      pid: inner.pid,
-      send: (content: string) => inner.send(content),
-      events,
-      endInput: () => inner.endInput(),
-      abort: (reason) => inner.abort(reason),
-      done: inner.done.then((status) => ({
-        exitCode: status.exitCode,
-        signal: status.signal,
-        stderr: status.stderr,
-      })),
-    };
+    return adaptRuntimeSession("claude", inner, claudeEventToRuntime);
   },
 
   fetchCapabilitiesSlow(

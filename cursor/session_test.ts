@@ -283,11 +283,11 @@ Deno.test("openCursorSession — abort kills active subprocess", async () => {
     const session = await openCursorSession(makeOpts({
       env: { STUB_CHAT_ID: "chat-A", STUB_SEND_SCRIPT: sendScript },
     }));
-    const sendPromise = session.send("hello");
+    // send() enqueues and returns immediately; the worker spawns the subprocess.
+    await session.send("hello");
     // Give the subprocess a moment to actually start.
     await new Promise((r) => setTimeout(r, 100));
     session.abort("test");
-    await assertRejects(() => sendPromise, Error);
     const status = await session.done;
     // Either the script's TERM trap (143) ran, or SIGTERM hit before trap.
     assert(
@@ -305,10 +305,10 @@ Deno.test("openCursorSession — external AbortSignal SIGTERMs subprocess", asyn
       signal: controller.signal,
       env: { STUB_CHAT_ID: "chat-A", STUB_SEND_SCRIPT: sendScript },
     }));
-    const sendPromise = session.send("hello");
-    setTimeout(() => controller.abort("external"), 100);
-    await assertRejects(() => sendPromise, Error);
+    await session.send("hello");
+    const timer = setTimeout(() => controller.abort("external"), 100);
     const status = await session.done;
+    clearTimeout(timer);
     assert(status.exitCode === 143 || status.signal === "SIGTERM");
   });
 });

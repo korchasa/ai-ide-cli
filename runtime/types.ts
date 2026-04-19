@@ -308,15 +308,38 @@ export interface RuntimeSessionStatus {
  * (graceful) or `abort` (SIGTERM) → `done` resolves. Adapters translate the
  * runtime's native event stream into {@link RuntimeSessionEvent} while
  * preserving the raw payload for consumers that need it.
+ *
+ * Contract (uniform across all adapters):
+ *
+ * - `send(content)` resolves once the runtime has **accepted** the input.
+ *   It does NOT wait for the runtime to finish processing the turn.
+ *   Transport/runtime errors surfaced during turn processing arrive via
+ *   `events` and `done`, not via the `send` promise. `send` throws only
+ *   when input has been closed (`endInput`), the session is aborted, or
+ *   the adapter fails to deliver the message (e.g. HTTP non-2xx for
+ *   OpenCode).
+ * - `endInput()` signals "no more sends will come" and initiates graceful
+ *   shutdown of the input channel. It returns promptly. Full-shutdown
+ *   observation is `await session.done`.
+ * - `abort(reason?)` is a best-effort forceful stop (SIGTERM or
+ *   transport-specific equivalent). Idempotent.
+ * - `events` is a single-consumer async iterable; re-iteration throws.
+ *   Completes when the underlying transport terminates.
+ * - `done` always resolves (never rejects) with {@link RuntimeSessionStatus}
+ *   once the backing transport has fully terminated.
+ *
+ * Runtime-specific handles (e.g. `ClaudeSession`, `CursorSession`) may
+ * expose additional fields such as `pid` or a native session id; cast
+ * to the concrete type when you need them.
  */
 export interface RuntimeSession {
   /** Runtime that owns this session. */
   readonly runtime: RuntimeId;
-  /** OS process ID of the spawned subprocess. */
-  readonly pid: number;
   /**
-   * Push an additional user message into the running session. Throws if
-   * input has been closed or the subprocess has exited.
+   * Push an additional user message into the running session. Resolves
+   * when the runtime has accepted the input (not when the turn completes).
+   * Throws if input has been closed, the session has been aborted, or the
+   * adapter fails to deliver the message.
    */
   send(content: string): Promise<void>;
   /**
@@ -324,11 +347,14 @@ export interface RuntimeSession {
    * runtime's output stream closes. Can be iterated at most once.
    */
   readonly events: AsyncIterable<RuntimeSessionEvent>;
-  /** Close the input stream; runtime finishes the current turn and exits. */
+  /**
+   * Signal no more sends will arrive; initiate graceful shutdown.
+   * Returns promptly — await {@link done} for full termination.
+   */
   endInput(): Promise<void>;
-  /** SIGTERM the subprocess. Idempotent. */
+  /** SIGTERM (or transport-equivalent). Idempotent. */
   abort(reason?: string): void;
-  /** Resolves with terminal status when the subprocess exits. */
+  /** Resolves with terminal status when the backing transport exits. */
   readonly done: Promise<RuntimeSessionStatus>;
 }
 

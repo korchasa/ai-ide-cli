@@ -15,6 +15,17 @@
  *    turns. A synthetic `{type:"system",subtype:"init",synthetic:true}` event
  *    carrying the chat ID is pushed at open time.
  *
+ * Contract alignment with {@link import("../runtime/types.ts").RuntimeSession}:
+ *
+ * - `send(content)` returns **immediately** after the message is enqueued.
+ *   The actual subprocess spawn happens asynchronously on the worker. Per-turn
+ *   failures surface as a synthetic `{type:"error",subtype:"send_failed"}`
+ *   event on the event stream and through `done.exitCode`, not as a rejected
+ *   `send` promise.
+ * - `endInput()` signals "no more sends" and returns promptly. The worker
+ *   drains any remaining queued sends, then closes the event stream. Full
+ *   shutdown is observable via `await session.done`.
+ *
  * The session stays "alive" between sends from the caller's perspective, but
  * no subprocess is actually running while idle. `pid` reflects the currently
  * active subprocess (or `0` when idle). Model selection is ignored for the
@@ -26,6 +37,7 @@
 
 import type { ExtraArgsMap } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
+import { SessionEventQueue } from "../runtime/event-queue.ts";
 import { register, unregister } from "../process-registry.ts";
 import { CURSOR_RESERVED_FLAGS } from "./process.ts";
 
@@ -110,21 +122,26 @@ export interface CursorSession {
   /** Chat ID backing every `--resume` call. */
   readonly chatId: string;
   /**
-   * Queue the given text as a new user message. Returns when that message's
-   * subprocess has exited. Throws if input is closed or the session is
-   * aborted.
+   * Enqueue the given text as a new user message. Resolves **immediately**
+   * once the item has been queued — does NOT wait for the subprocess to
+   * spawn or complete. Throws synchronously if input is closed or the
+   * session has been aborted. Per-turn subprocess failures surface as a
+   * synthetic `{type:"error",subtype:"send_failed"}` event on the event
+   * stream, not as a rejected promise.
    */
   send(content: string): Promise<void>;
   /**
    * Async iterable of every parsed NDJSON event across all send subprocesses,
-   * prefixed by a synthetic `system.init` event carrying the chat ID.
+   * prefixed by a synthetic `system.init` event carrying the chat ID, plus
+   * any synthetic `error` events produced by failed sends.
    * Completes after {@link endInput} drains or {@link abort} fires. Can be
    * iterated at most once.
    */
   readonly events: AsyncIterable<CursorStreamEvent>;
   /**
-   * Refuse further sends, wait for pending sends to drain, then close the
-   * event stream.
+   * Signal no more sends will arrive. Returns promptly. The worker drains
+   * any remaining queued sends, then closes the event stream. Full shutdown
+   * is observable via {@link done}.
    */
   endInput(): Promise<void>;
   /**
@@ -231,7 +248,7 @@ export async function openCursorSession(
   const chatId = opts.resumeSessionId ??
     (await createCursorChat({ cwd: opts.cwd, env: opts.env }));
 
-  const queue = new EventQueue();
+  const queue = new SessionEventQueue<CursorStreamEvent>("CursorSession");
   queue.push({
     type: "system",
     subtype: "init",
@@ -240,12 +257,7 @@ export async function openCursorSession(
     synthetic: true,
   });
 
-  interface Pending {
-    message: string;
-    resolve: () => void;
-    reject: (err: Error) => void;
-  }
-  const pending: Pending[] = [];
+  const pending: string[] = [];
   const stderrChunks: Uint8Array[] = [];
 
   let inputClosed = false;
@@ -329,24 +341,24 @@ export async function openCursorSession(
             workerWaker = r;
           });
         }
-        if (aborted) {
-          for (const p of pending.splice(0)) {
-            p.reject(new Error("CursorSession: aborted"));
-          }
-          break;
-        }
+        if (aborted) break;
         if (pending.length === 0 && inputClosed) break;
 
-        const item = pending.shift()!;
+        const message = pending.shift()!;
         try {
-          await runSingleSend(item.message);
-          if (aborted) {
-            item.reject(new Error("CursorSession: aborted"));
-          } else {
-            item.resolve();
-          }
+          await runSingleSend(message);
         } catch (err) {
-          item.reject(err as Error);
+          if (!aborted) {
+            // Surface as a synthetic event so consumers see per-turn failures
+            // without a per-send reject. `done` also reflects last exit code.
+            queue.push({
+              type: "error",
+              subtype: "send_failed",
+              runtime: "cursor",
+              error: (err as Error).message,
+              synthetic: true,
+            });
+          }
         }
       }
     } finally {
@@ -363,18 +375,17 @@ export async function openCursorSession(
     if (inputClosed) {
       return Promise.reject(new Error("CursorSession: input already closed"));
     }
-    return new Promise<void>((resolve, reject) => {
-      pending.push({ message: content, resolve, reject });
-      wakeWorker();
-    });
+    pending.push(content);
+    wakeWorker();
+    return Promise.resolve();
   }
 
-  async function endInput(): Promise<void> {
+  function endInput(): Promise<void> {
     if (!inputClosed) {
       inputClosed = true;
       wakeWorker();
     }
-    await workerDone;
+    return Promise.resolve();
   }
 
   function abort(_reason?: string): void {
@@ -423,7 +434,7 @@ export async function openCursorSession(
 
 async function pumpStdout(
   stream: ReadableStream<Uint8Array>,
-  queue: EventQueue,
+  queue: SessionEventQueue<CursorStreamEvent>,
   onEvent: CursorSessionOptions["onEvent"],
 ): Promise<void> {
   const reader = stream.getReader();
@@ -554,63 +565,4 @@ function parseChatId(stdout: string): string {
   if (!trimmed) return "";
   const tokens = trimmed.split(/\s+/).filter(Boolean);
   return tokens[tokens.length - 1] ?? "";
-}
-
-/**
- * Unbounded FIFO queue backing {@link CursorSession.events}. Mirrors the
- * {@link import("../claude/session").ClaudeSession}'s queue semantics: async
- * iterator blocks on `next()` until a new event arrives or the queue is
- * closed. Can be iterated at most once; re-iteration throws.
- */
-class EventQueue implements AsyncIterable<CursorStreamEvent> {
-  private items: CursorStreamEvent[] = [];
-  private resolvers: Array<
-    (r: IteratorResult<CursorStreamEvent>) => void
-  > = [];
-  private closed = false;
-  private iterated = false;
-
-  push(event: CursorStreamEvent): void {
-    if (this.closed) return;
-    const resolver = this.resolvers.shift();
-    if (resolver) {
-      resolver({ value: event, done: false });
-      return;
-    }
-    this.items.push(event);
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    for (const resolver of this.resolvers) {
-      resolver({ value: undefined, done: true });
-    }
-    this.resolvers.length = 0;
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<CursorStreamEvent> {
-    if (this.iterated) {
-      throw new Error("CursorSession.events can only be iterated once");
-    }
-    this.iterated = true;
-    return {
-      next: (): Promise<IteratorResult<CursorStreamEvent>> => {
-        const item = this.items.shift();
-        if (item !== undefined) {
-          return Promise.resolve({ value: item, done: false });
-        }
-        if (this.closed) {
-          return Promise.resolve({ value: undefined, done: true });
-        }
-        return new Promise((resolve) => {
-          this.resolvers.push(resolve);
-        });
-      },
-      return: (): Promise<IteratorResult<CursorStreamEvent>> => {
-        this.close();
-        return Promise.resolve({ value: undefined, done: true });
-      },
-    };
-  }
 }

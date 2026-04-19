@@ -23,8 +23,11 @@
  *    set to the currently active turn's id.
  * 5. Inbound `turn/started` / `turn/completed` notifications track the
  *    active turn id.
- * 6. {@link CodexSession.endInput} sends `initialize` → nothing; it closes
- *    the client stdin and waits for exit. {@link CodexSession.abort} SIGTERMs.
+ * 6. {@link CodexSession.endInput} is signal-only — calls
+ *    `CodexAppServerClient.closeStdin()` (EOFs stdin, returns after flush)
+ *    and resolves without waiting for the subprocess to exit. Full-shutdown
+ *    observation lives on `session.done`. {@link CodexSession.abort}
+ *    SIGTERMs.
  *
  * Upstream references — use as source of truth when extending:
  *
@@ -48,6 +51,7 @@ import type {
   RuntimeSessionOptions,
   RuntimeSessionStatus,
 } from "../runtime/types.ts";
+import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   CodexAppServerClient,
   type CodexAppServerNotification,
@@ -119,9 +123,11 @@ export function expandCodexSessionExtraArgs(
 /**
  * Result of {@link openCodexSession}. Thin wrapper around a
  * {@link CodexAppServerClient} that exposes runtime-neutral session
- * semantics.
+ * semantics plus the Codex-specific `threadId` and app-server `pid`.
  */
 export interface CodexSession extends RuntimeSession {
+  /** OS process id of the spawned `codex app-server` subprocess. */
+  readonly pid: number;
   /** Stable Codex thread id assigned by `thread/start` or `thread/resume`. */
   readonly threadId: string;
 }
@@ -172,7 +178,7 @@ export async function openCodexSession(
 
     // Aggregate notifications into a runtime-neutral event queue and keep a
     // side-channel notification pump that owns the activeTurnId tracking.
-    const events = new EventQueue();
+    const events = new SessionEventQueue<RuntimeSessionEvent>("CodexSession");
 
     const notificationPump = (async () => {
       try {
@@ -229,7 +235,9 @@ export async function openCodexSession(
     const endInput = async (): Promise<void> => {
       if (ended) return;
       ended = true;
-      await client.close();
+      // Signal-only: close stdin and return. Full-shutdown observation is
+      // `await session.done`. Matches the uniform RuntimeSession contract.
+      await client.closeStdin();
     };
 
     const abort = (reason?: string): void => {
@@ -365,62 +373,4 @@ export const CODEX_SESSION_CLIENT_VERSION = "0.3.0";
 function lastSegment(method: string): string {
   const idx = method.lastIndexOf("/");
   return idx >= 0 ? method.slice(idx + 1) : method;
-}
-
-/**
- * Unbounded FIFO queue backing a session's `events` iterable. Identical
- * semantics to `ClaudeSession`'s queue: blocking `next()`, single-shot
- * iteration, close-on-stdout-eof.
- */
-class EventQueue implements AsyncIterable<RuntimeSessionEvent> {
-  private items: RuntimeSessionEvent[] = [];
-  private resolvers: Array<
-    (r: IteratorResult<RuntimeSessionEvent>) => void
-  > = [];
-  private closed = false;
-  private iterated = false;
-
-  push(event: RuntimeSessionEvent): void {
-    if (this.closed) return;
-    const resolver = this.resolvers.shift();
-    if (resolver) {
-      resolver({ value: event, done: false });
-      return;
-    }
-    this.items.push(event);
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    for (const resolver of this.resolvers) {
-      resolver({ value: undefined, done: true });
-    }
-    this.resolvers.length = 0;
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<RuntimeSessionEvent> {
-    if (this.iterated) {
-      throw new Error("CodexSession.events can only be iterated once");
-    }
-    this.iterated = true;
-    return {
-      next: (): Promise<IteratorResult<RuntimeSessionEvent>> => {
-        const item = this.items.shift();
-        if (item !== undefined) {
-          return Promise.resolve({ value: item, done: false });
-        }
-        if (this.closed) {
-          return Promise.resolve({ value: undefined, done: true });
-        }
-        return new Promise((resolve) => {
-          this.resolvers.push(resolve);
-        });
-      },
-      return: (): Promise<IteratorResult<RuntimeSessionEvent>> => {
-        this.close();
-        return Promise.resolve({ value: undefined, done: true });
-      },
-    };
-  }
 }

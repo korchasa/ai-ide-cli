@@ -1,6 +1,5 @@
 import { invokeCursorCli } from "../cursor/process.ts";
 import {
-  type CursorSession,
   type CursorStreamEvent,
   openCursorSession,
 } from "../cursor/session.ts";
@@ -11,11 +10,22 @@ import type {
   RuntimeSessionEvent,
   RuntimeSessionOptions,
 } from "./types.ts";
+import { adaptEventCallback, adaptRuntimeSession } from "./session-adapter.ts";
 import {
   type CapabilityInventory,
   type FetchCapabilitiesOptions,
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
+
+function cursorEventToRuntime(event: CursorStreamEvent): RuntimeSessionEvent {
+  const raw = event as Record<string, unknown>;
+  const typeField = raw["type"];
+  return {
+    runtime: "cursor",
+    type: typeof typeField === "string" ? typeField : "unknown",
+    raw,
+  };
+}
 
 export const cursorRuntimeAdapter: RuntimeAdapter = {
   id: "cursor",
@@ -43,18 +53,7 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
-    const wrappedOnEvent = opts.onEvent
-      ? (event: CursorStreamEvent) => {
-        const typeField = (event as { type?: unknown }).type;
-        opts.onEvent!({
-          runtime: "cursor",
-          type: typeof typeField === "string" ? typeField : "unknown",
-          raw: event as Record<string, unknown>,
-        });
-      }
-      : undefined;
-
-    const inner: CursorSession = await openCursorSession({
+    const inner = await openCursorSession({
       systemPrompt: opts.systemPrompt,
       permissionMode: opts.permissionMode,
       resumeSessionId: opts.resumeSessionId,
@@ -62,39 +61,10 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
       cwd: opts.cwd,
       env: opts.env,
       signal: opts.signal,
-      onEvent: wrappedOnEvent,
+      onEvent: adaptEventCallback(opts.onEvent, cursorEventToRuntime),
       onStderr: opts.onStderr,
     });
-
-    const events: AsyncIterable<RuntimeSessionEvent> = {
-      async *[Symbol.asyncIterator]() {
-        for await (const event of inner.events) {
-          const raw = event as Record<string, unknown>;
-          const typeField = raw["type"];
-          yield {
-            runtime: "cursor",
-            type: typeof typeField === "string" ? typeField : "unknown",
-            raw,
-          };
-        }
-      },
-    };
-
-    return {
-      runtime: "cursor",
-      get pid() {
-        return inner.pid;
-      },
-      send: (content: string) => inner.send(content),
-      events,
-      endInput: () => inner.endInput(),
-      abort: (reason) => inner.abort(reason),
-      done: inner.done.then((status) => ({
-        exitCode: status.exitCode,
-        signal: status.signal,
-        stderr: status.stderr,
-      })),
-    };
+    return adaptRuntimeSession("cursor", inner, cursorEventToRuntime);
   },
 
   launchInteractive(): Promise<InteractiveResult> {

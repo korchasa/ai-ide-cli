@@ -337,6 +337,20 @@ export class CodexAppServerClient {
   }
 
   /**
+   * Signal-only shutdown — EOFs stdin and returns immediately without
+   * waiting for the subprocess to exit. Callers that need to observe the
+   * terminal status should `await this.done` separately.
+   *
+   * Used by {@link import("./session.ts").openCodexSession}'s `endInput` to
+   * honour the uniform {@link import("../runtime/types.ts").RuntimeSession}
+   * contract ("endInput returns promptly; done is the source of truth for
+   * full shutdown").
+   */
+  closeStdin(): Promise<void> {
+    return this.forceCloseStdin();
+  }
+
+  /**
    * Send SIGTERM to the subprocess. Idempotent. Pending requests reject
    * once stdout closes.
    */

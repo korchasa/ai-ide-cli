@@ -11,6 +11,7 @@ import type {
   RuntimeSessionEvent,
   RuntimeSessionOptions,
 } from "./types.ts";
+import { adaptEventCallback, adaptRuntimeSession } from "./session-adapter.ts";
 import {
   type CapabilityInventory,
   type FetchCapabilitiesOptions,
@@ -18,6 +19,12 @@ import {
 } from "./capabilities.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
+
+function opencodeEventToRuntime(
+  event: OpenCodeSessionEvent,
+): RuntimeSessionEvent {
+  return { runtime: "opencode", type: event.type, raw: event.raw };
+}
 
 /**
  * Resolve the OpenCode/Claude skills directory. OpenCode discovers skills
@@ -54,16 +61,6 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
-    const wrappedOnEvent = opts.onEvent
-      ? (event: OpenCodeSessionEvent) => {
-        opts.onEvent!({
-          runtime: "opencode",
-          type: event.type,
-          raw: event.raw,
-        });
-      }
-      : undefined;
-
     const inner = await openOpenCodeSession({
       agent: opts.agent,
       systemPrompt: opts.systemPrompt,
@@ -72,35 +69,10 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       cwd: opts.cwd,
       env: opts.env,
       signal: opts.signal,
-      onEvent: wrappedOnEvent,
+      onEvent: adaptEventCallback(opts.onEvent, opencodeEventToRuntime),
       onStderr: opts.onStderr,
     });
-
-    const events: AsyncIterable<RuntimeSessionEvent> = {
-      async *[Symbol.asyncIterator]() {
-        for await (const event of inner.events) {
-          yield {
-            runtime: "opencode",
-            type: event.type,
-            raw: event.raw,
-          };
-        }
-      },
-    };
-
-    return {
-      runtime: "opencode",
-      pid: inner.pid,
-      send: (content: string) => inner.send(content),
-      events,
-      endInput: () => inner.endInput(),
-      abort: (reason) => inner.abort(reason),
-      done: inner.done.then((status) => ({
-        exitCode: status.exitCode,
-        signal: status.signal,
-        stderr: status.stderr,
-      })),
-    };
+    return adaptRuntimeSession("opencode", inner, opencodeEventToRuntime);
   },
 
   async launchInteractive(
