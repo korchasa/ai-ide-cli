@@ -70,6 +70,11 @@ import this package to invoke IDE CLIs uniformly.
 - `deno doc --lint <entry>` validates only symbols reachable from `<entry>`.
   Public symbols reachable via other barrels stay invisible without a
   publish dry-run — `scripts/check.ts` runs both.
+- Exported top-level `const` with a literal initializer needs an explicit
+  type annotation (`missing-explicit-type`), even when TS can infer it:
+  `export const FOO: string = "..."` — not `export const FOO = "..."`. The
+  rule only fires on `deno publish --dry-run`; `deno task check` runs the
+  dry-run last.
 
 ## Release Flow
 
