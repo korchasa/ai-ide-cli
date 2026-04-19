@@ -1,8 +1,41 @@
 # Changelog
 
-All notable changes to `@korchasa/ai-ide-cli` are documented here.
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-and the project adheres to [Semantic Versioning](https://semver.org/).
+All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
+
+## [0.4.0](https://github.com/korchasa/ai-ide-cli/compare/v0.2.0...v0.4.0) (2026-04-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* borrow SDK patterns — typed events, AbortSignal, map extraArgs, hooks, settingSources
+
+### Features
+
+* add streaming-input session support for Claude ([7ae4ff8](https://github.com/korchasa/ai-ide-cli/commit/7ae4ff84aeae9e29bc7ebbd61655f7223adc78cb))
+* borrow SDK patterns — typed events, AbortSignal, map extraArgs, hooks, settingSources ([26f0f7b](https://github.com/korchasa/ai-ide-cli/commit/26f0f7b616f5ab1afb7b7ac647f598b2fc742d1f))
+* **codex:** add Codex CLI runtime adapter ([363419c](https://github.com/korchasa/ai-ide-cli/commit/363419c718cf79724affa56837197bc7fdc20ddf))
+* **codex:** full capability parity with Claude/OpenCode adapters ([7f833e3](https://github.com/korchasa/ai-ide-cli/commit/7f833e3d345ca39a3b27817095aca2ca9036804a))
+* **runtime:** add fetchCapabilitiesSlow for LLM-probed skill/command inventory ([cc3cf32](https://github.com/korchasa/ai-ide-cli/commit/cc3cf32c9e49ac224cc1e88839866f2ffa9806d1))
+
+
+### Chores
+
+* add .versionrc.json for standard-version ([7d8f02e](https://github.com/korchasa/ai-ide-cli/commit/7d8f02e5239591a3f0c45abf30662c2263613af2))
+
+
+### Tests
+
+* add scripts/smoke.ts for real-binary AbortSignal and settingSources checks ([2359199](https://github.com/korchasa/ai-ide-cli/commit/2359199be5d9c4bdb6b403c264bb9e7d54babeb7))
+
+
+### Documentation
+
+* capture Claude init-event gotcha and JSR explicit-type convention ([67a3f87](https://github.com/korchasa/ai-ide-cli/commit/67a3f87ffd08e0ec06c7c49b62256313738a80f8))
+* **changelog:** note loader-side shim plan for flowai-workflow ([0ef6516](https://github.com/korchasa/ai-ide-cli/commit/0ef65167536cb3782f7d3734d4a418f095b93576))
+* consolidate split SRS/SDS into single files ([555996e](https://github.com/korchasa/ai-ide-cli/commit/555996ec15720bc0394107ebb2bd45aed12e7168))
+* drop mandated Release Flow section ([9d9b68d](https://github.com/korchasa/ai-ide-cli/commit/9d9b68dfb04829bc33353281d62bbeed60f3e093))
+* link upstream SDK repos for Claude and Codex adapters ([7c688e5](https://github.com/korchasa/ai-ide-cli/commit/7c688e5eb606a0ea383459ea3e700bc6884f7a33))
+* **runtime:** document circular-import and stdin-writer gotchas ([001d0a4](https://github.com/korchasa/ai-ide-cli/commit/001d0a44a1c509b9ad306e7e0a9a0cb3c8047789))
 
 ## 0.3.0 — 2026-04-19
 

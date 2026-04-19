@@ -1,6 +1,6 @@
 {
   "name": "@korchasa/ai-ide-cli",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
@@ -34,10 +34,14 @@
   },
   "fmt": {
     "proseWrap": "preserve",
-    "exclude": ["**/*.md"]
+    "exclude": [
+      "**/*.md"
+    ]
   },
   "lint": {
-    "exclude": ["scripts/"]
+    "exclude": [
+      "scripts/"
+    ]
   },
   "publish": {
     "include": [
