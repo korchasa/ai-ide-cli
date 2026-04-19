@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.4.1](https://github.com/korchasa/ai-ide-cli/compare/v0.4.0...v0.4.1) (2026-04-19)
+
+
+### Features
+
+* **opencode:** add openSession for streaming-input sessions ([71b0550](https://github.com/korchasa/ai-ide-cli/commit/71b0550922a8827d2db2572b18426d16aa5b0c4c))
+
 ## [0.4.0](https://github.com/korchasa/ai-ide-cli/compare/v0.2.0...v0.4.0) (2026-04-19)
 
 
