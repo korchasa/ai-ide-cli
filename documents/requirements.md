@@ -525,7 +525,7 @@ stable — never renumber on move.
 - **Description:** Long-lived agent session with push-based user input:
   caller opens a session, streams zero or more user messages into the
   running subprocess, consumes normalized events, and closes the session
-  gracefully (`endInput`) or forcefully (`abort`). Two layers:
+  gracefully (`endInput`) or forcefully (`abort`). Three layers:
   - **Claude-specific.** `openClaudeSession(opts)` spawns `claude -p
     --input-format stream-json --output-format stream-json --verbose` with
     piped stdin. Returns `ClaudeSession { pid, send, events, endInput,
@@ -535,13 +535,28 @@ stable — never renumber on move.
     parsed `ClaudeStreamEvent`. `buildClaudeSessionArgs(opts)` is exported
     for testing. `--input-format` is reserved in `CLAUDE_RESERVED_FLAGS`.
     `settingSources` isolation (FR-L18) is honored.
+  - **OpenCode-specific.** `openOpenCodeSession(opts)` spawns a dedicated
+    `opencode serve --hostname 127.0.0.1 --port <free>` subprocess, parses
+    the `listening on …` line from stdout, creates (or resumes) a session
+    via `POST /session`, subscribes to `GET /event` (SSE), and forwards
+    `send(content)` to `POST /session/:id/prompt_async` with body
+    `{ parts: [{type:"text", text}], agent?, model?, system? }`. `model` of
+    shape `"<providerID>/<modelID>"` is split into
+    `{ providerID, modelID }`; any other string passes through.
+    `endInput()` waits for the next session-scoped `session.idle` event and
+    SIGTERMs the server; `abort()` issues a best-effort
+    `POST /session/:id/abort` then SIGTERMs. Returns `OpenCodeSession` with
+    the same `{ pid, send, events, endInput, abort, done }` shape plus
+    `sessionId` and `baseUrl`. Each call spawns its own server — sessions
+    do not share subprocesses.
   - **Runtime-neutral.** `RuntimeAdapter.openSession?(opts):
     Promise<RuntimeSession>` is optional; callers check
-    `capabilities.session` before invoking. Claude adapter implements it by
-    delegating to `openClaudeSession` and translating events to
-    `RuntimeSessionEvent { runtime, type, raw }` (raw payload preserved
-    for consumers that need runtime-specific typing). Other adapters set
-    `session: false` and omit the method.
+    `capabilities.session` before invoking. Claude and OpenCode adapters
+    implement it by delegating to their runtime-specific opener and
+    translating events to `RuntimeSessionEvent { runtime, type, raw }`
+    (raw payload preserved for consumers that need runtime-specific
+    typing). `cursor` and `codex` adapters set `session: false` and omit
+    the method.
 - **Motivation:** SDK-parity bidirectional sessions — callers can push
   follow-up messages without respawning the CLI or losing context; fits
   interactive use cases (`/compact`-style flows, human correction loops,
@@ -560,17 +575,30 @@ stable — never renumber on move.
     gracefully; `abort()` SIGTERMs and is idempotent; `done` resolves with
     exit code + signal + stderr. Evidence:
     `ai-ide-cli/claude/session_test.ts`.
-  - [x] `capabilities.session: true` on Claude, `false` on others;
-    `openSession?` implemented only by Claude adapter; `RuntimeSession`,
-    `RuntimeSessionOptions`, `RuntimeSessionEvent`, `RuntimeSessionStatus`
-    exported from `mod.ts`. Evidence: `ai-ide-cli/runtime/types.ts`,
-    `ai-ide-cli/runtime/claude-adapter.ts`,
-    `ai-ide-cli/runtime/{codex,cursor,opencode}-adapter.ts`,
-    `ai-ide-cli/mod.ts`.
-  - [x] Adapter-level tests use a stub `claude` on PATH; smoke test runs
-    two live turns in one session + mid-session abort against the real
-    binary. Evidence: `ai-ide-cli/runtime/claude-adapter_test.ts`,
-    `ai-ide-cli/scripts/smoke.ts`.
+  - [x] `capabilities.session: true` on Claude and OpenCode, `false` on
+    `cursor`/`codex`; `openSession?` implemented by Claude and OpenCode
+    adapters; `RuntimeSession`, `RuntimeSessionOptions`,
+    `RuntimeSessionEvent`, `RuntimeSessionStatus` exported from `mod.ts`.
+    Evidence: `ai-ide-cli/runtime/types.ts`,
+    `ai-ide-cli/runtime/{claude,opencode}-adapter.ts`,
+    `ai-ide-cli/runtime/{codex,cursor}-adapter.ts`, `ai-ide-cli/mod.ts`.
+  - [x] `openOpenCodeSession()`, `OpenCodeSession`, `OpenCodeSessionOptions`,
+    `OpenCodeSessionStatus`, `OpenCodeSessionEvent` exported. Evidence:
+    `ai-ide-cli/opencode/session.ts`, `ai-ide-cli/mod.ts`,
+    `ai-ide-cli/deno.json` (`./opencode/session` sub-path).
+  - [x] OpenCode transport: spawns `opencode serve`, creates a session via
+    `POST /session`, consumes `GET /event` SSE, forwards `send()` to
+    `POST /session/:id/prompt_async`, `abort()` to
+    `POST /session/:id/abort`. Evidence:
+    `ai-ide-cli/opencode/session.ts:openOpenCodeSession`.
+  - [x] Adapter-level tests for both runtimes use a PATH-stubbed binary:
+    Claude stub is a bash script emitting NDJSON on stdout; OpenCode stub
+    is a bash script that execs a Deno fake HTTP+SSE server. Claude
+    additionally has a smoke test running two live turns + mid-session
+    abort against the real binary. Evidence:
+    `ai-ide-cli/runtime/claude-adapter_test.ts`,
+    `ai-ide-cli/runtime/opencode-adapter_test.ts`,
+    `ai-ide-cli/opencode/session_test.ts`, `ai-ide-cli/scripts/smoke.ts`.
 
 
 ### 3.20 FR-L20: Capability Inventory (LLM-probed)

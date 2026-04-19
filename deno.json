@@ -16,6 +16,7 @@
     "./codex/process": "./codex/process.ts",
     "./codex/hitl-mcp": "./codex/hitl-mcp.ts",
     "./opencode/process": "./opencode/process.ts",
+    "./opencode/session": "./opencode/session.ts",
     "./opencode/hitl-mcp": "./opencode/hitl-mcp.ts",
     "./hitl-mcp": "./hitl-mcp.ts",
     "./skill": "./skill/mod.ts"
