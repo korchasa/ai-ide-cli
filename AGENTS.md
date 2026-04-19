@@ -76,16 +76,6 @@ import this package to invoke IDE CLIs uniformly.
   rule only fires on `deno publish --dry-run`; `deno task check` runs the
   dry-run last.
 
-## Release Flow
-
-1. Merge a Conventional Commits PR to `main`.
-2. CI's `release` job detects `feat`/`fix`/`perf`/`refactor`/`build`
-   commits since the last tag, runs `deno task release`, pushes the bump
-   commit and `vX.Y.Z` tag.
-3. `publish-jsr` job publishes to JSR via OIDC trusted publishing.
-4. `publish-github` job creates a GitHub Release at the tag with generated
-   notes.
-
 ## JSR Trusted Publisher
 
 Linked to `korchasa/ai-ide-cli` on JSR. If publishing starts failing with
