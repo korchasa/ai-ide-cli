@@ -6,6 +6,7 @@ import {
 import type {
   InteractiveResult,
   RuntimeAdapter,
+  RuntimeInvokeOptions,
   RuntimeSession,
   RuntimeSessionEvent,
   RuntimeSessionOptions,
@@ -16,6 +17,32 @@ import {
   type FetchCapabilitiesOptions,
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
+import { validateToolFilter } from "./tool-filter.ts";
+
+// FR-L24: see runtime/opencode-adapter.ts for the shared rationale.
+let warnedToolFilter = false;
+
+function warnToolFilterOnce(
+  opts: Pick<RuntimeInvokeOptions, "allowedTools" | "disallowedTools">,
+): void {
+  if (warnedToolFilter) return;
+  if (opts.allowedTools === undefined && opts.disallowedTools === undefined) {
+    return;
+  }
+  warnedToolFilter = true;
+  console.warn(
+    "[cursor] allowedTools/disallowedTools ignored — runtime does not support tool filtering (capabilities.toolFilter === false). See FR-L24.",
+  );
+}
+
+/**
+ * Test-only: reset the one-time warning latch.
+ *
+ * @internal
+ */
+export function _resetToolFilterWarning(): void {
+  warnedToolFilter = false;
+}
 
 function cursorEventToRuntime(event: CursorStreamEvent): RuntimeSessionEvent {
   const raw = event as Record<string, unknown>;
@@ -48,8 +75,11 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     toolUseObservation: false,
     session: true,
     capabilityInventory: true,
+    toolFilter: false,
   },
   invoke(opts) {
+    validateToolFilter("cursor", opts);
+    warnToolFilterOnce(opts);
     return invokeCursorCli(opts);
   },
 
@@ -64,6 +94,8 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    validateToolFilter("cursor", opts);
+    warnToolFilterOnce(opts);
     const inner = await openCursorSession({
       systemPrompt: opts.systemPrompt,
       permissionMode: opts.permissionMode,

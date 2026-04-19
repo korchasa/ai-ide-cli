@@ -23,6 +23,7 @@ import {
   SessionInputClosedError,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
+import { validateToolFilter } from "../runtime/tool-filter.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   defaultClaudeConfigDir,
@@ -58,6 +59,16 @@ export interface ClaudeSessionOptions {
   signal?: AbortSignal;
   /** Claude configuration-source filter (see {@link prepareSettingSourcesDir}). */
   settingSources?: SettingSource[];
+  /**
+   * Tool-name allow-list — emitted as `--allowedTools <comma-joined>`.
+   * Mutually exclusive with {@link disallowedTools}. See FR-L24.
+   */
+  allowedTools?: string[];
+  /**
+   * Tool-name deny-list — emitted as `--disallowedTools <comma-joined>`.
+   * Mutually exclusive with {@link allowedTools}. See FR-L24.
+   */
+  disallowedTools?: string[];
   /** Fires for every parsed stream-json event in stdout order. */
   onEvent?: (event: ClaudeStreamEvent) => void;
   /** Fires for every decoded stderr line (trimmed, may be empty). */
@@ -158,6 +169,19 @@ export function buildClaudeSessionArgs(opts: ClaudeSessionOptions): string[] {
 
   if (opts.permissionMode) {
     args.push("--permission-mode", opts.permissionMode);
+  }
+
+  // FR-L24: typed tool filter. Shares the validator with the one-shot
+  // path (claude/process.ts); same two-token emission shape.
+  const toolFilterMode = validateToolFilter("claude", {
+    allowedTools: opts.allowedTools,
+    disallowedTools: opts.disallowedTools,
+    extraArgs: opts.claudeArgs,
+  });
+  if (toolFilterMode === "allowed") {
+    args.push("--allowedTools", opts.allowedTools!.join(","));
+  } else if (toolFilterMode === "disallowed") {
+    args.push("--disallowedTools", opts.disallowedTools!.join(","));
   }
 
   args.push(...expandExtraArgs(opts.claudeArgs, CLAUDE_RESERVED_FLAGS));

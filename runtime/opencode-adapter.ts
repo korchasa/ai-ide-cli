@@ -7,6 +7,7 @@ import type {
   InteractiveOptions,
   InteractiveResult,
   RuntimeAdapter,
+  RuntimeInvokeOptions,
   RuntimeSession,
   RuntimeSessionEvent,
   RuntimeSessionOptions,
@@ -17,8 +18,38 @@ import {
   type FetchCapabilitiesOptions,
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
+import { validateToolFilter } from "./tool-filter.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
+
+// FR-L24: OpenCode has no native tool-filter CLI flag. The validator
+// still runs (uniform malformed-input rejection across runtimes); the
+// warn-once latch fires `console.warn` on the first valid set-value
+// call per process. Shared across `invoke` and `openSession`.
+let warnedToolFilter = false;
+
+function warnToolFilterOnce(
+  opts: Pick<RuntimeInvokeOptions, "allowedTools" | "disallowedTools">,
+): void {
+  if (warnedToolFilter) return;
+  if (opts.allowedTools === undefined && opts.disallowedTools === undefined) {
+    return;
+  }
+  warnedToolFilter = true;
+  console.warn(
+    "[opencode] allowedTools/disallowedTools ignored — runtime does not support tool filtering (capabilities.toolFilter === false). See FR-L24.",
+  );
+}
+
+/**
+ * Test-only: reset the one-time warning latch so individual tests can
+ * assert the warning fires again.
+ *
+ * @internal
+ */
+export function _resetToolFilterWarning(): void {
+  warnedToolFilter = false;
+}
 
 function opencodeEventToRuntime(
   event: OpenCodeSessionEvent,
@@ -56,8 +87,11 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     toolUseObservation: true,
     session: true,
     capabilityInventory: true,
+    toolFilter: false,
   },
   invoke(opts) {
+    validateToolFilter("opencode", opts);
+    warnToolFilterOnce(opts);
     return invokeOpenCodeCli(opts);
   },
 
@@ -72,6 +106,8 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    validateToolFilter("opencode", opts);
+    warnToolFilterOnce(opts);
     const inner = await openOpenCodeSession({
       agent: opts.agent,
       systemPrompt: opts.systemPrompt,

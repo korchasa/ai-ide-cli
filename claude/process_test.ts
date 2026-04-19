@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { buildClaudeArgs, invokeClaudeCli } from "./process.ts";
 import type { ClaudeInvokeOptions } from "./process.ts";
 
@@ -85,4 +85,139 @@ Deno.test("invokeClaudeCli — aborted-before-start signal returns Aborted error
   );
   assertEquals(result.error, "Aborted before start");
   assertEquals(result.output, undefined);
+});
+
+// --- Tool filter (FR-L24) ---
+
+Deno.test("buildClaudeArgs — allowedTools single tool emits two argv tokens", () => {
+  const args = buildClaudeArgs(makeOpts({ allowedTools: ["Read"] }));
+  const idx = args.indexOf("--allowedTools");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "Read");
+  assertEquals(args.includes("--disallowedTools"), false);
+});
+
+Deno.test("buildClaudeArgs — allowedTools multi-tool comma-joined into exactly two argv tokens", () => {
+  const args = buildClaudeArgs(
+    makeOpts({ allowedTools: ["Read", "Bash(git *)", "Edit"] }),
+  );
+  const idx = args.indexOf("--allowedTools");
+  assert(idx >= 0);
+  // Key invariant: exactly two tokens (flag + one comma-joined value),
+  // not four tokens (flag + three space-separated values).
+  assertEquals(args[idx + 1], "Read,Bash(git *),Edit");
+  // The next tokens after the value must NOT be the remaining tool names.
+  const next = args[idx + 2];
+  assertEquals(next === "Bash(git *)" || next === "Edit", false);
+});
+
+Deno.test("buildClaudeArgs — disallowedTools emits --disallowedTools with comma join", () => {
+  const args = buildClaudeArgs(
+    makeOpts({ disallowedTools: ["Bash(git push *)", "Edit"] }),
+  );
+  const idx = args.indexOf("--disallowedTools");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "Bash(git push *),Edit");
+  assertEquals(args.includes("--allowedTools"), false);
+});
+
+Deno.test("buildClaudeArgs — resume path still emits --allowedTools", () => {
+  const args = buildClaudeArgs(
+    makeOpts({
+      resumeSessionId: "ses_abc",
+      allowedTools: ["Read"],
+    }),
+  );
+  const idx = args.indexOf("--allowedTools");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "Read");
+});
+
+Deno.test("buildClaudeArgs — both typed fields set throws", () => {
+  assertThrows(
+    () =>
+      buildClaudeArgs(
+        makeOpts({
+          allowedTools: ["Read"],
+          disallowedTools: ["Bash"],
+        }),
+      ),
+    Error,
+    "mutually exclusive",
+  );
+});
+
+Deno.test("buildClaudeArgs — typed field + --allowedTools in extraArgs throws", () => {
+  assertThrows(
+    () =>
+      buildClaudeArgs(
+        makeOpts({
+          allowedTools: ["Read"],
+          claudeArgs: { "--allowedTools": "Read" },
+        }),
+      ),
+    Error,
+    'extraArgs key "--allowedTools"',
+  );
+});
+
+Deno.test("buildClaudeArgs — typed field + --allowed-tools in extraArgs throws", () => {
+  assertThrows(
+    () =>
+      buildClaudeArgs(
+        makeOpts({
+          allowedTools: ["Read"],
+          claudeArgs: { "--allowed-tools": "Read" },
+        }),
+      ),
+    Error,
+    'extraArgs key "--allowed-tools"',
+  );
+});
+
+Deno.test("buildClaudeArgs — typed field + --tools in extraArgs throws", () => {
+  assertThrows(
+    () =>
+      buildClaudeArgs(
+        makeOpts({
+          allowedTools: ["Read"],
+          claudeArgs: { "--tools": "default" },
+        }),
+      ),
+    Error,
+    'extraArgs key "--tools"',
+  );
+});
+
+Deno.test("buildClaudeArgs — legacy path (extraArgs --allowedTools only, no typed field) still works", () => {
+  const args = buildClaudeArgs(
+    makeOpts({ claudeArgs: { "--allowedTools": "Read,Grep" } }),
+  );
+  const idx = args.indexOf("--allowedTools");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "Read,Grep");
+});
+
+Deno.test("buildClaudeArgs — empty allowedTools array throws", () => {
+  assertThrows(
+    () => buildClaudeArgs(makeOpts({ allowedTools: [] })),
+    Error,
+    "non-empty",
+  );
+});
+
+Deno.test("buildClaudeArgs — empty-string member in allowedTools throws", () => {
+  assertThrows(
+    () => buildClaudeArgs(makeOpts({ allowedTools: [""] })),
+    Error,
+    "non-empty strings",
+  );
+});
+
+Deno.test("buildClaudeArgs — empty disallowedTools array throws", () => {
+  assertThrows(
+    () => buildClaudeArgs(makeOpts({ disallowedTools: [] })),
+    Error,
+    "non-empty",
+  );
 });

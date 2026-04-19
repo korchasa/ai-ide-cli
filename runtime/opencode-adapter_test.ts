@@ -1,7 +1,27 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { getRuntimeAdapter } from "./index.ts";
+import { _resetToolFilterWarning } from "./opencode-adapter.ts";
 
 const opencodeRuntimeAdapter = getRuntimeAdapter("opencode");
+
+/**
+ * Replace `console.warn` with a capturing spy for the duration of `fn`.
+ * Restores the original in `finally` so tests stay isolated even on throw.
+ */
+async function withWarnSpy<T>(
+  fn: (calls: unknown[][]) => Promise<T> | T,
+): Promise<T> {
+  const calls: unknown[][] = [];
+  const orig = console.warn;
+  console.warn = (...args: unknown[]) => {
+    calls.push(args);
+  };
+  try {
+    return await fn(calls);
+  } finally {
+    console.warn = orig;
+  }
+}
 
 /**
  * Swap `opencode` for a shell stub on PATH that execs a Deno-based fake
@@ -157,5 +177,115 @@ Deno.test("opencodeRuntimeAdapter.openSession — abort returns exit status on d
     session.abort("test");
     const status = await session.done;
     assert(status.exitCode !== undefined || status.signal !== null);
+  });
+});
+
+// --- Tool filter (FR-L24) ---
+
+Deno.test("opencodeRuntimeAdapter — toolFilter capability is false", () => {
+  assertEquals(opencodeRuntimeAdapter.capabilities.toolFilter, false);
+});
+
+Deno.test("opencodeRuntimeAdapter.invoke — malformed tool filter throws synchronously", () => {
+  _resetToolFilterWarning();
+  // `invoke` is not declared `async`, so the validator throw propagates
+  // synchronously to the caller — `assertThrows`, not `assertRejects`.
+  assertThrows(
+    () =>
+      opencodeRuntimeAdapter.invoke({
+        taskPrompt: "ignored",
+        timeoutSeconds: 1,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+        allowedTools: ["Read"],
+        disallowedTools: ["Bash"],
+      }),
+    Error,
+    "mutually exclusive",
+  );
+});
+
+Deno.test("opencodeRuntimeAdapter.invoke — empty allowedTools array throws synchronously", () => {
+  _resetToolFilterWarning();
+  assertThrows(
+    () =>
+      opencodeRuntimeAdapter.invoke({
+        taskPrompt: "ignored",
+        timeoutSeconds: 1,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+        allowedTools: [],
+      }),
+    Error,
+    "non-empty",
+  );
+});
+
+Deno.test("opencodeRuntimeAdapter.openSession — warns once, subsequent session calls silent, reset re-enables warn", async () => {
+  _resetToolFilterWarning();
+  await withStubOpenCode(async () => {
+    await withWarnSpy(async (calls) => {
+      const s1 = await opencodeRuntimeAdapter.openSession!({
+        allowedTools: ["Read"],
+      });
+      s1.abort();
+      await s1.done;
+      assertEquals(calls.length, 1);
+      const s2 = await opencodeRuntimeAdapter.openSession!({
+        allowedTools: ["Read"],
+      });
+      s2.abort();
+      await s2.done;
+      assertEquals(calls.length, 1, "second call must not warn again");
+      _resetToolFilterWarning();
+      const s3 = await opencodeRuntimeAdapter.openSession!({
+        allowedTools: ["Read"],
+      });
+      s3.abort();
+      await s3.done;
+      assertEquals(calls.length, 2, "after reset, next call warns again");
+      assert(
+        String(calls[0][0]).includes("[opencode]"),
+        "warning must attribute the runtime",
+      );
+    });
+  });
+});
+
+Deno.test("opencodeRuntimeAdapter.openSession — no warn when typed fields are not set", async () => {
+  _resetToolFilterWarning();
+  await withStubOpenCode(async () => {
+    await withWarnSpy(async (calls) => {
+      const s = await opencodeRuntimeAdapter.openSession!({});
+      s.abort();
+      await s.done;
+      assertEquals(calls.length, 0);
+    });
+  });
+});
+
+Deno.test("opencodeRuntimeAdapter.openSession — malformed input rejects without flipping warn latch", async () => {
+  _resetToolFilterWarning();
+  await withStubOpenCode(async () => {
+    await withWarnSpy(async (calls) => {
+      // `openSession` is declared `async`, so the synchronous validator
+      // throw is wrapped into a rejected promise.
+      await assertRejects(
+        () =>
+          opencodeRuntimeAdapter.openSession!({
+            allowedTools: ["Read"],
+            disallowedTools: ["Bash"],
+          }),
+        Error,
+        "mutually exclusive",
+      );
+      assertEquals(calls.length, 0, "failed validation must not warn");
+      const s = await opencodeRuntimeAdapter.openSession!({
+        allowedTools: ["Read"],
+      });
+      s.abort();
+      await s.done;
+      assertEquals(calls.length, 1, "valid call after throw warns once");
+    });
   });
 });

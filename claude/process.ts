@@ -18,6 +18,7 @@
 import type { CliRunOutput, Verbosity } from "../types.ts";
 import type { ExtraArgsMap, RuntimeInvokeResult } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
+import { validateToolFilter } from "../runtime/tool-filter.ts";
 import {
   defaultClaudeConfigDir,
   prepareSettingSourcesDir,
@@ -119,6 +120,16 @@ export interface ClaudeInvokeOptions {
    * {@link import("../runtime/setting-sources").prepareSettingSourcesDir}).
    */
   settingSources?: SettingSource[];
+  /**
+   * Tool-name allow-list — emitted as `--allowedTools <comma-joined>`.
+   * Mutually exclusive with {@link disallowedTools}. See FR-L24.
+   */
+  allowedTools?: string[];
+  /**
+   * Tool-name deny-list — emitted as `--disallowedTools <comma-joined>`.
+   * Mutually exclusive with {@link allowedTools}. See FR-L24.
+   */
+  disallowedTools?: string[];
 }
 
 /** Invoke claude CLI with retry logic. */
@@ -187,6 +198,21 @@ export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
   // Permission mode (first-class field, maps to --permission-mode)
   if (opts.permissionMode) {
     args.push("--permission-mode", opts.permissionMode);
+  }
+
+  // FR-L24: typed tool filter. Validator throws on mutual exclusion,
+  // empty array, empty-string members, or collision with the legacy
+  // extraArgs keys. Emission is comma-joined into exactly two argv
+  // tokens regardless of array length.
+  const toolFilterMode = validateToolFilter("claude", {
+    allowedTools: opts.allowedTools,
+    disallowedTools: opts.disallowedTools,
+    extraArgs: opts.claudeArgs,
+  });
+  if (toolFilterMode === "allowed") {
+    args.push("--allowedTools", opts.allowedTools!.join(","));
+  } else if (toolFilterMode === "disallowed") {
+    args.push("--disallowedTools", opts.disallowedTools!.join(","));
   }
 
   // Extra CLI args go next (expanded from the map shape).

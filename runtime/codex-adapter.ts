@@ -4,6 +4,7 @@ import type {
   InteractiveOptions,
   InteractiveResult,
   RuntimeAdapter,
+  RuntimeInvokeOptions,
   RuntimeSession,
   RuntimeSessionOptions,
 } from "./types.ts";
@@ -13,8 +14,34 @@ import {
   type FetchCapabilitiesOptions,
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
+import { validateToolFilter } from "./tool-filter.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
+
+// FR-L24: see runtime/opencode-adapter.ts for the shared rationale.
+let warnedToolFilter = false;
+
+function warnToolFilterOnce(
+  opts: Pick<RuntimeInvokeOptions, "allowedTools" | "disallowedTools">,
+): void {
+  if (warnedToolFilter) return;
+  if (opts.allowedTools === undefined && opts.disallowedTools === undefined) {
+    return;
+  }
+  warnedToolFilter = true;
+  console.warn(
+    "[codex] allowedTools/disallowedTools ignored — runtime does not support tool filtering (capabilities.toolFilter === false). See FR-L24.",
+  );
+}
+
+/**
+ * Test-only: reset the one-time warning latch.
+ *
+ * @internal
+ */
+export function _resetToolFilterWarning(): void {
+  warnedToolFilter = false;
+}
 
 /**
  * Resolve the Codex user-level skills directory.
@@ -79,11 +106,16 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     toolUseObservation: true,
     session: true,
     capabilityInventory: true,
+    toolFilter: false,
   },
   invoke(opts) {
+    validateToolFilter("codex", opts);
+    warnToolFilterOnce(opts);
     return invokeCodexCli(opts);
   },
   openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    validateToolFilter("codex", opts);
+    warnToolFilterOnce(opts);
     return openCodexSession(opts);
   },
 

@@ -54,6 +54,15 @@ export interface RuntimeCapabilities {
    * for enumerating skills and slash commands via an LLM prompt.
    */
   capabilityInventory: boolean;
+  /**
+   * Whether the adapter translates
+   * {@link RuntimeInvokeOptions.allowedTools} /
+   * {@link RuntimeInvokeOptions.disallowedTools} into a runtime-native
+   * tool-filter flag. Adapters with `false` silently accept the field,
+   * emit one `console.warn` on first use per process, and otherwise
+   * ignore it. See FR-L24.
+   */
+  toolFilter: boolean;
 }
 
 /**
@@ -213,6 +222,20 @@ export interface RuntimeInvokeOptions {
    * Currently honored by the Claude adapter only; other adapters ignore.
    */
   settingSources?: SettingSource[];
+  /**
+   * Tool-name allow-list forwarded to runtimes with native support
+   * (currently Claude → `--allowedTools`). Mutually exclusive with
+   * {@link disallowedTools}. Tool-name grammar is owned by the runtime
+   * (e.g. `"Bash(git *)"`, `"Edit"`); the library only enforces
+   * "non-empty array of non-empty strings".
+   *
+   * Adapters with {@link RuntimeCapabilities.toolFilter} === `false`
+   * accept the field, warn once per process via `console.warn`, and
+   * ignore it otherwise. See FR-L24.
+   */
+  allowedTools?: string[];
+  /** Tool-name deny-list — counterpart to {@link allowedTools}. See FR-L24. */
+  disallowedTools?: string[];
 }
 
 /** Result returned by a runtime adapter invocation. */
@@ -293,6 +316,16 @@ export interface RuntimeSessionOptions {
   env?: Record<string, string>;
   /** Claude-specific configuration-source filter. Ignored by other runtimes. */
   settingSources?: SettingSource[];
+  /**
+   * Tool-name allow-list. Same contract as
+   * {@link RuntimeInvokeOptions.allowedTools} — see that field's JSDoc.
+   */
+  allowedTools?: string[];
+  /**
+   * Tool-name deny-list. Same contract as
+   * {@link RuntimeInvokeOptions.disallowedTools} — see that field's JSDoc.
+   */
+  disallowedTools?: string[];
   /** Fires for every parsed event from the runtime's event stream, in order. */
   onEvent?: (event: RuntimeSessionEvent) => void;
   /** Fires for every decoded stderr chunk (may be empty on a flush). */

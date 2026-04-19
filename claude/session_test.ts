@@ -220,3 +220,111 @@ Deno.test("openClaudeSession — send writes JSONL to stdin in user-message shap
     },
   );
 });
+
+// --- Tool filter parity (FR-L24) ---
+
+Deno.test("buildClaudeSessionArgs — allowedTools single tool emits two argv tokens", () => {
+  const args = buildClaudeSessionArgs(makeOpts({ allowedTools: ["Read"] }));
+  const idx = args.indexOf("--allowedTools");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "Read");
+});
+
+Deno.test("buildClaudeSessionArgs — allowedTools multi-tool comma-joined into two argv tokens", () => {
+  const args = buildClaudeSessionArgs(
+    makeOpts({ allowedTools: ["Read", "Bash(git *)", "Edit"] }),
+  );
+  const idx = args.indexOf("--allowedTools");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "Read,Bash(git *),Edit");
+  const next = args[idx + 2];
+  assertEquals(next === "Bash(git *)" || next === "Edit", false);
+});
+
+Deno.test("buildClaudeSessionArgs — disallowedTools emits --disallowedTools with comma join", () => {
+  const args = buildClaudeSessionArgs(
+    makeOpts({ disallowedTools: ["Bash(git push *)", "Edit"] }),
+  );
+  const idx = args.indexOf("--disallowedTools");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "Bash(git push *),Edit");
+});
+
+Deno.test("buildClaudeSessionArgs — resume path still emits --allowedTools", () => {
+  const args = buildClaudeSessionArgs(
+    makeOpts({
+      resumeSessionId: "ses_abc",
+      allowedTools: ["Read"],
+    }),
+  );
+  const idx = args.indexOf("--allowedTools");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "Read");
+});
+
+Deno.test("buildClaudeSessionArgs — both typed fields set throws", () => {
+  assertThrows(
+    () =>
+      buildClaudeSessionArgs(
+        makeOpts({
+          allowedTools: ["Read"],
+          disallowedTools: ["Bash"],
+        }),
+      ),
+    Error,
+    "mutually exclusive",
+  );
+});
+
+Deno.test("buildClaudeSessionArgs — typed field + --allowedTools in claudeArgs throws", () => {
+  assertThrows(
+    () =>
+      buildClaudeSessionArgs(
+        makeOpts({
+          allowedTools: ["Read"],
+          claudeArgs: { "--allowedTools": "Read" },
+        }),
+      ),
+    Error,
+    'extraArgs key "--allowedTools"',
+  );
+});
+
+Deno.test("buildClaudeSessionArgs — typed field + --tools in claudeArgs throws", () => {
+  assertThrows(
+    () =>
+      buildClaudeSessionArgs(
+        makeOpts({
+          allowedTools: ["Read"],
+          claudeArgs: { "--tools": "default" },
+        }),
+      ),
+    Error,
+    'extraArgs key "--tools"',
+  );
+});
+
+Deno.test("buildClaudeSessionArgs — legacy path (claudeArgs --allowedTools only) still works", () => {
+  const args = buildClaudeSessionArgs(
+    makeOpts({ claudeArgs: { "--allowedTools": "Read,Grep" } }),
+  );
+  const idx = args.indexOf("--allowedTools");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "Read,Grep");
+});
+
+Deno.test("buildClaudeSessionArgs — empty allowedTools array throws", () => {
+  assertThrows(
+    () => buildClaudeSessionArgs(makeOpts({ allowedTools: [] })),
+    Error,
+    "non-empty",
+  );
+});
+
+Deno.test("buildClaudeSessionArgs — empty-string member throws", () => {
+  assertThrows(
+    () => buildClaudeSessionArgs(makeOpts({ allowedTools: [""] })),
+    Error,
+    "non-empty strings",
+  );
+});

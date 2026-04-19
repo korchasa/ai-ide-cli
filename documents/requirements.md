@@ -934,6 +934,70 @@ stable — never renumber on move.
         `extractSessionContent` dispatcher. Evidence:
         `ai-ide-cli/runtime/content.ts`.
 
+
+### 3.24 FR-L24: Typed Tool Filter on Runtime Options
+
+- **Description:** `RuntimeInvokeOptions` and `RuntimeSessionOptions`
+  expose `allowedTools?: string[]` and `disallowedTools?: string[]` as
+  first-class typed fields. Each adapter translates them into its
+  runtime-native CLI flag (Claude: `--allowedTools` /
+  `--disallowedTools`, emitted as exactly two argv tokens with the
+  array comma-joined into a single value). Adapters without native
+  tool filtering advertise `capabilities.toolFilter === false`, run
+  the shared validator (so malformed input throws uniformly across
+  runtimes), and emit one `console.warn` on first set-value use per
+  process; subsequent calls stay silent. `RuntimeCapabilities.toolFilter`
+  is a new boolean capability — Claude `true`, OpenCode / Cursor /
+  Codex `false`.
+- **Validation contract** (runs on every adapter):
+  - Setting both typed fields on the same call → synchronous throw
+    (`mutually exclusive`).
+  - Empty array or empty-string members → synchronous throw
+    (`non-empty`).
+  - Typed field set AND any of `--allowedTools`, `--allowed-tools`,
+    `--disallowedTools`, `--disallowed-tools`, `--tools` in
+    `extraArgs` → synchronous throw (`extraArgs key "..." collides`).
+  - Legacy path preserved: `extraArgs` carrying the raw flags
+    without a typed field still works (backwards compatible).
+- **Motivation:** Downstream consumer
+  [`@korchasa/flowai-workflow`](https://github.com/korchasa/flowai-workflow/issues/188)
+  needs engine-level YAML `allowed_tools` / `disallowed_tools`
+  without reinventing per-runtime `extraArgs` mapping, without
+  bypassing the reserved-key guard, and without branching on runtime
+  name. Mirrors the existing `permissionMode` pattern.
+- **Acceptance:**
+  - [x] `RuntimeInvokeOptions.allowedTools` / `.disallowedTools`
+    accept non-empty string arrays. Evidence:
+    `ai-ide-cli/runtime/types.ts`.
+  - [x] `RuntimeSessionOptions.allowedTools` / `.disallowedTools`
+    accept non-empty string arrays. Evidence:
+    `ai-ide-cli/runtime/types.ts`.
+  - [x] `RuntimeCapabilities.toolFilter: boolean` — Claude `true`,
+    others `false`. Evidence: all four adapters in
+    `ai-ide-cli/runtime/*-adapter.ts`.
+  - [x] Claude `invoke` and `openSession` emit
+    `--allowedTools <comma-joined>` OR
+    `--disallowedTools <comma-joined>` (at most one) when the typed
+    field is set, on both initial and `--resume` paths. Evidence:
+    `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
+    `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`.
+  - [x] Mutual exclusion, empty-array / empty-string rejection, and
+    `extraArgs` reserved-key collision enforced synchronously via
+    the shared `validateToolFilter` helper. Evidence:
+    `ai-ide-cli/runtime/tool-filter.ts`,
+    `ai-ide-cli/runtime/tool-filter_test.ts`.
+  - [x] Non-Claude adapters run the validator and emit exactly one
+    `console.warn` on first set-value occurrence per process.
+    Evidence: `ai-ide-cli/runtime/opencode-adapter.ts`,
+    `ai-ide-cli/runtime/cursor-adapter.ts`,
+    `ai-ide-cli/runtime/codex-adapter.ts` (module-level
+    `warnedToolFilter` latch + `_resetToolFilterWarning` test
+    helper); `ai-ide-cli/runtime/opencode-adapter_test.ts`
+    (warn-once + reset coverage).
+  - [x] `// FR-L24` traceability comments at the argv-emission
+    sites. Evidence: `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
+    `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`.
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

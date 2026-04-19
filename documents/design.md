@@ -30,6 +30,9 @@ ai-ide-cli/
     content.ts          — extractSessionContent(event), NormalizedContent
                           union: runtime-neutral content extraction from
                           RuntimeSessionEvent (FR-L23)
+    tool-filter.ts      — validateToolFilter(runtime, opts): shared typed
+                          tool-filter validation used by every adapter
+                          (FR-L24)
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
@@ -114,18 +117,19 @@ with `_` for test isolation.
 
 - `RuntimeCapabilities` — feature flags per adapter: `permissionMode`, `hitl`,
   `transcript`, `interactive`, `toolUseObservation`, `session`,
-  `capabilityInventory`.
+  `capabilityInventory`, `toolFilter`.
 - `RuntimeInvokeOptions` — normalized invocation options: `taskPrompt`,
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
   `hitlConfig`, `hitlMcpCommandBuilder`, `cwd`, `agent`, `systemPrompt`,
-  `env`, `onEvent`.
+  `env`, `onEvent`, `allowedTools`, `disallowedTools` (FR-L24).
 - `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string }`.
 - `InteractiveOptions` — `{ skills?, systemPrompt?, cwd?, env? }`.
 - `InteractiveResult` — `{ exitCode: number }`.
 - `RuntimeSessionOptions` — streaming-session options: `agent`, `systemPrompt`,
   `resumeSessionId`, `extraArgs`, `permissionMode`, `model`, `signal`, `cwd`,
-  `env`, `settingSources`, `onEvent`, `onStderr`. Omits one-shot-only fields
+  `env`, `settingSources`, `allowedTools`, `disallowedTools` (FR-L24),
+  `onEvent`, `onStderr`. Omits one-shot-only fields
   (`taskPrompt`, retries, timeouts, hooks). **Out of scope by design:**
   per-turn `timeoutSeconds`/`maxRetries`/`retryDelaySeconds` — caller-owned
   via `AbortSignal` + reopen with `resumeSessionId`; mid-session model /
@@ -233,10 +237,27 @@ with `_` for test isolation.
 ### 3.4 `claude/process.ts` — Claude Runner
 
 `buildClaudeArgs(opts: ClaudeInvokeOptions)`: constructs argv.
-Order: `--permission-mode` → `claudeArgs` → `--resume` → `-p` →
-`--agent` → `--append-system-prompt` → `--model` → `--output-format
-stream-json --verbose`. Resume skips `--agent`, `--append-system-prompt`,
-`--model` (session inherits).
+Order: `--permission-mode` → tool-filter flag (FR-L24, see below) →
+`claudeArgs` → `--resume` → `-p` → `--agent` → `--append-system-prompt`
+→ `--model` → `--output-format stream-json --verbose`. Resume skips
+`--agent`, `--append-system-prompt`, `--model` (session inherits) but
+**does** re-emit the tool-filter flag (filtering is not part of
+session state).
+
+**FR-L24 tool filter.** `buildClaudeArgs` (and
+`buildClaudeSessionArgs`) calls the shared `validateToolFilter("claude",
+opts)` from `runtime/tool-filter.ts` **before** `expandExtraArgs`. The
+validator throws synchronously on (a) both `allowedTools` and
+`disallowedTools` set, (b) empty array or empty-string members, or (c)
+typed field set AND any of `--allowedTools` / `--allowed-tools` /
+`--disallowedTools` / `--disallowed-tools` / `--tools` present in
+`claudeArgs`. On success it returns `"allowed"` / `"disallowed"` /
+`undefined`; the builder emits `--allowedTools <comma-joined>` OR
+`--disallowedTools <comma-joined>` as exactly two argv tokens (comma
+join matches the CLI's "comma or space-separated" grammar). The
+legacy path — `extraArgs` carrying the raw flags without a typed
+field — stays untouched, so `CLAUDE_RESERVED_FLAGS` is **not**
+extended with the tool-filter keys.
 
 `invokeClaudeCli(opts)`: retry loop with exponential backoff. On `is_error`
 result → retry. On exception → retry. Returns `RuntimeInvokeResult`.
@@ -430,6 +451,11 @@ Same event shape as Claude stream-json. Semi-verbose filtering supported.
 dedicated flag). Retry loop with exponential backoff. Real-time NDJSON
 processing with log file + terminal output forwarding.
 
+Tool filter (FR-L24): `capabilities.toolFilter === false`.
+`allowedTools` / `disallowedTools` are validated (same rules as Claude
+via `validateToolFilter`) and ignored in argv; first set-value call
+emits one `console.warn` per process.
+
 ### 3.10.1 `cursor/session.ts` — Cursor Faux Session
 
 Cursor CLI has no streaming-input transport, so the session is emulated.
@@ -593,12 +619,12 @@ callers never see a zombie process on rejection.
 
 ### Runtime capability matrix
 
-| Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation | session | capabilityInventory |
-|----------|----------------|-------|------------|-------------|--------------------|---------|---------------------|
-| claude   | true           | true  | true       | true        | true               | true    | true                |
-| opencode | true           | true  | true       | true        | true               | true    | true                |
-| cursor   | false          | false | false      | false       | false              | true    | true                |
-| codex    | true           | true  | true       | true        | true               | true    | true                |
+| Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation | session | capabilityInventory | toolFilter |
+|----------|----------------|-------|------------|-------------|--------------------|---------|---------------------|------------|
+| claude   | true           | true  | true       | true        | true               | true    | true                | true       |
+| opencode | true           | true  | true       | true        | true               | true    | true                | false      |
+| cursor   | false          | false | false      | false       | false              | true    | true                | false      |
+| codex    | true           | true  | true       | true        | true               | true    | true                | false      |
 
 **`session` specifics:**
 
@@ -685,6 +711,10 @@ callers never see a zombie process on rejection.
   `item.completed` for `command_execution`, `file_change`, `mcp_tool_call`,
   and `web_search` items; an `"abort"` decision SIGTERMs Codex and the
   runner synthesizes a `permission_denials[]` entry for the observed item.
+- `toolFilter` — `capabilities.toolFilter === false`.
+  `allowedTools` / `disallowedTools` are validated (same rules as
+  Claude via `validateToolFilter`) and ignored in argv; first
+  set-value call emits one `console.warn` per process. See FR-L24.
 
 **OpenCode specifics:**
 
@@ -711,6 +741,10 @@ callers never see a zombie process on rejection.
   want typed narrowing of `RuntimeInvokeOptions.onEvent`. Each member
   keeps `[key: string]: unknown` for forward-compat with upstream CLI
   field additions.
+- `toolFilter` — `capabilities.toolFilter === false`.
+  `allowedTools` / `disallowedTools` are validated (same rules as
+  Claude via `validateToolFilter`) and ignored in argv; first
+  set-value call emits one `console.warn` per process. See FR-L24.
 
 ## 5. Constraints
 
