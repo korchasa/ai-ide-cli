@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.1](https://github.com/korchasa/ai-ide-cli/compare/v0.5.0...v0.5.1) (2026-04-19)
+
+
+### Features
+
+* **opencode:** observe tool use, export transcript, expose typed stream events ([42059f6](https://github.com/korchasa/ai-ide-cli/commit/42059f6599262c4930d1947d0add345dbd237253))
+
+
+### Documentation
+
+* **readme:** add feature support matrix and tg-ide-bridge reference ([775841d](https://github.com/korchasa/ai-ide-cli/commit/775841d0d3dd8cf0e1d6e06797674c7fd1a60341))
+* sync README and AGENTS layout with 0.5.0 alignment ([fe0be6f](https://github.com/korchasa/ai-ide-cli/commit/fe0be6f93619b675df243ab56d5b45cbfd1a6c31))
+
 ## [0.5.0](https://github.com/korchasa/ai-ide-cli/compare/v0.4.1...v0.5.0) (2026-04-19)
 
 
