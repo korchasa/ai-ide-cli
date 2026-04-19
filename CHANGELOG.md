@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.2](https://github.com/korchasa/ai-ide-cli/compare/v0.5.1...v0.5.2) (2026-04-19)
+
+
+### Features
+
+* **session:** neutral turn-end signal, sessionId, typed errors ([8ee0f24](https://github.com/korchasa/ai-ide-cli/commit/8ee0f24545609b714770743b2a36a9be0ae41b8a))
+
 ### [0.5.1](https://github.com/korchasa/ai-ide-cli/compare/v0.5.0...v0.5.1) (2026-04-19)
 
 
