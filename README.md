@@ -279,7 +279,7 @@ throws at invocation time with an explicit error.
   unit tests (PATH-stubbed binaries, zero tokens), doc-lint, publish
   dry-run. Runs in CI on every push / PR.
 - `deno task test` — unit tests only; use during TDD iterations.
-- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L24).
+- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L25).
   Requires Claude / OpenCode / Cursor / Codex CLIs on `$PATH` and spends
   real tokens. Guarded by `E2E=1`; narrow to one runtime with
   `deno task e2e:<claude|opencode|cursor|codex>` (sets `E2E_RUNTIMES`).

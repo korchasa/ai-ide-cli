@@ -2,7 +2,7 @@
 /**
  * @module
  * Legacy smoke entrypoint. Moved to the Deno-test-based e2e suite under
- * `e2e/` (FR-L24).
+ * `e2e/` (FR-L25).
  *
  * Run the suite with:
  *

@@ -936,7 +936,7 @@ stable — never renumber on move.
         `NormalizedContent[]` whose joined text/final entries contain
         the reply word, without ever throwing. Evidence:
         `ai-ide-cli/e2e/_matrix.ts:scenarioContentNormalization`
-        (FR-L24 matrix entry).
+        (FR-L25 matrix entry).
   - [x] `// FR-L23` traceability comment on the
         `extractSessionContent` dispatcher. Evidence:
         `ai-ide-cli/runtime/content.ts`.
@@ -1134,7 +1134,7 @@ the runtime-neutral primitives consumers actually program against:
 `NormalizedContent` (FR-L23). If any cell drifts from the code, the
 code is authoritative and the SRS row is a bug; the e2e scenarios
 `synthetic-turn-end-once-per-turn` and `content-normalization`
-(FR-L24) assert the invariants against the live binaries.
+(FR-L25) assert the invariants against the live binaries.
 
 #### Envelope: native event → `RuntimeSessionEvent`
 

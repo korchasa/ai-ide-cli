@@ -492,7 +492,7 @@ export async function scenarioContentNormalization(
 }
 
 /** Session-contract matrix — driven by the generator in the test file. */
-// FR-L24
+// FR-L25
 export const SESSION_CONTRACT_MATRIX: MatrixScenario[] = [
   {
     id: "sessionId-sync",

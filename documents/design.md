@@ -70,7 +70,7 @@ ai-ide-cli/
     types.ts            — SkillDef, SkillFrontmatter (union of all IDE fields)
     parser.ts           — parseSkill(dir) → SkillDef
     mod.ts              — barrel export for @korchasa/ai-ide-cli/skill
-  e2e/                  — opt-in real-binary test suite (FR-L24)
+  e2e/                  — opt-in real-binary test suite (FR-L25)
     _helpers.ts         — detectBinary, e2eEnabled, resolveEnabledMap, ceiling,
                           ONE_WORD_OK/DONE, LONG_COUNT_PROMPT
     _matrix.ts          — SESSION_CONTRACT_MATRIX (7 scenarios), RUNTIME_SPECS
@@ -633,7 +633,7 @@ via the `initialize` handshake (visible in Codex logs).
 Handshake failure tears down the subprocess (`abort` → `await done`) so
 callers never see a zombie process on rejection.
 
-### 3.13 `e2e/` — Real-Binary Test Suite (FR-L24)
+### 3.13 `e2e/` — Real-Binary Test Suite (FR-L25)
 
 Opt-in Deno-native suite; does not run under `deno task check`. Layered:
 

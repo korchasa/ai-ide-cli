@@ -61,7 +61,7 @@ import this package to invoke IDE CLIs uniformly.
   FR numbering: `FR-L<N>`.
 - `scripts/check.ts` — self-contained verification (fmt, lint, type check,
   tests, doc-lint, publish dry-run).
-- `e2e/` — opt-in real-binary test suite (FR-L24). `_helpers.ts`
+- `e2e/` — opt-in real-binary test suite (FR-L25). `_helpers.ts`
   (probe + gate), `_matrix.ts` (shared session-contract catalog),
   `session_matrix_e2e_test.ts` (generator), plus standalone
   `invoke_abort_e2e_test.ts` and `claude_settings_e2e_test.ts`.
@@ -319,7 +319,7 @@ implements:
 - Tests live in the same package, co-located next to the code (`*_test.ts`). Testing private methods is acceptable when it improves coverage of complex internals.
 - Write code only to fix failing tests or reported issues — no speculative implementations.
 - No stubs or mocks for internal code. Use real implementations — stubs hide integration bugs.
-- Real-binary behavioural checks live in `e2e/` (FR-L24) and are invoked manually via `deno task e2e` / `deno task e2e:<runtime>`; `deno task test` only runs unit tests.
+- Real-binary behavioural checks live in `e2e/` (FR-L25) and are invoked manually via `deno task e2e` / `deno task e2e:<runtime>`; `deno task test` only runs unit tests.
 - Run all tests before finishing, not just the ones you changed.
 - When a test fails, fix the source code — not the test. Do not modify a failing test to make it pass, do not add error swallowing or skip logic.
 - Do not create source files with guessed or fabricated data to satisfy imports — if the data source is missing, that is a blocker (see Diagnosing Failures).
@@ -379,7 +379,7 @@ When the root cause is outside your control (missing API keys/URLs, missing gene
 - `deno task test` — unit tests only (`deno test -A --no-check .`). Use during TDD RED/GREEN iterations on specific files; `check` subsumes it for final verification.
 - `deno task fmt` — format in place.
 - `deno task release` — `standard-version` version bump (CI-invoked).
-- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L24). Narrow with `deno task e2e:<claude|opencode|cursor|codex>`. Manual; not part of `deno task check`. Gated by `E2E=1` + per-runtime `$PATH` probe; missing binaries surface as ignored tests.
+- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L25). Narrow with `deno task e2e:<claude|opencode|cursor|codex>`. Manual; not part of `deno task check`. Gated by `E2E=1` + per-runtime `$PATH` probe; missing binaries surface as ignored tests.
 - `deno run -A scripts/smoke.ts` — legacy shim that prints a pointer to `deno task e2e`.
 
 **Iteration tip — avoid the big-bang pipeline loop.** `deno task check` takes ~40s because it runs the full suite. For fast fmt/lint/JSDoc iteration, run the cheap sub-steps individually first:
@@ -404,7 +404,7 @@ constructor(foo: string) { ... }
 ### Command Scripts
 
 - `scripts/check.ts` — drives `deno task check`. Runs fmt, lint, type check, tests, `deno doc --lint`, and `deno publish --dry-run` last.
-- `scripts/smoke.ts` — legacy shim. Real-binary checks moved to `e2e/` (run via `deno task e2e`, FR-L24).
+- `scripts/smoke.ts` — legacy shim. Real-binary checks moved to `e2e/` (run via `deno task e2e`, FR-L25).
 - `scripts/generate-release-notes.ts` — release-notes generator invoked from CI.
 
 ## Code Documentation
