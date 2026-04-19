@@ -1123,3 +1123,91 @@ Each runtime adapter spawns a CLI binary with specific flags. Contracts:
   - `--trust` — skip workspace trust prompt
   - No system-prompt flag; prepended to task prompt
   - `runtime_args` forwarded as extra flags
+
+### Event Mapping Contracts
+
+The four adapters speak four different wire protocols (Claude & Cursor
+`stream-json` NDJSON, OpenCode SSE, Codex JSON-RPC camelCase). This
+subsection is the normative mapping from each native event shape to
+the runtime-neutral primitives consumers actually program against:
+`RuntimeSessionEvent` (FR-L19), `SYNTHETIC_TURN_END` (FR-L21), and
+`NormalizedContent` (FR-L23). If any cell drifts from the code, the
+code is authoritative and the SRS row is a bug; the e2e scenarios
+`synthetic-turn-end-once-per-turn` and `content-normalization`
+(FR-L24) assert the invariants against the live binaries.
+
+#### Envelope: native event → `RuntimeSessionEvent`
+
+Every adapter yields `{ runtime, type, raw, synthetic? }` where
+`raw` preserves the full native payload for consumers who need
+runtime-specific typed access.
+
+| Runtime  | Wire protocol                      | `type` source                             | `raw` shape                               |
+|----------|------------------------------------|-------------------------------------------|-------------------------------------------|
+| claude   | `stream-json` NDJSON over stdout   | native `event.type` string (falls back to `"unknown"`) | top-level stream-json object verbatim |
+| cursor   | `stream-json` NDJSON (per-turn)    | native `event.type` string (falls back to `"unknown"`) | top-level stream-json object verbatim |
+| opencode | SSE frames from `GET /event`       | SSE frame's `type` field (falls back to `"unknown"`)   | `{ type, properties?, raw }` of the SSE frame |
+| codex    | JSON-RPC 2.0 notifications         | last `/`-separated segment of `method`    | `{ method, params }`                      |
+
+Codex note: the last-segment mapping collapses `thread/started`,
+`turn/started`, and `item/started` to the same `type === "started"`;
+consumers that need to distinguish must read `raw.method`.
+
+#### Synthetic event catalogue
+
+Adapter-injected events — never originate from the CLI. All carry
+`synthetic: true`.
+
+| Runtime | Synthetic event                                                    | Trigger                                                                 | Rationale                                                                                        |
+|---------|--------------------------------------------------------------------|-------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| all     | `{ type: SYNTHETIC_TURN_END, raw: <native terminator>, synthetic: true }` | emitted once per completed turn, immediately after the native terminator (FR-L21) | single cross-runtime turn-boundary hook                                                          |
+| cursor  | `{ type: "system", subtype: "init", session_id: <chatId>, synthetic: true }` | emitted at `openSession()` time                                         | surfaces the `chatId` before the first per-turn subprocess runs (Cursor has no open-time native init) |
+| cursor  | `{ type: "error", subtype: "send_failed", error, synthetic: true }`  | a per-turn subprocess fails to spawn or exits non-zero before streaming | per-send failures surface as events instead of rejecting the `send()` promise (`send()` enqueues) |
+
+#### Turn-end source (`SYNTHETIC_TURN_END` trigger)
+
+Per-runtime native signal that drives the synthetic turn-end emission
+and the `raw` payload carried on it.
+
+| Runtime  | Native terminator                                         | `raw.type` / `raw.method` carried on the synthetic | Honesty note                                                |
+|----------|-----------------------------------------------------------|----------------------------------------------------|-------------------------------------------------------------|
+| claude   | stream-json event with `type === "result"`                | `"result"`                                         | carries per-run cost / error fields for consumers           |
+| cursor   | per-turn subprocess's `type === "result"` event           | `"result"`                                         | one subprocess per send → one turn-end per send             |
+| opencode | edge-triggered busy → idle dispatcher transition          | `"session.idle"` or `"session.status"`              | native signal can be either; both are valid                 |
+| codex    | JSON-RPC notification `method === "turn/completed"`       | `raw.method === "turn/completed"` (type segment: `"completed"`) | notification path is authoritative, not the `turn/start` RPC reply |
+
+Turn-end marks "runtime is ready for the next input", not "turn
+succeeded". Failure detection still requires inspecting `raw` or
+prior events.
+
+#### Content extraction (`extractSessionContent` — FR-L23)
+
+Native events are mapped to a `NormalizedContent[]` union:
+`{kind:"text", text, cumulative}` (streaming text),
+`{kind:"tool", id, name, input?}` (tool invocation),
+`{kind:"final", text}` (complete reply for the just-ended turn).
+Synthetic events and unrecognised types return `[]`. The extractor
+never throws on malformed payloads.
+
+| Runtime        | Native event (→ sub-shape)                                | NormalizedContent output                                     | Notes                                                                     |
+|----------------|-----------------------------------------------------------|--------------------------------------------------------------|---------------------------------------------------------------------------|
+| claude, cursor | `assistant` → `raw.message.content[i].type === "text"`    | `{kind:"text", text, cumulative: true}`                      | order preserved; whole running message per event                           |
+| claude, cursor | `assistant` → `raw.message.content[i].type === "tool_use"` | `{kind:"tool", id, name, input?}`                            | fires at assistant-decision time (before execution)                        |
+| claude, cursor | `assistant` → `raw.message.content[i].type === "thinking"` | — (skipped)                                                 | reserved for a future `kind:"reasoning"` variant                           |
+| claude, cursor | `user` events carrying tool results                       | — (skipped)                                                 | reserved for a future `kind:"tool-result"` variant                         |
+| claude, cursor | `result`                                                  | `{kind:"final", text: raw.result}`                           | empty string included                                                     |
+| codex          | `item/agentMessage/delta` notification                    | `{kind:"text", text: <delta>, cumulative: false}`            | Codex emits deltas, not cumulative snapshots                               |
+| codex          | `item/completed` with `item.type === "agentMessage"`       | `{kind:"final", text: item.text}`                            | text taken directly from `item.text`, not from `content[]`                 |
+| codex          | `item/completed` with `item.type ∈ {commandExecution, fileChange, webSearch}` | `{kind:"tool", name: item.type, input: item \ {id,type}}` | fires at completion time (after execution)                               |
+| codex          | `item/completed` with `item.type === "mcpToolCall"`        | `{kind:"tool", name: "<server>.<tool>", input}`              | `server.tool` composed from `item.server`/`item.tool`                      |
+| codex          | `item/completed` with `item.type === "dynamicToolCall"`    | `{kind:"tool", name: item.tool, input}`                      | dynamic tool name comes from `item.tool`                                   |
+| opencode       | `message.part.updated` with `part.type === "text"`         | `{kind:"text", text: part.text, cumulative: true}`            | OpenCode has no native `final` — consumer flushes last cumulative text on `SYNTHETIC_TURN_END` |
+| opencode       | `message.part.updated` with `part.type === "tool"` at terminal `state.status` (`completed`/`failed`), non-HITL | `{kind:"tool", id, name, input?}` | mirrors FR-L16 terminal-state rule; id falls back `part.id → part.callID` |
+| opencode       | HITL tool (`OPENCODE_HITL_MCP_TOOL_NAME`)                 | — (skipped)                                                 | HITL detection uses its own dedicated path                                |
+| opencode       | non-terminal tool states (`part.type === "tool"` mid-run)  | — (skipped)                                                 | only terminal states surface to `kind:"tool"`                             |
+| all            | any synthetic event (`synthetic: true`)                   | `[]`                                                         | consumers observe turn boundaries via the envelope flag, not content      |
+| all            | unrecognised `type` / malformed `raw`                     | `[]`                                                         | extractor is stateless and never throws                                   |
+
+Timing asymmetry (documented in code as well): Claude and Cursor
+dispatch tool content at assistant-decision time (before the tool
+runs); OpenCode and Codex dispatch at completion time.
