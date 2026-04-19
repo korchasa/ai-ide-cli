@@ -9,6 +9,7 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     transcript: false,
     interactive: false,
     toolUseObservation: false,
+    session: false,
   },
   invoke(opts) {
     return invokeCursorCli(opts);

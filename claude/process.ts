@@ -48,6 +48,7 @@ export const CLAUDE_RESERVED_FLAGS: readonly string[] = [
   "--model",
   "--resume",
   "--permission-mode",
+  "--input-format",
 ];
 
 /** Low-level options for a single claude CLI invocation (initial or resume). */

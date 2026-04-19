@@ -58,10 +58,11 @@ stable — never renumber on move.
   requires only a new adapter + registration.
 - **Acceptance:**
   - [x] `RuntimeAdapter` interface with `id`, `capabilities`, `invoke()`,
-    `launchInteractive()`. Evidence: `ai-ide-cli/runtime/types.ts:113-124`.
+    `launchInteractive()`, optional `openSession()` (see FR-L19). Evidence:
+    `ai-ide-cli/runtime/types.ts`.
   - [x] `RuntimeCapabilities` flags: `permissionMode`, `hitl`, `transcript`,
-    `interactive`, `toolUseObservation`. Evidence:
-    `ai-ide-cli/runtime/types.ts:9-19`.
+    `interactive`, `toolUseObservation`, `session`. Evidence:
+    `ai-ide-cli/runtime/types.ts`.
   - [x] `getRuntimeAdapter(id)` returns adapter from registry.
     Evidence: `ai-ide-cli/runtime/index.ts:18-20`.
   - [x] `resolveRuntimeConfig()` merges map-shape `runtime_args` across
@@ -517,6 +518,59 @@ stable — never renumber on move.
     Evidence: `ai-ide-cli/claude/process.ts`.
   - [x] Cleanup runs on success and failure and is idempotent. Evidence:
     `ai-ide-cli/runtime/setting-sources_test.ts`.
+
+
+### 3.19 FR-L19: Streaming-Input Session
+
+- **Description:** Long-lived agent session with push-based user input:
+  caller opens a session, streams zero or more user messages into the
+  running subprocess, consumes normalized events, and closes the session
+  gracefully (`endInput`) or forcefully (`abort`). Two layers:
+  - **Claude-specific.** `openClaudeSession(opts)` spawns `claude -p
+    --input-format stream-json --output-format stream-json --verbose` with
+    piped stdin. Returns `ClaudeSession { pid, send, events, endInput,
+    abort, done }`. `send` accepts a string or a `ClaudeSessionUserInput`
+    object and writes `{"type":"user","message":{"role":"user","content":…}}`
+    + newline to stdin. `events` is a single-consumer async iterable of
+    parsed `ClaudeStreamEvent`. `buildClaudeSessionArgs(opts)` is exported
+    for testing. `--input-format` is reserved in `CLAUDE_RESERVED_FLAGS`.
+    `settingSources` isolation (FR-L18) is honored.
+  - **Runtime-neutral.** `RuntimeAdapter.openSession?(opts):
+    Promise<RuntimeSession>` is optional; callers check
+    `capabilities.session` before invoking. Claude adapter implements it by
+    delegating to `openClaudeSession` and translating events to
+    `RuntimeSessionEvent { runtime, type, raw }` (raw payload preserved
+    for consumers that need runtime-specific typing). Other adapters set
+    `session: false` and omit the method.
+- **Motivation:** SDK-parity bidirectional sessions — callers can push
+  follow-up messages without respawning the CLI or losing context; fits
+  interactive use cases (`/compact`-style flows, human correction loops,
+  multi-turn orchestrators).
+- **Acceptance:**
+  - [x] `openClaudeSession()`, `ClaudeSession`, `ClaudeSessionOptions`,
+    `ClaudeSessionStatus`, `ClaudeSessionUserInput`,
+    `buildClaudeSessionArgs()` exported. Evidence:
+    `ai-ide-cli/claude/session.ts`, `ai-ide-cli/mod.ts`,
+    `ai-ide-cli/deno.json` (`./claude/session` sub-path).
+  - [x] Transport flags: `-p --input-format stream-json --output-format
+    stream-json --verbose`; empirically verified against real binary.
+    Evidence: `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
+    `ai-ide-cli/scripts/smoke.ts` `session` group.
+  - [x] `send()` emits JSONL user-message shape; `endInput()` closes stdin
+    gracefully; `abort()` SIGTERMs and is idempotent; `done` resolves with
+    exit code + signal + stderr. Evidence:
+    `ai-ide-cli/claude/session_test.ts`.
+  - [x] `capabilities.session: true` on Claude, `false` on others;
+    `openSession?` implemented only by Claude adapter; `RuntimeSession`,
+    `RuntimeSessionOptions`, `RuntimeSessionEvent`, `RuntimeSessionStatus`
+    exported from `mod.ts`. Evidence: `ai-ide-cli/runtime/types.ts`,
+    `ai-ide-cli/runtime/claude-adapter.ts`,
+    `ai-ide-cli/runtime/{codex,cursor,opencode}-adapter.ts`,
+    `ai-ide-cli/mod.ts`.
+  - [x] Adapter-level tests use a stub `claude` on PATH; smoke test runs
+    two live turns in one session + mid-session abort against the real
+    binary. Evidence: `ai-ide-cli/runtime/claude-adapter_test.ts`,
+    `ai-ide-cli/scripts/smoke.ts`.
 
 
 ## 4. Non-Functional Requirements

@@ -36,6 +36,12 @@ export interface RuntimeCapabilities {
    * (`onToolUseObserved`). Currently only Claude.
    */
   toolUseObservation: boolean;
+  /**
+   * Whether the runtime supports a long-lived session with streaming user
+   * input (i.e. `openSession`). Currently only Claude. Other runtimes set
+   * this to `false` and do not implement `openSession`.
+   */
+  session: boolean;
 }
 
 /**
@@ -220,6 +226,103 @@ export interface InteractiveResult {
   exitCode: number;
 }
 
+/**
+ * Options for opening a runtime-neutral streaming session via
+ * {@link RuntimeAdapter.openSession}. Mirrors {@link RuntimeInvokeOptions} but
+ * omits one-shot fields (`taskPrompt`, retries, timeouts, hooks) that do not
+ * apply to a long-lived session. Adapters that do not recognize a field
+ * ignore it (e.g. non-Claude runtimes ignore `settingSources`).
+ */
+export interface RuntimeSessionOptions {
+  /** Optional runtime-native agent selector. */
+  agent?: string;
+  /** Optional system prompt content for the session. */
+  systemPrompt?: string;
+  /** Existing session ID to resume. */
+  resumeSessionId?: string;
+  /**
+   * Additional CLI flags forwarded to the runtime. Each runtime reserves its
+   * own transport flags; passing a reserved key throws synchronously. See
+   * {@link ExtraArgsMap} for value semantics.
+   */
+  extraArgs?: ExtraArgsMap;
+  /** Runtime-specific permission mode. */
+  permissionMode?: string;
+  /** Model identifier understood by the selected runtime. */
+  model?: string;
+  /**
+   * External cancellation signal. On abort, the subprocess receives SIGTERM
+   * and the session's `done` promise resolves.
+   */
+  signal?: AbortSignal;
+  /** Working directory for the runtime subprocess. */
+  cwd?: string;
+  /** Extra environment variables merged into the subprocess env. */
+  env?: Record<string, string>;
+  /** Claude-specific configuration-source filter. Ignored by other runtimes. */
+  settingSources?: SettingSource[];
+  /** Fires for every parsed event from the runtime's event stream, in order. */
+  onEvent?: (event: RuntimeSessionEvent) => void;
+  /** Fires for every decoded stderr chunk (may be empty on a flush). */
+  onStderr?: (line: string) => void;
+}
+
+/**
+ * Runtime-neutral session event. The `type` and `raw` fields preserve the
+ * runtime's native event shape verbatim; consumers that need typed access to
+ * runtime-specific payloads should cast `raw` or use the runtime's own
+ * helper (e.g. {@link import("../claude/session").openClaudeSession}).
+ */
+export interface RuntimeSessionEvent {
+  /** Runtime that produced the event. */
+  runtime: RuntimeId;
+  /** Event discriminator from the raw payload (`"system"`, `"assistant"`, `"result"`, …). */
+  type: string;
+  /** Raw event object as parsed from the runtime's event stream. */
+  raw: Record<string, unknown>;
+}
+
+/** Terminal state of a runtime session subprocess. */
+export interface RuntimeSessionStatus {
+  /** OS exit code when exited normally, `null` when killed by signal. */
+  exitCode: number | null;
+  /** Termination signal name when killed by signal, `null` otherwise. */
+  signal: string | null;
+  /** Aggregated stderr text captured during the session. */
+  stderr: string;
+}
+
+/**
+ * Live handle for a runtime subprocess in streaming-input mode.
+ *
+ * Lifecycle: open → zero or more `send` / `events` iterations → `endInput`
+ * (graceful) or `abort` (SIGTERM) → `done` resolves. Adapters translate the
+ * runtime's native event stream into {@link RuntimeSessionEvent} while
+ * preserving the raw payload for consumers that need it.
+ */
+export interface RuntimeSession {
+  /** Runtime that owns this session. */
+  readonly runtime: RuntimeId;
+  /** OS process ID of the spawned subprocess. */
+  readonly pid: number;
+  /**
+   * Push an additional user message into the running session. Throws if
+   * input has been closed or the subprocess has exited.
+   */
+  send(content: string): Promise<void>;
+  /**
+   * Async iterable of normalized session events. Completes when the
+   * runtime's output stream closes. Can be iterated at most once.
+   */
+  readonly events: AsyncIterable<RuntimeSessionEvent>;
+  /** Close the input stream; runtime finishes the current turn and exits. */
+  endInput(): Promise<void>;
+  /** SIGTERM the subprocess. Idempotent. */
+  abort(reason?: string): void;
+  /** Resolves with terminal status when the subprocess exits. */
+  readonly done: Promise<RuntimeSessionStatus>;
+}
+
 /** Adapter interface implemented by each supported runtime. */
 export interface RuntimeAdapter {
   /** Stable runtime identifier. */
@@ -233,6 +336,12 @@ export interface RuntimeAdapter {
    * Adapters that do not support interactive mode throw an error.
    */
   launchInteractive(opts: InteractiveOptions): Promise<InteractiveResult>;
+  /**
+   * Open a long-lived streaming-input session. Only implemented by adapters
+   * with `capabilities.session === true` (currently: Claude). Callers MUST
+   * check the capability flag or be prepared for `undefined`.
+   */
+  openSession?(opts: RuntimeSessionOptions): Promise<RuntimeSession>;
 }
 
 /** Effective runtime configuration after defaults/parent/node resolution. */

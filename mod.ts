@@ -42,6 +42,10 @@ export type {
   RuntimeInvokeOptions,
   RuntimeInvokeResult,
   RuntimeLifecycleHooks,
+  RuntimeSession,
+  RuntimeSessionEvent,
+  RuntimeSessionOptions,
+  RuntimeSessionStatus,
   RuntimeToolUseDecision,
   RuntimeToolUseInfo,
 } from "./runtime/types.ts";
@@ -71,6 +75,13 @@ export type {
   ToolUseObservedDecision,
 } from "./claude/stream.ts";
 export { parseClaudeStreamEvent } from "./claude/stream.ts";
+export { buildClaudeSessionArgs, openClaudeSession } from "./claude/session.ts";
+export type {
+  ClaudeSession,
+  ClaudeSessionOptions,
+  ClaudeSessionStatus,
+  ClaudeSessionUserInput,
+} from "./claude/session.ts";
 
 // --- Cursor runner ---
 export {

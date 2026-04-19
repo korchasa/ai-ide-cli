@@ -14,6 +14,7 @@
  */
 
 import { invokeClaudeCli } from "../claude/process.ts";
+import { openClaudeSession } from "../claude/session.ts";
 
 interface Scenario {
   name: string;
@@ -122,6 +123,78 @@ scenario(
       `settingSources=[] caused error: ${res.error}`,
     );
     assert(res.output !== undefined, "no output from claude");
+  },
+);
+
+// --- session: streaming input ---
+
+scenario(
+  "session",
+  "two user messages in one live session produce two turns",
+  async () => {
+    const session = await openClaudeSession({});
+    const events: string[] = [];
+    const turns: string[] = [];
+
+    const collector = (async () => {
+      for await (const event of session.events) {
+        events.push(event.type);
+        if (event.type === "result") {
+          const r = event as { result?: string };
+          turns.push(r.result ?? "");
+        }
+      }
+    })();
+
+    await session.send("Reply with exactly the word: one");
+    // Wait for the first result, then push another message.
+    while (turns.length < 1) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await session.send("Reply with exactly the word: two");
+    while (turns.length < 2) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await session.endInput();
+    const status = await session.done;
+    await collector;
+
+    assert(
+      status.exitCode === 0,
+      `session exited with code ${status.exitCode}: ${status.stderr}`,
+    );
+    assert(
+      turns.length >= 2,
+      `expected ≥2 result events, got ${turns.length}: ${
+        JSON.stringify(turns)
+      }`,
+    );
+    assert(
+      turns[0].toLowerCase().includes("one"),
+      `first turn missing 'one': ${turns[0]}`,
+    );
+    assert(
+      turns[1].toLowerCase().includes("two"),
+      `second turn missing 'two': ${turns[1]}`,
+    );
+  },
+);
+
+scenario(
+  "session",
+  "abort mid-session terminates the subprocess",
+  async () => {
+    const session = await openClaudeSession({});
+    await session.send("Count slowly from 1 to 1000, one per line.");
+    setTimeout(() => session.abort("smoke-test"), 600);
+    const start = Date.now();
+    const status = await session.done;
+    const elapsed = Date.now() - start;
+    assert(elapsed < 15000, `abort took too long: ${elapsed}ms`);
+    assert(
+      status.exitCode !== 0 || status.signal !== null,
+      `expected non-zero/signal exit, got ${JSON.stringify(status)}`,
+    );
   },
 );
 

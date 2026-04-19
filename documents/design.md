@@ -7,7 +7,7 @@ Design specification for `@korchasa/ai-ide-cli`.
 - **Purpose:** Design of the `@korchasa/ai-ide-cli` library — thin wrapper
   around agent-CLI binaries providing normalized invocation, stream parsing,
   retry, and HITL wiring.
-- **Relation to SRS:** Implements FR-L1..FR-L12 from
+- **Relation to SRS:** Implements FR-L1..FR-L19 from
   [requirements.md](requirements.md).
 
 ## 2. Architecture
@@ -27,6 +27,8 @@ ai-ide-cli/
     process.ts          — buildClaudeArgs, invokeClaudeCli, executeClaudeProcess
     stream.ts           — processStreamEvent, extractClaudeOutput, FileReadTracker,
                           formatEventForOutput, stampLines, formatFooter
+    session.ts          — openClaudeSession, buildClaudeSessionArgs, ClaudeSession
+                          (streaming-input session with piped stdin)
   opencode/
     process.ts          — buildOpenCodeArgs, invokeOpenCodeCli, extractOpenCodeOutput,
                           formatOpenCodeEventForOutput, buildOpenCodeConfigContent
@@ -86,7 +88,7 @@ with `_` for test isolation.
 
 **`runtime/types.ts`:**
 - `RuntimeCapabilities` — feature flags per adapter: `permissionMode`, `hitl`,
-  `transcript`, `interactive`, `toolUseObservation`.
+  `transcript`, `interactive`, `toolUseObservation`, `session`.
 - `RuntimeInvokeOptions` — normalized invocation options: `taskPrompt`,
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
@@ -95,8 +97,19 @@ with `_` for test isolation.
 - `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string }`.
 - `InteractiveOptions` — `{ skills?, systemPrompt?, cwd?, env? }`.
 - `InteractiveResult` — `{ exitCode: number }`.
+- `RuntimeSessionOptions` — streaming-session options: `agent`, `systemPrompt`,
+  `resumeSessionId`, `extraArgs`, `permissionMode`, `model`, `signal`, `cwd`,
+  `env`, `settingSources`, `onEvent`, `onStderr`. Omits one-shot-only fields
+  (`taskPrompt`, retries, timeouts, hooks).
+- `RuntimeSession` — live handle: `runtime`, `pid`, `send(content)`,
+  `events: AsyncIterable<RuntimeSessionEvent>`, `endInput()`, `abort(reason?)`,
+  `done: Promise<RuntimeSessionStatus>`.
+- `RuntimeSessionEvent` — `{ runtime, type, raw }`; raw payload preserved for
+  runtime-specific typed access.
+- `RuntimeSessionStatus` — `{ exitCode, signal, stderr }`.
 - `RuntimeAdapter` — interface: `id`, `capabilities`, `invoke(opts)`,
-  `launchInteractive(opts)`.
+  `launchInteractive(opts)`, optional `openSession?(opts)` (only when
+  `capabilities.session === true`).
 - `ResolvedRuntimeConfig` — effective config after cascade resolution.
 - `RuntimeConfigSource` — structural shape for cascade input. No workflow
   type dependency.
@@ -178,7 +191,35 @@ Semi-verbose skips `tool_use` blocks.
 turns=<N>`.
 
 
-### 3.6 `opencode/process.ts` — OpenCode Runner
+### 3.6 `claude/session.ts` — Streaming-Input Session
+
+`buildClaudeSessionArgs(opts)`: constructs argv.
+Order: `--permission-mode` → expanded `claudeArgs` → `--resume` → `-p`
+(bare, no value) → `--agent` → `--append-system-prompt` → `--model` →
+`--output-format stream-json --verbose --input-format stream-json`.
+Resume skips `--agent`, `--append-system-prompt`, `--model`. `--input-format`
+is reserved (added to `CLAUDE_RESERVED_FLAGS`).
+
+`openClaudeSession(opts)`: spawns `Deno.Command("claude")` with
+`stdin: "piped"`, `stdout: "piped"`, `stderr: "piped"`. Applies optional
+`settingSources` isolation (shared with one-shot path via
+`prepareSettingSourcesDir`). Returns `ClaudeSession`:
+- `send(content)` — writes `{"type":"user","message":{"role":"user","content":…}}\n`
+  to stdin. Accepts string or pre-built `ClaudeSessionUserInput`.
+- `events` — single-consumer async iterable backed by a local `EventQueue`
+  (FIFO, resolver-pending pattern). Background stdout pump decodes NDJSON,
+  parses via `parseClaudeStreamEvent`, enqueues events and fires `onEvent`.
+- `endInput()` — closes stdin writer; CLI finishes turn and exits.
+- `abort(reason?)` — idempotent SIGTERM; `forceCloseStdin()` in parallel.
+- `done` — resolves with `ClaudeSessionStatus { exitCode, signal, stderr }`
+  after stdout/stderr pumps drain and process exits. Always force-closes
+  stdin in the finalizer to satisfy Deno's leak detector.
+
+External `AbortSignal` composed via listener; process-registry
+(`register`/`unregister`) wraps the subprocess lifecycle.
+
+
+### 3.7 `opencode/process.ts` — OpenCode Runner
 
 `buildOpenCodeArgs(opts)`: `run` → `--session` → `--model` → `--agent` →
 `--dangerously-skip-permissions` → `extraArgs` → `--format json` → prompt.
@@ -198,7 +239,7 @@ to `HumanInputRequest`. On detection → SIGTERM process → return output with
 `hitl_request` populated.
 
 
-### 3.7 `opencode/hitl-mcp.ts` — HITL MCP Server
+### 3.8 `opencode/hitl-mcp.ts` — HITL MCP Server
 
 `runOpenCodeHitlMcpServer()`: stdio MCP server exposing
 `request_human_input` tool. Tool schema: `question` (required string),
@@ -210,7 +251,7 @@ Constants: `OPENCODE_HITL_MCP_SERVER_NAME = "hitl"`,
 `OPENCODE_HITL_MCP_TOOL_NAME = "hitl_request_human_input"`.
 
 
-### 3.8 `cursor/process.ts` — Cursor Runner
+### 3.9 `cursor/process.ts` — Cursor Runner
 
 `buildCursorArgs(opts)`: `agent` → `-p` → `--resume` → `--model` →
 `--yolo` → `extraArgs` → `--output-format stream-json` → `--trust` →
@@ -227,7 +268,7 @@ dedicated flag). Retry loop with exponential backoff. Real-time NDJSON
 processing with log file + terminal output forwarding.
 
 
-### 3.9 `skill/` — Skill Model
+### 3.10 `skill/` — Skill Model
 
 **`skill/types.ts`:**
 - `SkillFrontmatter` — union of all known SKILL.md frontmatter fields across
@@ -251,12 +292,23 @@ processing with log file + terminal output forwarding.
 
 ### Runtime capability matrix
 
-| Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation |
-|----------|----------------|-------|------------|-------------|--------------------|
-| claude   | true           | true  | true       | true        | true               |
-| opencode | true           | true  | false      | true        | false              |
-| cursor   | false          | false | false      | false       | false              |
-| codex    | true           | true  | true       | true        | true               |
+| Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation | session |
+|----------|----------------|-------|------------|-------------|--------------------|---------|
+| claude   | true           | true  | true       | true        | true               | true    |
+| opencode | true           | true  | false      | true        | false              | false   |
+| cursor   | false          | false | false      | false       | false              | false   |
+| codex    | true           | true  | true       | true        | true               | false   |
+
+**`session` specifics:**
+- When `true`, adapter implements `openSession(opts)` returning a long-lived
+  `RuntimeSession` with push-based `send()`, async-iterable `events`,
+  graceful `endInput()`, SIGTERM `abort()`. See FR-L19 and §3.6.
+- Currently only Claude (backed by `claude/session.ts`). Codex/OpenCode have
+  bidirectional transport capabilities (`codex mcp-server`/`app-server`,
+  `opencode serve`+ACP) that would require per-adapter implementations with
+  very different lifecycle handling; deferred until a concrete need lands.
+- Callers MUST check `adapter.capabilities.session` before invoking
+  `openSession`; the method is optional on `RuntimeAdapter`.
 
 **Codex specifics:**
 - `permissionMode` — normalized values (`default` / `plan` / `acceptEdits` /

@@ -11,6 +11,7 @@
     "./runtime/setting-sources": "./runtime/setting-sources.ts",
     "./claude/process": "./claude/process.ts",
     "./claude/stream": "./claude/stream.ts",
+    "./claude/session": "./claude/session.ts",
     "./cursor/process": "./cursor/process.ts",
     "./codex/process": "./codex/process.ts",
     "./codex/hitl-mcp": "./codex/hitl-mcp.ts",

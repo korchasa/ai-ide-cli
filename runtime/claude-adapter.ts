@@ -10,10 +10,15 @@
  */
 
 import { invokeClaudeCli } from "../claude/process.ts";
+import { openClaudeSession } from "../claude/session.ts";
+import type { ClaudeStreamEvent } from "../claude/stream.ts";
 import type {
   InteractiveOptions,
   InteractiveResult,
   RuntimeAdapter,
+  RuntimeSession,
+  RuntimeSessionEvent,
+  RuntimeSessionOptions,
 } from "./types.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
@@ -67,6 +72,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     transcript: true,
     interactive: true,
     toolUseObservation: true,
+    session: true,
   },
   async invoke(opts) {
     // Translate runtime-neutral onToolUseObserved into the Claude-specific
@@ -132,6 +138,61 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     });
     if (result.output) opts.hooks?.onResult?.(result.output);
     return result;
+  },
+
+  async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    const wrappedOnEvent = opts.onEvent
+      ? (event: ClaudeStreamEvent) => {
+        opts.onEvent!({
+          runtime: "claude",
+          type: event.type,
+          raw: event as unknown as Record<string, unknown>,
+        });
+      }
+      : undefined;
+
+    const inner = await openClaudeSession({
+      agent: opts.agent,
+      systemPrompt: opts.systemPrompt,
+      model: opts.model,
+      permissionMode: opts.permissionMode,
+      resumeSessionId: opts.resumeSessionId,
+      claudeArgs: opts.extraArgs,
+      cwd: opts.cwd,
+      env: opts.env,
+      signal: opts.signal,
+      settingSources: opts.settingSources,
+      onEvent: wrappedOnEvent,
+      onStderr: opts.onStderr,
+    });
+
+    const events: AsyncIterable<RuntimeSessionEvent> = {
+      async *[Symbol.asyncIterator]() {
+        for await (const event of inner.events) {
+          const raw = event as unknown as Record<string, unknown>;
+          const typeField = raw["type"];
+          yield {
+            runtime: "claude",
+            type: typeof typeField === "string" ? typeField : "unknown",
+            raw,
+          };
+        }
+      },
+    };
+
+    return {
+      runtime: "claude",
+      pid: inner.pid,
+      send: (content: string) => inner.send(content),
+      events,
+      endInput: () => inner.endInput(),
+      abort: (reason) => inner.abort(reason),
+      done: inner.done.then((status) => ({
+        exitCode: status.exitCode,
+        signal: status.signal,
+        stderr: status.stderr,
+      })),
+    };
   },
 
   async launchInteractive(
