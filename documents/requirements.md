@@ -652,7 +652,7 @@ stable — never renumber on move.
     --output-format stream-json --verbose`; empirically verified against
     real binary. Evidence:
     `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
-    `ai-ide-cli/scripts/smoke.ts` `session` group.
+    `ai-ide-cli/e2e/_matrix.ts:scenarioTwoTurns` (FR-L25).
   - [x] Claude `send()` emits JSONL user-message shape; `endInput()`
     closes stdin gracefully and returns promptly (signal-only);
     `abort()` SIGTERMs and is idempotent; `done` resolves with exit code +
@@ -724,7 +724,7 @@ stable — never renumber on move.
     `ai-ide-cli/opencode/session_test.ts`,
     `ai-ide-cli/cursor/session_test.ts`,
     `ai-ide-cli/codex/session_test.ts`,
-    `ai-ide-cli/scripts/smoke.ts`.
+    `ai-ide-cli/e2e/` (real-binary matrix, FR-L25).
 
 ### 3.20 FR-L20: Capability Inventory (LLM-probed)
 
@@ -934,7 +934,6 @@ stable — never renumber on move.
         `extractSessionContent` dispatcher. Evidence:
         `ai-ide-cli/runtime/content.ts`.
 
-
 ### 3.24 FR-L24: Typed Tool Filter on Runtime Options
 
 - **Description:** `RuntimeInvokeOptions` and `RuntimeSessionOptions`
@@ -997,6 +996,76 @@ stable — never renumber on move.
   - [x] `// FR-L24` traceability comments at the argv-emission
     sites. Evidence: `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
     `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`.
+
+### 3.25 FR-L25: Real-Binary E2E Suite
+
+- **Description:** Opt-in `deno test`–based suite under `e2e/` that
+  exercises the four runtime adapters against their real CLI binaries
+  (Claude Code, OpenCode, Cursor, Codex). Driven by a shared
+  session-contract matrix (`e2e/_matrix.ts` — `SESSION_CONTRACT_MATRIX`)
+  so every session-capable adapter is asserted against the same
+  invariants (`sessionId` population, `SYNTHETIC_TURN_END` cardinality,
+  `SessionInputClosedError` / `SessionAbortedError` typing, mid-turn
+  `abort()`, two-turn flow). Adapter-specific non-matrix scenarios
+  (Claude `invokeClaudeCli` AbortSignal, Claude `settingSources: []`
+  cleanroom) live next to the matrix generator as standalone
+  `*_e2e_test.ts` files. All tests guard with `ignore: !enabled[runtime]`
+  where `enabled` is pre-resolved at test-file load time via
+  `e2eEnabled(runtime)` — gate requires `E2E=1` and (optionally) a
+  comma-separated `E2E_RUNTIMES` allow-list, plus the runtime's CLI
+  binary on PATH. Missing binaries surface as ignored tests, never
+  ENOENT.
+- **Motivation:** Unit tests use PATH-stub binaries (e.g.
+  `claude/session_test.ts`) which catch logic regressions but not
+  upstream CLI drift (argv renames, event-shape changes, protocol bumps).
+  Before FR-L25 only Claude had real-binary coverage via the bespoke
+  `scripts/smoke.ts` runner. FR-L25 turns that coverage into a uniform,
+  Deno-native, opt-in suite with enforced per-runtime symmetry.
+- **Acceptance:**
+  - [x] `e2e/` directory with `_helpers.ts`, `_matrix.ts`,
+        `session_matrix_e2e_test.ts`, `invoke_abort_e2e_test.ts`,
+        `claude_settings_e2e_test.ts`. Evidence:
+        `ai-ide-cli/e2e/`.
+  - [x] `e2eEnabled(runtime)` gate combines `E2E=1`, optional
+        `E2E_RUNTIMES` allow-list, and `detectBinary(runtime)` probe
+        (cached per runtime). Evidence:
+        `ai-ide-cli/e2e/_helpers.ts`.
+  - [x] `Deno.test#ignore` receives a synchronous boolean — gate is
+        pre-resolved via top-level `await resolveEnabledMap()`.
+        Evidence: `ai-ide-cli/e2e/session_matrix_e2e_test.ts`,
+        `ai-ide-cli/e2e/invoke_abort_e2e_test.ts`,
+        `ai-ide-cli/e2e/claude_settings_e2e_test.ts`.
+  - [x] Session-contract matrix covers 8 scenarios: `sessionId-sync`
+        (opencode/cursor/codex), `sessionId-after-first-event`
+        (claude), `synthetic-turn-end-once-per-turn`,
+        `send-after-endInput-throws-SessionInputClosedError`,
+        `send-after-abort-throws-SessionAbortedError`,
+        `abort-mid-turn-terminates`, `two-turns`,
+        `content-normalization` (FR-L23 cross-runtime). Evidence:
+        `ai-ide-cli/e2e/_matrix.ts:SESSION_CONTRACT_MATRIX`.
+  - [x] `content-normalization` scenario — `extractSessionContent`
+        applied to every event in a live single-word-reply turn:
+        never throws, synthetic events return `[]`, non-synthetic
+        events yield ≥1 `NormalizedContent`, joined `text`/`final`
+        entries contain the reply word (case-insensitive). Evidence:
+        `ai-ide-cli/e2e/_matrix.ts:scenarioContentNormalization`.
+  - [x] `MatrixScenario.ceilingMs` per-runtime override; Cursor
+        receives 90 s, others 60 s. Evidence:
+        `ai-ide-cli/e2e/_matrix.ts`.
+  - [x] `// FR-L25` traceability comment next to the matrix
+        definition. Evidence: `ai-ide-cli/e2e/_matrix.ts`.
+  - [x] `deno.json` tasks `e2e`, `e2e:claude`, `e2e:opencode`,
+        `e2e:cursor`, `e2e:codex`. Evidence:
+        `ai-ide-cli/deno.json` tasks section.
+  - [x] `deno.json` `publish.exclude` covers `e2e` and `e2e/**`.
+        Evidence: `ai-ide-cli/deno.json` publish section.
+  - [x] `.github/workflows/e2e.yml` with `workflow_dispatch` trigger,
+        installs Claude / OpenCode / Codex on Ubuntu, runs
+        `deno test -A --no-check e2e/` with `E2E=1`. Cursor is
+        Linux-headless-unsupported and is expected to skip. Evidence:
+        `ai-ide-cli/.github/workflows/e2e.yml`.
+  - [x] `scripts/smoke.ts` reduced to a shim pointing at the Deno-test
+        suite. Evidence: `ai-ide-cli/scripts/smoke.ts`.
 
 ## 4. Non-Functional Requirements
 

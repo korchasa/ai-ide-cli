@@ -70,6 +70,15 @@ ai-ide-cli/
     types.ts            — SkillDef, SkillFrontmatter (union of all IDE fields)
     parser.ts           — parseSkill(dir) → SkillDef
     mod.ts              — barrel export for @korchasa/ai-ide-cli/skill
+  e2e/                  — opt-in real-binary test suite (FR-L24)
+    _helpers.ts         — detectBinary, e2eEnabled, resolveEnabledMap, ceiling,
+                          ONE_WORD_OK/DONE, LONG_COUNT_PROMPT
+    _matrix.ts          — SESSION_CONTRACT_MATRIX (7 scenarios), RUNTIME_SPECS
+                          (per-runtime turn-end predicates), DEFAULT_CEILING_MS,
+                          CURSOR_CEILING_MS
+    session_matrix_e2e_test.ts — Deno.test generator: RuntimeId × matrix
+    invoke_abort_e2e_test.ts   — Claude one-shot AbortSignal scenarios
+    claude_settings_e2e_test.ts — Claude settingSources: [] cleanroom
 ```
 
 **Dependency rule:** All arrows point inward. Runtime-specific modules import
@@ -613,6 +622,79 @@ via the `initialize` handshake (visible in Codex logs).
 
 Handshake failure tears down the subprocess (`abort` → `await done`) so
 callers never see a zombie process on rejection.
+
+### 3.13 `e2e/` — Real-Binary Test Suite (FR-L24)
+
+Opt-in Deno-native suite; does not run under `deno task check`. Layered:
+
+**`e2e/_helpers.ts`:**
+
+- `detectBinary(runtime): Promise<BinaryProbe>` — `sh -c "command -v
+  <bin>"` probe, cached per runtime in a module-level `Map`. Returns
+  `{ present, path?, reason? }`.
+- `e2eEnabled(runtime): Promise<boolean>` — composes `E2E=1`,
+  `E2E_RUNTIMES` allow-list, and the binary probe.
+- `resolveEnabledMap(): Promise<EnabledMap>` — one-shot `Promise.all` of
+  all four gates for use at test-file top level (`Deno.test#ignore` is
+  boolean-only; the generator pre-resolves once).
+- `ceiling(ms, onFire): cancel` — installs a single-shot timer used as a
+  per-scenario hard ceiling.
+- `ONE_WORD_OK`, `ONE_WORD_DONE`, `LONG_COUNT_PROMPT` — canonical
+  token-minimal prompts shared across scenarios.
+
+**`e2e/_matrix.ts`:**
+
+- `SESSION_CONTRACT_MATRIX: MatrixScenario[]` — 7 shared scenarios
+  driven by the generator. Each `MatrixScenario` carries `id`,
+  `run(runtime)`, optional `only`/`skip` lists, and an optional
+  per-runtime `ceilingMs` override. Cursor uses `CURSOR_CEILING_MS =
+  90_000` ms (cold start + `create-chat` + `--resume`); others use
+  `DEFAULT_CEILING_MS = 60_000` ms.
+- `RUNTIME_SPECS: Record<RuntimeId, RuntimeMatrixSpec>` — per-runtime
+  `turnEndRaw` predicate. Claude/Cursor accept `raw.type === "result"`;
+  Codex accepts `raw.method` ending in `/completed`; OpenCode accepts
+  either `session.idle` or `session.status` (dispatcher is
+  edge-triggered on busy→idle).
+- Scenario coverage:
+  1. `sessionId-sync` (`only: opencode/cursor/codex`) — `sessionId`
+     non-empty synchronously after `openSession()`.
+  2. `sessionId-after-first-event` (`only: claude`) — `""` before the
+     first event; populated after `system/init`.
+  3. `synthetic-turn-end-once-per-turn` — exactly one
+     `SYNTHETIC_TURN_END`, `synthetic: true`, raw passes the runtime's
+     predicate.
+  4. `send-after-endInput-throws-SessionInputClosedError`.
+  5. `send-after-abort-throws-SessionAbortedError`.
+  6. `abort-mid-turn-terminates` — `done` resolves within the runtime's
+     ceiling; exit-form assertion (non-zero exit or signal) applies only
+     to Claude / Cursor, which propagate SIGTERM. Codex app-server and
+     OpenCode serve catch SIGTERM and exit cleanly (`0`, null signal),
+     so the portable invariant is the elapsed-time bound.
+  7. `two-turns` — two sends, two turn-ends, clean `endInput` + `done`.
+
+**`e2e/session_matrix_e2e_test.ts`:** iterates `RuntimeId ×
+SESSION_CONTRACT_MATRIX`, filters via `only`/`skip`, and registers one
+`Deno.test({ ignore: !enabled[runtime] })` per allowed pair. `enabled`
+is pre-resolved via top-level `await resolveEnabledMap()` — the
+`ignore` field must be a synchronous boolean.
+
+**`e2e/invoke_abort_e2e_test.ts`:** Claude-only `invokeClaudeCli`
+scenarios — pre-start abort (`"Aborted before start"`), mid-run abort
+(< 15 s), short-timeout without external signal.
+
+**`e2e/claude_settings_e2e_test.ts`:** Claude-only `settingSources: []`
+cleanroom scenario.
+
+Finalizer discipline: every session scenario wraps the body in
+`try/finally` that calls `session.abort("e2e-cleanup")` and
+`await session.done` so the next `Deno.test` starts with the
+process-registry empty. The outer hard-ceiling timer is cleared in
+`finally` regardless of failure.
+
+Publish exclusion: `deno.json:publish.exclude` covers both `e2e` and
+`e2e/**` so the suite is absent from the JSR tarball. CI wiring lives
+in `.github/workflows/e2e.yml` (manual `workflow_dispatch` only —
+never triggered by PRs or pushes).
 
 
 ## 4. Data

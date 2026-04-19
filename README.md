@@ -273,6 +273,25 @@ throws at invocation time with an explicit error.
   `maxRetries`, `retryDelaySeconds`) as chat commands. Good reference for
   single-runtime consumers that do not need HITL or a workflow engine.
 
+## Development
+
+- `deno task check` — authoritative verification: fmt, lint, type check,
+  unit tests (PATH-stubbed binaries, zero tokens), doc-lint, publish
+  dry-run. Runs in CI on every push / PR.
+- `deno task test` — unit tests only; use during TDD iterations.
+- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L24).
+  Requires Claude / OpenCode / Cursor / Codex CLIs on `$PATH` and spends
+  real tokens. Guarded by `E2E=1`; narrow to one runtime with
+  `deno task e2e:<claude|opencode|cursor|codex>` (sets `E2E_RUNTIMES`).
+  Missing binaries surface as ignored tests instead of ENOENT. Not wired
+  into `deno task check` — invoke manually before a release or via the
+  `E2E (real IDE binaries)` workflow-dispatch GitHub Actions job.
+
+Iteration tip: for fast fmt/lint/JSDoc feedback, run the cheap sub-steps
+individually first (`deno fmt --check`, `deno lint .`,
+`deno doc --lint mod.ts`) and only invoke `deno task check` once those
+pass.
+
 ## Scope
 
 This package is deliberately minimal:

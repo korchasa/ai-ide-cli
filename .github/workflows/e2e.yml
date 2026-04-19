@@ -1,0 +1,59 @@
+name: E2E (real IDE binaries)
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtimes:
+        description: "Comma-separated runtimes (claude,opencode,codex). Cursor has no headless Linux CLI, run locally."
+        default: "claude,opencode,codex"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v5.0.1
+        with:
+          node-version: 20
+
+      - name: Install Claude Code CLI
+        if: contains(inputs.runtimes, 'claude')
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: Install Codex CLI
+        if: contains(inputs.runtimes, 'codex')
+        run: npm i -g @openai/codex
+
+      - name: Install OpenCode CLI
+        if: contains(inputs.runtimes, 'opencode')
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Verify installed binaries
+        run: |
+          for bin in claude opencode codex; do
+            if command -v "$bin" >/dev/null 2>&1; then
+              echo "$bin: $(command -v "$bin")"
+            else
+              echo "$bin: not on PATH (will be skipped by e2eEnabled)"
+            fi
+          done
+
+      - name: Run e2e suite
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          E2E: "1"
+          E2E_RUNTIMES: ${{ inputs.runtimes }}
+        run: deno test -A --no-check e2e/
