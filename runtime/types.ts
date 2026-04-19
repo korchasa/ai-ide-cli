@@ -37,13 +37,16 @@ export interface RuntimeCapabilities {
   interactive: boolean;
   /**
    * Whether the runtime surfaces a per-tool-use observation hook
-   * (`onToolUseObserved`). Currently only Claude.
+   * (`onToolUseObserved`). Claude, Codex, and OpenCode expose it;
+   * Cursor does not (its CLI emits no tool events).
    */
   toolUseObservation: boolean;
   /**
    * Whether the runtime supports a long-lived session with streaming user
-   * input (i.e. `openSession`). Currently only Claude. Other runtimes set
-   * this to `false` and do not implement `openSession`.
+   * input (i.e. `openSession`). Implemented by every registered adapter
+   * (Claude, OpenCode, Cursor faux, Codex app-server). Callers should still
+   * check the flag (and that `openSession` is defined) before invoking —
+   * future adapters may opt out.
    */
   session: boolean;
   /**
@@ -78,8 +81,10 @@ export interface RuntimeLifecycleHooks {
 }
 
 /**
- * Info passed to the runtime-neutral observed-tool-use callback.
- * Honored by Claude; other adapters ignore the hook.
+ * Info passed to the runtime-neutral observed-tool-use callback. Honored by
+ * Claude, Codex, and OpenCode (each reports the tool invocation its CLI
+ * surfaces); Cursor ignores the hook because its CLI does not emit tool
+ * events.
  */
 export interface RuntimeToolUseInfo {
   /** Runtime that dispatched the tool. */
@@ -193,8 +198,9 @@ export interface RuntimeInvokeOptions {
    * Observed-tool-use callback. Fires **post-dispatch but pre-next-turn**:
    * by the time the hook runs, the runtime has already invoked the tool.
    * Returning `"abort"` stops the run but cannot un-execute the tool.
-   * Currently honored by the Claude adapter only; other adapters ignore
-   * the callback.
+   * Honored by Claude, Codex, and OpenCode; Cursor silently ignores the
+   * callback (its CLI surfaces no tool events). Check
+   * {@link RuntimeCapabilities.toolUseObservation} before relying on it.
    */
   onToolUseObserved?: OnRuntimeToolUseObservedCallback;
   /**

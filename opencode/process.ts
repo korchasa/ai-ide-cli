@@ -2,7 +2,9 @@
  * @module
  * OpenCode runtime adapter: builds CLI arguments, spawns the opencode process,
  * parses JSON event stream, extracts normalized output, and handles HITL
- * interception for the OpenCode runtime.
+ * interception for the OpenCode runtime. Also wires the runtime-neutral
+ * {@link OnRuntimeToolUseObservedCallback} (FR-L16) and surfaces the
+ * persisted transcript via `opencode export <sessionId>`.
  * Entry point: {@link invokeOpenCodeCli}.
  */
 
@@ -18,8 +20,11 @@ import {
 } from "./hitl-mcp.ts";
 import { register, unregister } from "../process-registry.ts";
 import type {
+  OnRuntimeToolUseObservedCallback,
   RuntimeInvokeOptions,
   RuntimeInvokeResult,
+  RuntimeLifecycleHooks,
+  RuntimeToolUseDecision,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
 
@@ -35,6 +40,154 @@ export const OPENCODE_RESERVED_FLAGS: readonly string[] = [
   "--agent",
   "--dangerously-skip-permissions",
 ];
+
+// --- Typed event shapes (discriminated union) ---
+//
+// OpenCode `run --format json` emits one JSON object per line. Each object
+// carries `type` as discriminator and usually a `part` payload. The shapes
+// below mirror the runtime's native output and are kept intentionally
+// permissive (`[key: string]: unknown`) so upstream CLI updates that add
+// fields do not break consumers. Consumers that want typed narrowing of
+// {@link RuntimeInvokeOptions.onEvent} should cast to
+// {@link OpenCodeStreamEvent} and `switch` on `event.type`.
+
+/** `step_start` event — emitted at the beginning of each assistant step. */
+export interface OpenCodeStepStartEvent {
+  /** Discriminator for `step_start` events. */
+  type: "step_start";
+  /** Session id stamped by the OpenCode CLI. */
+  sessionID?: string;
+  /** Server-side timestamp (ms since epoch). */
+  timestamp?: number;
+  /** Native payload (kept open to tolerate upstream field additions). */
+  part?: {
+    /** Native sub-discriminator (always `"step-start"` here). */
+    type: "step-start";
+    /** Forward-compat: pass-through of unknown upstream fields. */
+    [key: string]: unknown;
+  };
+  /** Forward-compat: pass-through of unknown top-level fields. */
+  [key: string]: unknown;
+}
+
+/** `text` event — a chunk of assistant text output. */
+export interface OpenCodeTextEvent {
+  /** Discriminator for `text` events. */
+  type: "text";
+  /** Session id stamped by the OpenCode CLI. */
+  sessionID?: string;
+  /** Server-side timestamp (ms since epoch). */
+  timestamp?: number;
+  /** Text payload emitted by the assistant. */
+  part?: {
+    /** Native sub-discriminator (always `"text"` here). */
+    type: "text";
+    /** Assistant-emitted text chunk. */
+    text: string;
+    /** Forward-compat: pass-through of unknown upstream fields. */
+    [key: string]: unknown;
+  };
+  /** Forward-compat: pass-through of unknown top-level fields. */
+  [key: string]: unknown;
+}
+
+/** `tool_use` event — a tool invocation by the assistant. */
+export interface OpenCodeToolUseEvent {
+  /** Discriminator for `tool_use` events. */
+  type: "tool_use";
+  /** Session id stamped by the OpenCode CLI. */
+  sessionID?: string;
+  /** Server-side timestamp (ms since epoch). */
+  timestamp?: number;
+  /** Tool invocation payload. */
+  part?: {
+    /** Native sub-discriminator. */
+    type?: string;
+    /** Tool name (e.g. `"bash"`, `"edit"`, `"hitl_request_human_input"`). */
+    tool?: string;
+    /** Primary tool-invocation id used by the adapter for de-duplication. */
+    id?: string;
+    /** Legacy alias for `id` used by older `opencode` builds. */
+    callID?: string;
+    /** Tool execution state; reaches `completed`/`failed` when terminal. */
+    state?: {
+      /**
+       * Lifecycle status (`pending` → `running` → `completed` | `failed`).
+       * Kept open with `string` for upstream additions.
+       */
+      status?: "pending" | "running" | "completed" | "failed" | string;
+      /** Arguments the assistant supplied to the tool. */
+      input?: Record<string, unknown>;
+      /** Tool return value (shape is tool-specific). */
+      output?: unknown;
+      /** Forward-compat: pass-through of unknown upstream fields. */
+      [key: string]: unknown;
+    };
+    /** Forward-compat: pass-through of unknown upstream fields. */
+    [key: string]: unknown;
+  };
+  /** Forward-compat: pass-through of unknown top-level fields. */
+  [key: string]: unknown;
+}
+
+/** `step_finish` event — emitted when a step ends, carrying cost/usage info. */
+export interface OpenCodeStepFinishEvent {
+  /** Discriminator for `step_finish` events. */
+  type: "step_finish";
+  /** Session id stamped by the OpenCode CLI. */
+  sessionID?: string;
+  /** Server-side timestamp (ms since epoch). */
+  timestamp?: number;
+  /** Finish payload carrying stop reason and cost. */
+  part?: {
+    /** Native sub-discriminator (always `"step-finish"` here). */
+    type: "step-finish";
+    /** Stop reason reported by the agent (e.g. `"stop"`, `"tool_use"`). */
+    reason?: string;
+    /** Cumulative USD cost for the step as reported by the CLI. */
+    cost?: number;
+    /** Forward-compat: pass-through of unknown upstream fields. */
+    [key: string]: unknown;
+  };
+  /** Forward-compat: pass-through of unknown top-level fields. */
+  [key: string]: unknown;
+}
+
+/** `error` event — a runtime error surfaced by the OpenCode CLI. */
+export interface OpenCodeErrorEvent {
+  /** Discriminator for `error` events. */
+  type: "error";
+  /** Session id stamped by the OpenCode CLI. */
+  sessionID?: string;
+  /** Server-side timestamp (ms since epoch). */
+  timestamp?: number;
+  /** Error payload from the CLI. */
+  error?: {
+    /** Error class name. */
+    name?: string;
+    /** Human-readable error message. */
+    message?: string;
+    /** Structured error details as attached by the CLI. */
+    data?: {
+      /** Preferred human message surfaced by the CLI. */
+      message?: string;
+      /** Forward-compat: pass-through of unknown data fields. */
+      [key: string]: unknown;
+    };
+    /** Forward-compat: pass-through of unknown error fields. */
+    [key: string]: unknown;
+  };
+  /** Forward-compat: pass-through of unknown top-level fields. */
+  [key: string]: unknown;
+}
+
+/** Union of all parsed OpenCode stream events consumed by this adapter. */
+export type OpenCodeStreamEvent =
+  | OpenCodeStepStartEvent
+  | OpenCodeTextEvent
+  | OpenCodeToolUseEvent
+  | OpenCodeStepFinishEvent
+  | OpenCodeErrorEvent;
 
 /** Build CLI arguments for the opencode command. Exported for testing. */
 export function buildOpenCodeArgs(opts: RuntimeInvokeOptions): string[] {
@@ -183,6 +336,81 @@ export function buildOpenCodeConfigContent(
   });
 }
 
+/**
+ * Extract a tool-use info payload from a parsed OpenCode `tool_use` event
+ * suitable for dispatch through {@link OnRuntimeToolUseObservedCallback}.
+ * Returns `undefined` for HITL interception events (they have their own
+ * flow) or for events lacking the required `tool` / `id` fields.
+ *
+ * The callback is expected to fire once per tool invocation when the tool
+ * reaches terminal state (`status === "completed"` or `"failed"`).
+ *
+ * Exported for testing.
+ */
+export function openCodeToolUseInfo(
+  event: OpenCodeToolUseEvent,
+): { id: string; name: string; input?: Record<string, unknown> } | undefined {
+  const part = event.part;
+  if (!part) return undefined;
+  const tool = typeof part.tool === "string" ? part.tool : "";
+  if (!tool) return undefined;
+  if (tool === OPENCODE_HITL_MCP_TOOL_NAME) return undefined;
+  const id = typeof part.id === "string" && part.id
+    ? part.id
+    : typeof part.callID === "string" && part.callID
+    ? part.callID
+    : "";
+  if (!id) return undefined;
+  const input = part.state?.input && typeof part.state.input === "object"
+    ? part.state.input as Record<string, unknown>
+    : undefined;
+  return { id, name: tool, input };
+}
+
+/**
+ * Export an OpenCode session transcript to a local temporary file by invoking
+ * `opencode export <sessionId> [--sanitize]` and capturing stdout. Returns
+ * the absolute path to the temp file on success, or `undefined` on failure
+ * (non-zero exit, missing binary, I/O error — all swallowed best-effort so
+ * transcript export never masks the primary invocation result).
+ *
+ * Exported for testing.
+ */
+export async function exportOpenCodeTranscript(
+  sessionId: string,
+  opts?: {
+    cwd?: string;
+    env?: Record<string, string>;
+    sanitize?: boolean;
+    signal?: AbortSignal;
+  },
+): Promise<string | undefined> {
+  if (!sessionId) return undefined;
+  const args = ["export", sessionId];
+  if (opts?.sanitize) args.push("--sanitize");
+  try {
+    const cmd = new Deno.Command("opencode", {
+      args,
+      stdin: "null",
+      stdout: "piped",
+      stderr: "piped",
+      ...(opts?.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts?.env ? { env: opts.env } : {}),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    });
+    const { success, stdout } = await cmd.output();
+    if (!success || stdout.length === 0) return undefined;
+    const path = await Deno.makeTempFile({
+      prefix: `opencode-transcript-${sessionId}-`,
+      suffix: ".json",
+    });
+    await Deno.writeFile(path, stdout);
+    return path;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Invoke opencode CLI with retry logic. */
 export async function invokeOpenCodeCli(
   opts: RuntimeInvokeOptions,
@@ -214,6 +442,7 @@ export async function invokeOpenCodeCli(
         opts.onEvent,
         opts.signal,
         opts.hooks,
+        opts.onToolUseObserved,
       );
       if (output.is_error) {
         lastError = `OpenCode returned error: ${output.result}`;
@@ -269,7 +498,8 @@ async function executeOpenCodeProcess(
   env?: Record<string, string>,
   onEvent?: (event: Record<string, unknown>) => void,
   userSignal?: AbortSignal,
-  hooks?: import("../runtime/types.ts").RuntimeLifecycleHooks,
+  hooks?: RuntimeLifecycleHooks,
+  onToolUseObserved?: OnRuntimeToolUseObservedCallback,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };
   if (configContent) {
@@ -290,6 +520,13 @@ async function executeOpenCodeProcess(
   let timedOut = false;
   let interruptedForHitl = false;
   let initEmitted = false;
+  let denialAbort = false;
+  let denial:
+    | { toolName: string; toolId: string; reason: string }
+    | undefined;
+  const seenObservedIds = new Set<string>();
+  let stepCount = 0;
+  let lastSessionId = "";
 
   try {
     const timeoutSignal = AbortSignal.timeout(timeoutSeconds * 1000);
@@ -323,6 +560,79 @@ async function executeOpenCodeProcess(
     const stdoutLines: string[] = [];
     const stderrChunks: Uint8Array[] = [];
 
+    const killForHitl = () => {
+      interruptedForHitl = true;
+      try {
+        process.kill("SIGTERM");
+      } catch {
+        // Process may already be gone.
+      }
+    };
+    const killForDenial = () => {
+      denialAbort = true;
+      try {
+        process.kill("SIGTERM");
+      } catch {
+        // Process may already be gone.
+      }
+    };
+
+    // deno-lint-ignore no-explicit-any
+    const handleEvent = async (event: Record<string, any>): Promise<void> => {
+      onEvent?.(event);
+      const sessionId = typeof event.sessionID === "string"
+        ? event.sessionID
+        : "";
+      if (sessionId) {
+        lastSessionId = sessionId;
+        if (!initEmitted) {
+          initEmitted = true;
+          hooks?.onInit?.({
+            runtime: "opencode",
+            sessionId: sessionId || undefined,
+          });
+        }
+      }
+      if (event.type === "step_start") stepCount += 1;
+
+      // FR-L16: observed-tool-use hook — fires once per tool id, on
+      // non-HITL tool_use events whose state reached a terminal status.
+      if (onToolUseObserved && event.type === "tool_use") {
+        const terminal = event.part?.state?.status === "completed" ||
+          event.part?.state?.status === "failed";
+        if (terminal) {
+          const info = openCodeToolUseInfo(event as OpenCodeToolUseEvent);
+          if (info && !seenObservedIds.has(info.id)) {
+            seenObservedIds.add(info.id);
+            let decision: RuntimeToolUseDecision = "allow";
+            try {
+              decision = await onToolUseObserved({
+                runtime: "opencode",
+                id: info.id,
+                name: info.name,
+                input: info.input,
+                turn: Math.max(1, stepCount),
+              });
+            } catch {
+              decision = "abort";
+            }
+            if (decision === "abort") {
+              denial = {
+                toolName: info.name,
+                toolId: info.id,
+                reason: "Aborted by onToolUseObserved callback",
+              };
+              killForDenial();
+            }
+          }
+        }
+      }
+
+      const summary = formatOpenCodeEventForOutput(event, verbosity);
+      if (summary) onOutput?.(summary);
+      if (extractHitlRequestFromEvent(event)) killForHitl();
+    };
+
     const stdoutReader = process.stdout.getReader();
     const stdoutDone = (async () => {
       try {
@@ -340,25 +650,7 @@ async function executeOpenCodeProcess(
               stdoutLines,
               encoder,
               logFile,
-              onOutput,
-              verbosity,
-              () => {
-                interruptedForHitl = true;
-                try {
-                  process.kill("SIGTERM");
-                } catch {
-                  // Process may already be gone.
-                }
-              },
-              onEvent,
-              (sessionId, _event) => {
-                if (initEmitted) return;
-                initEmitted = true;
-                hooks?.onInit?.({
-                  runtime: "opencode",
-                  sessionId: sessionId || undefined,
-                });
-              },
+              handleEvent,
             );
           }
         }
@@ -369,25 +661,7 @@ async function executeOpenCodeProcess(
             stdoutLines,
             encoder,
             logFile,
-            onOutput,
-            verbosity,
-            () => {
-              interruptedForHitl = true;
-              try {
-                process.kill("SIGTERM");
-              } catch {
-                // Process may already be gone.
-              }
-            },
-            onEvent,
-            (sessionId, _event) => {
-              if (initEmitted) return;
-              initEmitted = true;
-              hooks?.onInit?.({
-                runtime: "opencode",
-                sessionId: sessionId || undefined,
-              });
-            },
+            handleEvent,
           );
         }
       } catch {
@@ -414,6 +688,32 @@ async function executeOpenCodeProcess(
 
     logFile?.close();
 
+    // Tool-use denial takes precedence: synthesize a permission-denial
+    // output regardless of subprocess status (SIGTERM path may look like
+    // any exit code depending on OS).
+    if (denial) {
+      return {
+        runtime: "opencode",
+        result: denial.reason,
+        session_id: lastSessionId,
+        total_cost_usd: 0,
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: stepCount,
+        is_error: true,
+        permission_denials: [
+          {
+            tool_name: denial.toolName,
+            tool_input: { id: denial.toolId, reason: denial.reason },
+          },
+        ],
+        transcript_path: await exportOpenCodeTranscript(lastSessionId, {
+          cwd,
+          env,
+        }),
+      };
+    }
+
     if (userSignal?.aborted) {
       const err = new Error(`Aborted: ${abortReason(userSignal)}`);
       (err as Error & { name: string }).name = "AbortError";
@@ -438,11 +738,20 @@ async function executeOpenCodeProcess(
       if (timedOut && !output.hitl_request) {
         throw new Error("OpenCode timed out");
       }
-      if (!status.success && !output.is_error && !interruptedForHitl) {
+      if (
+        !status.success && !output.is_error && !interruptedForHitl &&
+        !denialAbort
+      ) {
         throw new Error(
           `OpenCode exited with code ${status.code}${
             stderr ? `: ${stderr}` : ""
           }`,
+        );
+      }
+      if (output.session_id) {
+        output.transcript_path = await exportOpenCodeTranscript(
+          output.session_id,
+          { cwd, env },
         );
       }
       return output;
@@ -470,11 +779,7 @@ async function processOpenCodeLine(
   stdoutLines: string[],
   encoder: TextEncoder,
   logFile: Deno.FsFile | undefined,
-  onOutput: ((line: string) => void) | undefined,
-  verbosity: Verbosity | undefined,
-  onHitlRequest: () => void,
-  onEvent?: (event: Record<string, unknown>) => void,
-  onInit?: (sessionId: string, event: Record<string, unknown>) => void,
+  handleEvent: (event: Record<string, unknown>) => Promise<void>,
 ): Promise<void> {
   const line = rawLine.trim();
   if (!line) return;
@@ -483,20 +788,8 @@ async function processOpenCodeLine(
     await logFile.write(encoder.encode(line + "\n"));
   }
   try {
-    // deno-lint-ignore no-explicit-any
-    const event = JSON.parse(line) as Record<string, any>;
-    onEvent?.(event);
-    const sessionId = typeof event.sessionID === "string"
-      ? event.sessionID
-      : "";
-    if (sessionId) onInit?.(sessionId, event);
-    const summary = formatOpenCodeEventForOutput(event, verbosity);
-    if (summary) {
-      onOutput?.(summary);
-    }
-    if (extractHitlRequestFromEvent(event)) {
-      onHitlRequest();
-    }
+    const event = JSON.parse(line) as Record<string, unknown>;
+    await handleEvent(event);
   } catch {
     // Ignore non-JSON lines in stdout.
   }

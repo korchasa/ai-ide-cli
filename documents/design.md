@@ -505,7 +505,7 @@ callers never see a zombie process on rejection.
 | Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation | session | capabilityInventory |
 |----------|----------------|-------|------------|-------------|--------------------|---------|---------------------|
 | claude   | true           | true  | true       | true        | true               | true    | true                |
-| opencode | true           | true  | false      | true        | false              | true    | true                |
+| opencode | true           | true  | true       | true        | true               | true    | true                |
 | cursor   | false          | false | false      | false       | false              | true    | true                |
 | codex    | true           | true  | true       | true        | true               | true    | true                |
 
@@ -594,6 +594,32 @@ callers never see a zombie process on rejection.
   `item.completed` for `command_execution`, `file_change`, `mcp_tool_call`,
   and `web_search` items; an `"abort"` decision SIGTERMs Codex and the
   runner synthesizes a `permission_denials[]` entry for the observed item.
+
+**OpenCode specifics:**
+
+- `transcript` — OpenCode persists sessions in a local SQLite DB
+  (`~/.local/share/opencode/opencode.db`); there is no per-session file
+  path to copy. The adapter instead invokes `opencode export <sessionId>`
+  post-run, captures stdout, writes it to a temp file via
+  `Deno.makeTempFile`, and surfaces the path as
+  `CliRunOutput.transcript_path`. See `exportOpenCodeTranscript` in
+  `opencode/process.ts`; failures (missing binary, non-zero exit) are
+  swallowed best-effort so transcript export never masks the primary
+  invocation result.
+- `toolUseObservation` — fires `onToolUseObserved` once per non-HITL
+  `tool_use` event whose `state.status` reaches `completed` or `failed`;
+  an `"abort"` decision SIGTERMs the subprocess and the runner synthesizes
+  a `permission_denials[]` entry for the observed tool. Tool id is taken
+  from `part.id`, falling back to `part.callID`. HITL tool events stay on
+  their dedicated detection path (no double-dispatch). See
+  `openCodeToolUseInfo` and `executeOpenCodeProcess` in
+  `opencode/process.ts`.
+- `OpenCodeStreamEvent` — exported discriminated union
+  (`OpenCodeStepStartEvent | OpenCodeTextEvent | OpenCodeToolUseEvent
+  | OpenCodeStepFinishEvent | OpenCodeErrorEvent`) for consumers that
+  want typed narrowing of `RuntimeInvokeOptions.onEvent`. Each member
+  keeps `[key: string]: unknown` for forward-compat with upstream CLI
+  field additions.
 
 ## 5. Constraints
 

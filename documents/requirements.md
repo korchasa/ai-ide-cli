@@ -140,17 +140,29 @@ stable — never renumber on move.
   to task prompt (no dedicated flag). HITL interception: detects
   `hitl_request_human_input` tool_use events, kills process, returns
   `hitl_request` in output. MCP injection via `OPENCODE_CONFIG_CONTENT` env.
+  Surfaces a typed event union `OpenCodeStreamEvent` for consumers narrowing
+  `RuntimeInvokeOptions.onEvent`. Observes tool invocations via FR-L16.
+  Post-run transcript exported with `opencode export <sessionId>` and
+  written to a temp file, path returned as `CliRunOutput.transcript_path`.
 - **Acceptance:**
   - [x] `buildOpenCodeArgs()` emits `run`, `--format json`, `--session`,
         `--model`, `--agent`, `--dangerously-skip-permissions`.
-        Evidence: `ai-ide-cli/opencode/process.ts:26-53`.
+        Evidence: `ai-ide-cli/opencode/process.ts:buildOpenCodeArgs`.
   - [x] `buildOpenCodeConfigContent()` injects MCP server when HITL configured;
         throws when `hitlMcpCommandBuilder` missing.
-        Evidence: `ai-ide-cli/opencode/process.ts:148-172`.
+        Evidence: `ai-ide-cli/opencode/process.ts:buildOpenCodeConfigContent`.
   - [x] HITL request extraction from `tool_use` events.
-        Evidence: `ai-ide-cli/opencode/process.ts:424-455`.
-  - [x] Tests: args, output extraction, HITL, config content.
-        Evidence: `ai-ide-cli/opencode/process_test.ts`.
+        Evidence: `ai-ide-cli/opencode/process.ts:extractHitlRequestFromEvent`.
+  - [x] `OpenCodeStreamEvent` union exported
+        (`OpenCodeStepStartEvent | OpenCodeTextEvent | OpenCodeToolUseEvent
+        | OpenCodeStepFinishEvent | OpenCodeErrorEvent`).
+        Evidence: `ai-ide-cli/opencode/process.ts` discriminated union.
+  - [x] `exportOpenCodeTranscript(sessionId, opts?)` spawns `opencode export`
+        and writes stdout to a temp file; failures return `undefined`.
+        Evidence: `ai-ide-cli/opencode/process.ts:exportOpenCodeTranscript`,
+        `ai-ide-cli/opencode/process_test.ts` transcript-export cases.
+  - [x] Tests: args, output extraction, HITL, config content, tool-use abort,
+        transcript export. Evidence: `ai-ide-cli/opencode/process_test.ts`.
 
 ### 3.6 FR-L6: Cursor CLI Wrapper
 
@@ -420,33 +432,45 @@ stable — never renumber on move.
   - [x] Retry loop treats abort as terminal. Evidence:
         `ai-ide-cli/claude/process.ts` retry loop error-mapping.
 
-### 3.16 FR-L16: Observed-Tool-Use Hook (Claude)
+### 3.16 FR-L16: Observed-Tool-Use Hook
 
-- **Description:** `ClaudeInvokeOptions.onToolUseObserved(info)` and the
-  runtime-neutral `RuntimeInvokeOptions.onToolUseObserved(info)` fire
-  for every `tool_use` block emitted by Claude. The hook runs
-  **post-dispatch but pre-next-turn** — by the time it fires, the CLI has
-  already invoked the tool, so returning `"abort"` terminates the run
-  but cannot un-execute the tool. Hook-driven aborts synthesize a
-  `CliRunOutput` with `is_error: true`, `result: "Aborted by
-  onToolUseObserved callback"`, and a single
-  `permission_denials[]` entry `{tool_name, tool_input: {id, reason}}`.
-  Currently Claude-only; capability advertised via
-  `RuntimeCapabilities.toolUseObservation`.
+- **Description:** `RuntimeInvokeOptions.onToolUseObserved(info)` (and the
+  Claude-specific `ClaudeInvokeOptions.onToolUseObserved(info)`) fire for
+  every tool invocation surfaced by the runtime's event stream. The hook
+  runs **post-dispatch but pre-next-turn** — by the time it fires, the
+  CLI has already invoked the tool, so returning `"abort"` terminates
+  the run but cannot un-execute the tool. Hook-driven aborts synthesize
+  a `CliRunOutput` with `is_error: true`, `result: "Aborted by
+  onToolUseObserved callback"`, and a single `permission_denials[]`
+  entry `{tool_name, tool_input: {id, reason}}`. Supported on Claude,
+  Codex, and OpenCode; Cursor's CLI does not surface tool events, so
+  the hook is a no-op there. Per-runtime trigger:
+  - **Claude** — fires for every `tool_use` block inside an `assistant` event.
+  - **Codex** — fires for `item.completed` items of kind
+    `command_execution` / `file_change` / `mcp_tool_call` / `web_search`.
+  - **OpenCode** — fires for every non-HITL `tool_use` event once the
+    tool reaches a terminal `state.status` (`completed` or `failed`).
+  Capability advertised via `RuntimeCapabilities.toolUseObservation`.
 - **Motivation:** First-class audit / HITL pre-hook that the SDK inspired.
 - **Acceptance:**
   - [x] `onToolUseObserved` callback receives `{id, name, input, turn}`.
         Evidence: `ai-ide-cli/claude/stream.ts`,
-        `ai-ide-cli/claude/stream_test.ts`.
-  - [x] Sync `"abort"` sets `state.denied` and aborts the run's
-        controller. Evidence: `ai-ide-cli/claude/stream_test.ts`.
+        `ai-ide-cli/claude/stream_test.ts`,
+        `ai-ide-cli/codex/process.ts:codexItemToToolUseInfo`,
+        `ai-ide-cli/opencode/process.ts:openCodeToolUseInfo`.
+  - [x] Sync `"abort"` synthesizes `permission_denials[]` and terminates
+        the run. Evidence: `ai-ide-cli/claude/stream_test.ts`,
+        `ai-ide-cli/opencode/process_test.ts`
+        (`invokeOpenCodeCli — onToolUseObserved abort synthesizes …`).
   - [x] Async `"abort"` (awaited decision) also aborts cleanly.
         Evidence: `ai-ide-cli/claude/stream_test.ts`.
   - [x] `"allow"` is a no-op (run continues). Evidence:
-        `ai-ide-cli/claude/stream_test.ts`.
+        `ai-ide-cli/claude/stream_test.ts`,
+        `ai-ide-cli/opencode/process_test.ts`
+        (`invokeOpenCodeCli — onToolUseObserved allow does not abort`).
   - [x] `RuntimeCapabilities.toolUseObservation` advertises support
-        (Claude `true`, others `false`). Evidence:
-        `ai-ide-cli/runtime/claude-adapter.ts`,
+        (Claude `true`, Codex `true`, OpenCode `true`, Cursor `false`).
+        Evidence: `ai-ide-cli/runtime/claude-adapter.ts`,
         `ai-ide-cli/runtime/opencode-adapter.ts`,
         `ai-ide-cli/runtime/cursor-adapter.ts`,
         `ai-ide-cli/runtime/codex-adapter.ts`.

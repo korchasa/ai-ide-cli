@@ -167,9 +167,20 @@ export {
 export {
   buildOpenCodeArgs,
   buildOpenCodeConfigContent,
+  exportOpenCodeTranscript,
   extractOpenCodeOutput,
   formatOpenCodeEventForOutput,
   invokeOpenCodeCli,
+  OPENCODE_RESERVED_FLAGS,
+  openCodeToolUseInfo,
+} from "./opencode/process.ts";
+export type {
+  OpenCodeErrorEvent,
+  OpenCodeStepFinishEvent,
+  OpenCodeStepStartEvent,
+  OpenCodeStreamEvent,
+  OpenCodeTextEvent,
+  OpenCodeToolUseEvent,
 } from "./opencode/process.ts";
 export { openOpenCodeSession } from "./opencode/session.ts";
 export type {

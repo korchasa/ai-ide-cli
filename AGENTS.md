@@ -44,8 +44,9 @@ import this package to invoke IDE CLIs uniformly.
 - `claude/process.ts`, `claude/stream.ts`, `claude/session.ts` — Claude CLI
   invocation, streaming output parser, and streaming-input session.
 - `opencode/process.ts`, `opencode/session.ts`, `opencode/hitl-mcp.ts` —
-  OpenCode invocation, server-backed streaming-input session, HITL MCP
-  handler.
+  OpenCode invocation (with `onToolUseObserved` dispatch and
+  `opencode export` transcript surfacing), server-backed streaming-input
+  session, HITL MCP handler.
 - `cursor/process.ts`, `cursor/session.ts` — Cursor CLI invocation and the
   faux streaming-input session (`create-chat` + per-send subprocess).
 - `codex/process.ts`, `codex/hitl-mcp.ts`, `codex/app-server.ts`,

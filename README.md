@@ -55,9 +55,9 @@ adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
 |----------------------|----------------|----------------|-------------------|----------------|
 | permissionMode       | yes            | yes            | no (`--yolo` only)| yes            |
 | hitl                 | yes (denials)  | yes (MCP)      | no                | yes (MCP)      |
-| transcript path      | yes            | no             | no                | yes            |
+| transcript path      | yes            | yes (via `opencode export`) | no  | yes            |
 | interactive TUI      | yes            | yes            | no                | yes            |
-| toolUseObservation   | yes            | no             | no                | yes            |
+| toolUseObservation   | yes            | yes            | no                | yes            |
 | `openSession`        | yes (real)     | yes (`opencode serve`) | faux (per-send subprocess) | yes (app-server) |
 | capabilityInventory  | yes            | yes            | yes               | yes            |
 | skill loading        | yes (`~/.claude/skills/`) | yes (`.claude/skills/`) | no | yes (`~/.agents/skills/`) |
@@ -165,9 +165,9 @@ hatch), `hooks` (typed lifecycle).
 
 Runtime-scoped (check `capabilities` before using):
 
-- `onToolUseObserved` — Claude and Codex only
-  (`capabilities.toolUseObservation`). OpenCode and Cursor silently
-  ignore the callback.
+- `onToolUseObserved` — Claude, Codex, and OpenCode
+  (`capabilities.toolUseObservation`). Cursor silently ignores the
+  callback (no tool events surfaced by the CLI).
 - `settingSources` — Claude only (cleanroom `CLAUDE_CONFIG_DIR` setup).
   Other runtimes have no equivalent; the option is ignored.
 

@@ -40,9 +40,9 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   capabilities: {
     permissionMode: true,
     hitl: true,
-    transcript: false,
+    transcript: true,
     interactive: true,
-    toolUseObservation: false,
+    toolUseObservation: true,
     session: true,
     capabilityInventory: true,
   },
