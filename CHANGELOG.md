@@ -2,12 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-### Unreleased
+### [0.5.4](https://github.com/korchasa/ai-ide-cli/compare/v0.5.3...v0.5.4) (2026-04-19)
+
 
 ### Features
 
-* **runtime:** typed `allowedTools` / `disallowedTools` on `RuntimeInvokeOptions` and `RuntimeSessionOptions`; Claude emits `--allowedTools` / `--disallowedTools` (comma-joined into two argv tokens), other adapters validate then warn once via `console.warn` (FR-L24).
-* **runtime:** new `RuntimeCapabilities.toolFilter` flag — `true` for Claude, `false` for OpenCode / Cursor / Codex.
+* **runtime:** typed allowedTools/disallowedTools (FR-L24) ([3af57c0](https://github.com/korchasa/ai-ide-cli/commit/3af57c0ed21a1bbed1fc0e9dc703674d8db225fb)), closes [#3](https://github.com/korchasa/ai-ide-cli/issues/3)
 
 ### [0.5.3](https://github.com/korchasa/ai-ide-cli/compare/v0.5.2...v0.5.3) (2026-04-19)
 
