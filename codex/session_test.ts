@@ -5,6 +5,7 @@ import {
   permissionModeToThreadStartFields,
   updateActiveTurnId,
 } from "./session.ts";
+import { SessionInputClosedError } from "../runtime/types.ts";
 
 // --- Pure helpers ---
 
@@ -387,13 +388,16 @@ Deno.test({
 });
 
 Deno.test({
-  name: "openCodexSession — send after endInput throws",
+  name: "openCodexSession — send after endInput throws SessionInputClosedError",
   sanitizeResources: false,
   fn: async () => {
     await withStubCodex(async () => {
       const session = await openCodexSession({});
       await session.endInput();
-      await assertRejects(() => session.send("late"), Error, "input closed");
+      await assertRejects(
+        () => session.send("late"),
+        SessionInputClosedError,
+      );
       await session.done;
     });
   },

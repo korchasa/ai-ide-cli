@@ -29,6 +29,13 @@ export {
   getRuntimeAdapter,
   resolveRuntimeConfig,
 } from "./runtime/index.ts";
+export {
+  SessionAbortedError,
+  SessionDeliveryError,
+  SessionError,
+  SessionInputClosedError,
+  SYNTHETIC_TURN_END,
+} from "./runtime/types.ts";
 export type {
   ExtraArgsMap,
   InteractiveOptions,

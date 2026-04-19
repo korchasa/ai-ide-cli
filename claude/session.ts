@@ -16,7 +16,12 @@
  * Entry point: {@link openClaudeSession}.
  */
 
-import type { ExtraArgsMap } from "../runtime/types.ts";
+import {
+  type ExtraArgsMap,
+  SessionAbortedError,
+  SessionDeliveryError,
+  SessionInputClosedError,
+} from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
@@ -80,11 +85,23 @@ export interface ClaudeSession {
   /** OS process ID of the spawned `claude` subprocess. */
   readonly pid: number;
   /**
+   * Claude-assigned session id for resume. The Claude CLI allocates it
+   * inside the subprocess and emits it in the first `system/init` event —
+   * this field returns `""` until that event has been parsed, then holds
+   * the id for the remainder of the session. Getter-backed so late
+   * population is visible to downstream wrappers that captured the
+   * handle before init arrived.
+   */
+  readonly sessionId: string;
+  /**
    * Push an additional user message into the running session.
    *
    * Accepts either a plain string (wrapped as `{role: "user", content}`) or a
-   * fully-formed stream-json input object. Throws if stdin has been closed
-   * (via {@link endInput}) or the process has exited.
+   * fully-formed stream-json input object. Rejects with
+   * {@link SessionInputClosedError} when stdin has been closed via
+   * {@link endInput}, {@link SessionAbortedError} after {@link abort}, or
+   * {@link SessionDeliveryError} when the write to the subprocess stdin
+   * fails (e.g. broken pipe after the CLI crashed).
    */
   send(content: string | ClaudeSessionUserInput): Promise<void>;
   /**
@@ -211,8 +228,14 @@ export async function openClaudeSession(
   const stdinWriter = process.stdin.getWriter();
   let stdinClosed = false;
   let aborted = false;
+  let currentSessionId = opts.resumeSessionId ?? "";
 
   const queue = new SessionEventQueue<ClaudeStreamEvent>("ClaudeSession");
+
+  const captureSessionId = (event: ClaudeStreamEvent) => {
+    const id = (event as { session_id?: unknown }).session_id;
+    if (typeof id === "string" && id) currentSessionId = id;
+  };
 
   const stdoutPump = (async () => {
     const decoder = new TextDecoder();
@@ -228,6 +251,7 @@ export async function openClaudeSession(
         for (const line of lines) {
           const event = parseClaudeStreamEvent(line);
           if (!event) continue;
+          captureSessionId(event);
           queue.push(event);
           try {
             opts.onEvent?.(event);
@@ -239,6 +263,7 @@ export async function openClaudeSession(
       if (buffer.trim()) {
         const event = parseClaudeStreamEvent(buffer);
         if (event) {
+          captureSessionId(event);
           queue.push(event);
           try {
             opts.onEvent?.(event);
@@ -349,13 +374,21 @@ export async function openClaudeSession(
   })();
 
   async function send(input: string | ClaudeSessionUserInput): Promise<void> {
-    if (aborted) throw new Error("ClaudeSession: aborted");
-    if (stdinClosed) throw new Error("ClaudeSession: stdin already closed");
+    if (aborted) throw new SessionAbortedError("claude");
+    if (stdinClosed) throw new SessionInputClosedError("claude");
     const payload: ClaudeSessionUserInput = typeof input === "string"
       ? { type: "user", message: { role: "user", content: input } }
       : input;
     const line = JSON.stringify(payload) + "\n";
-    await stdinWriter.write(encoder.encode(line));
+    try {
+      await stdinWriter.write(encoder.encode(line));
+    } catch (err) {
+      throw new SessionDeliveryError(
+        "claude",
+        `claude session: failed to write to stdin: ${(err as Error).message}`,
+        { cause: err },
+      );
+    }
   }
 
   async function endInput(): Promise<void> {
@@ -373,6 +406,9 @@ export async function openClaudeSession(
 
   return {
     pid: process.pid,
+    get sessionId() {
+      return currentSessionId;
+    },
     send,
     events: queue,
     endInput,

@@ -19,6 +19,11 @@
 
 import { register, unregister } from "../process-registry.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
+import {
+  SessionAbortedError,
+  SessionDeliveryError,
+  SessionInputClosedError,
+} from "../runtime/types.ts";
 
 /** Parsed SSE event from the OpenCode server's `/event` endpoint. */
 export interface OpenCodeSessionEvent {
@@ -28,6 +33,16 @@ export interface OpenCodeSessionEvent {
   properties?: Record<string, unknown>;
   /** Raw event object as parsed from the SSE `data:` line. */
   raw: Record<string, unknown>;
+  /**
+   * `true` when the OpenCode session dispatcher injected this event rather
+   * than receiving it from the SSE stream. Currently used to emit an
+   * edge-triggered turn-end marker (`type: "turn-end"`) on busy → idle
+   * transitions so the runtime-neutral layer can forward one and only one
+   * {@link import("../runtime/types.ts").SYNTHETIC_TURN_END} per turn
+   * regardless of whether the upstream server emitted `session.idle` or
+   * `session.status { status: { type: "idle" } }` (or both).
+   */
+  synthetic?: true;
 }
 
 /** Options for {@link openOpenCodeSession}. */
@@ -95,7 +110,10 @@ export interface OpenCodeSession {
   /**
    * Push an additional user message by posting
    * `POST /session/:id/prompt_async`. Resolves once the server acknowledges
-   * receipt (HTTP 204). Throws if the session has been aborted.
+   * receipt (HTTP 204). Rejects with {@link SessionInputClosedError} after
+   * {@link endInput}, {@link SessionAbortedError} after {@link abort}, or
+   * {@link SessionDeliveryError} when the HTTP call returns a non-2xx
+   * status or the network fetch itself fails.
    */
   send(content: string): Promise<void>;
   /**
@@ -304,14 +322,23 @@ export async function openOpenCodeSession(
     if (!eventSessionId || eventSessionId === sessionId) {
       queue.push(event);
     }
+    // Track busy → idle transitions so we can emit exactly one synthetic
+    // turn-end per completed turn, regardless of which of the two
+    // idle-signalling events the server sent. `wasBusy` guards against
+    // initial idle bursts and duplicate idles on the same transition.
+    let becameIdle = false;
     if (eventSessionId === sessionId) {
       if (event.type === "session.status") {
         const status = (event.properties?.status as Record<string, unknown>)
           ?.type;
         if (status === "busy") isIdle = false;
-        else if (status === "idle") isIdle = true;
-      } else if (event.type === "session.idle") {
+        else if (status === "idle" && !isIdle) {
+          isIdle = true;
+          becameIdle = true;
+        }
+      } else if (event.type === "session.idle" && !isIdle) {
         isIdle = true;
+        becameIdle = true;
       }
     }
     try {
@@ -324,6 +351,20 @@ export async function openOpenCodeSession(
         const w = waiters[i];
         waiters.splice(i, 1);
         w.resolve();
+      }
+    }
+    if (becameIdle) {
+      const synthetic: OpenCodeSessionEvent = {
+        type: "turn-end",
+        properties: event.properties,
+        raw: event.raw,
+        synthetic: true,
+      };
+      queue.push(synthetic);
+      try {
+        opts.onEvent?.(synthetic);
+      } catch {
+        // ignore
       }
     }
   }
@@ -378,8 +419,8 @@ export async function openOpenCodeSession(
   })();
 
   async function send(content: string): Promise<void> {
-    if (aborted) throw new Error("OpenCodeSession: aborted");
-    if (inputClosed) throw new Error("OpenCodeSession: input already closed");
+    if (aborted) throw new SessionAbortedError("opencode");
+    if (inputClosed) throw new SessionInputClosedError("opencode");
     const body: Record<string, unknown> = {
       parts: [{ type: "text", text: content }],
     };
@@ -396,14 +437,26 @@ export async function openOpenCodeSession(
     }
     hasSentAny = true;
     lastSendAt = Date.now();
-    const res = await fetch(`${baseUrl}/session/${sessionId}/prompt_async`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/session/${sessionId}/prompt_async`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new SessionDeliveryError(
+        "opencode",
+        `opencode prompt_async fetch failed: ${(err as Error).message}`,
+        { cause: err },
+      );
+    }
     if (res.status !== 204 && !res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`prompt_async failed: ${res.status} ${text}`);
+      throw new SessionDeliveryError(
+        "opencode",
+        `opencode prompt_async failed: ${res.status} ${text}`,
+      );
     }
     // Drain body on non-204 success to avoid leaked HTTP1 connections.
     if (res.status !== 204) {

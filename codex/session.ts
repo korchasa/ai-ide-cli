@@ -45,15 +45,20 @@
  * Entry point: {@link openCodexSession}.
  */
 
-import type {
-  RuntimeSession,
-  RuntimeSessionEvent,
-  RuntimeSessionOptions,
-  RuntimeSessionStatus,
+import {
+  type RuntimeSession,
+  type RuntimeSessionEvent,
+  type RuntimeSessionOptions,
+  type RuntimeSessionStatus,
+  SessionAbortedError,
+  SessionDeliveryError,
+  SessionInputClosedError,
+  SYNTHETIC_TURN_END,
 } from "../runtime/types.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   CodexAppServerClient,
+  CodexAppServerError,
   type CodexAppServerNotification,
 } from "./app-server.ts";
 
@@ -128,7 +133,11 @@ export function expandCodexSessionExtraArgs(
 export interface CodexSession extends RuntimeSession {
   /** OS process id of the spawned `codex app-server` subprocess. */
   readonly pid: number;
-  /** Stable Codex thread id assigned by `thread/start` or `thread/resume`. */
+  /**
+   * Stable Codex thread id assigned by `thread/start` or `thread/resume`.
+   * The neutral {@link RuntimeSession.sessionId} aliases this value so
+   * consumers that treat Codex threads as sessions do not need to cast.
+   */
   readonly threadId: string;
 }
 
@@ -183,6 +192,7 @@ export async function openCodexSession(
     const notificationPump = (async () => {
       try {
         for await (const note of client.notifications) {
+          const wasTurnEnd = note.method === "turn/completed";
           activeTurnId = updateActiveTurnId(activeTurnId, note);
           const runtimeEvent: RuntimeSessionEvent = {
             runtime: "codex",
@@ -194,6 +204,20 @@ export async function openCodexSession(
             opts.onEvent?.(runtimeEvent);
           } catch {
             // onEvent is a notification hook — swallow consumer errors.
+          }
+          if (wasTurnEnd) {
+            const synthetic: RuntimeSessionEvent = {
+              runtime: "codex",
+              type: SYNTHETIC_TURN_END,
+              raw: runtimeEvent.raw,
+              synthetic: true,
+            };
+            events.push(synthetic);
+            try {
+              opts.onEvent?.(synthetic);
+            } catch {
+              // ignore
+            }
           }
         }
       } finally {
@@ -216,19 +240,38 @@ export async function openCodexSession(
     let sessionAborted = false;
 
     const send = async (content: string): Promise<void> => {
-      if (sessionAborted) throw new Error("CodexSession: aborted");
-      if (ended) throw new Error("CodexSession: input closed");
-      if (activeTurnId === null) {
-        await client.request("turn/start", {
+      if (sessionAborted) throw new SessionAbortedError("codex");
+      if (ended) throw new SessionInputClosedError("codex");
+      const params = activeTurnId === null
+        ? {
           threadId,
           input: [{ type: "text", text: content, text_elements: [] }],
-        });
-      } else {
-        await client.request("turn/steer", {
+        }
+        : {
           threadId,
           input: [{ type: "text", text: content, text_elements: [] }],
           expectedTurnId: activeTurnId,
-        });
+        };
+      const method = activeTurnId === null ? "turn/start" : "turn/steer";
+      try {
+        await client.request(method, params);
+      } catch (err) {
+        // JSON-RPC error, broken stdin pipe, or subprocess exit before
+        // response all mean "the message did not reach Codex". Surface them
+        // as a uniform SessionDeliveryError so consumers can catch one
+        // class rather than three underlying transport exceptions.
+        if (err instanceof CodexAppServerError) {
+          throw new SessionDeliveryError(
+            "codex",
+            `codex session: ${method} rejected by server: ${err.message}`,
+            { cause: err },
+          );
+        }
+        throw new SessionDeliveryError(
+          "codex",
+          `codex session: ${method} failed: ${(err as Error).message}`,
+          { cause: err },
+        );
       }
     };
 
@@ -251,6 +294,7 @@ export async function openCodexSession(
       runtime: "codex",
       pid: client.pid,
       threadId,
+      sessionId: threadId,
       send,
       events,
       endInput,

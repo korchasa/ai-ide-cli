@@ -66,17 +66,23 @@ Deno.test("claudeRuntimeAdapter.openSession — onEvent receives normalized even
 {"type":"result","subtype":"success","result":"hi","is_error":false}
 EOF`,
     async () => {
-      const types: string[] = [];
+      const events: { type: string; synthetic?: boolean }[] = [];
       const session = await claudeRuntimeAdapter.openSession!({
         onEvent: (e) => {
           assertEquals(e.runtime, "claude");
-          types.push(e.type);
+          events.push({ type: e.type, synthetic: e.synthetic });
         },
       });
       // Drain to completion.
       for await (const _event of session.events) { /* noop */ }
       await session.done;
-      assertEquals(types, ["system", "assistant", "result"]);
+      // The synthetic turn-end is injected after the native `result`. Native
+      // order is preserved; the synthetic is a strict append.
+      assertEquals(
+        events.map((e) => e.type),
+        ["system", "assistant", "result", "turn-end"],
+      );
+      assertEquals(events[3].synthetic, true);
     },
   );
 });

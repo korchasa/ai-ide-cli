@@ -41,6 +41,14 @@ function claudeEventToRuntime(event: ClaudeStreamEvent): RuntimeSessionEvent {
 }
 
 /**
+ * Claude terminates each assistant turn with a `result` stream-json event.
+ * Used to drive the neutral {@link SYNTHETIC_TURN_END} emission.
+ */
+function isClaudeTurnEnd(event: ClaudeStreamEvent): boolean {
+  return event.type === "result";
+}
+
+/**
  * Resolve the user-level Claude skills directory.
  * Skills placed here are discovered by Claude Code in any project.
  */
@@ -170,10 +178,19 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       env: opts.env,
       signal: opts.signal,
       settingSources: opts.settingSources,
-      onEvent: adaptEventCallback(opts.onEvent, claudeEventToRuntime),
+      onEvent: adaptEventCallback(
+        opts.onEvent,
+        claudeEventToRuntime,
+        isClaudeTurnEnd,
+      ),
       onStderr: opts.onStderr,
     });
-    return adaptRuntimeSession("claude", inner, claudeEventToRuntime);
+    return adaptRuntimeSession(
+      "claude",
+      inner,
+      claudeEventToRuntime,
+      isClaudeTurnEnd,
+    );
   },
 
   fetchCapabilitiesSlow(

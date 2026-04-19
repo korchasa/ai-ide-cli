@@ -4,6 +4,7 @@ import {
   type ClaudeSessionOptions,
   openClaudeSession,
 } from "./session.ts";
+import { SessionInputClosedError } from "../runtime/types.ts";
 
 function makeOpts(
   overrides?: Partial<ClaudeSessionOptions>,
@@ -151,18 +152,14 @@ EOF`,
   );
 });
 
-Deno.test("openClaudeSession — send throws after endInput", async () => {
+Deno.test("openClaudeSession — send throws SessionInputClosedError after endInput", async () => {
   await withStubClaude(
     // Stay alive until stdin closes.
     `cat > /dev/null`,
     async () => {
       const session = await openClaudeSession({});
       await session.endInput();
-      await assertRejects(
-        () => session.send("late"),
-        Error,
-        "stdin already closed",
-      );
+      await assertRejects(() => session.send("late"), SessionInputClosedError);
       await session.done;
     },
   );

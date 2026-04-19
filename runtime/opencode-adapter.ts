@@ -23,7 +23,18 @@ import { copy } from "@std/fs";
 function opencodeEventToRuntime(
   event: OpenCodeSessionEvent,
 ): RuntimeSessionEvent {
-  return { runtime: "opencode", type: event.type, raw: event.raw };
+  const neutral: RuntimeSessionEvent = {
+    runtime: "opencode",
+    type: event.type,
+    raw: event.raw,
+  };
+  // The OpenCode dispatcher inserts an edge-triggered synthetic turn-end
+  // marker into the native queue (see `opencode/session.ts`). Forward the
+  // `synthetic` flag so consumers observe one and only one turn-end per
+  // assistant turn — even if the server emits both `session.idle` and
+  // `session.status { status: idle }` for the same idle transition.
+  if (event.synthetic) neutral.synthetic = true;
+  return neutral;
 }
 
 /**

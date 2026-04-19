@@ -538,19 +538,35 @@ stable — never renumber on move.
   - `send(content)` resolves once the runtime has **accepted** the input.
     It never waits for turn completion. Transport/runtime errors during
     turn processing surface via `events` and `done`, not via the `send`
-    promise. `send` throws only when (a) input has been closed, (b) the
-    session has been aborted, or (c) the adapter fails to deliver the
-    message (e.g. HTTP non-2xx for OpenCode, closed stdin for Claude).
+    promise. `send` rejects with a typed `SessionError` subclass:
+    `SessionInputClosedError` (after `endInput`), `SessionAbortedError`
+    (after `abort`), or `SessionDeliveryError` (HTTP non-2xx for
+    OpenCode, closed stdin for Claude, JSON-RPC failure for Codex — the
+    underlying transport error is attached as `cause`).
   - `endInput()` signals "no more sends will come" and returns
     **promptly**. Full-shutdown observation is `await session.done`.
   - `abort(reason?)` is a best-effort forceful stop. Idempotent.
   - `events` is a single-consumer async iterable; re-iteration throws.
-    Completes when the underlying transport terminates.
+    Completes when the underlying transport terminates. Emits exactly
+    one {@link SYNTHETIC_TURN_END} synthetic event per completed turn,
+    immediately after the runtime's native terminator (see FR-L21).
   - `done` always resolves (never rejects) with `RuntimeSessionStatus`
     once the backing transport has fully terminated.
+  - `sessionId: string` is part of the neutral contract (suitable as
+    `resumeSessionId` on a later `openSession`). Populated synchronously
+    for OpenCode/Cursor/Codex; for Claude, returns `""` until the first
+    `system/init` event is parsed, then updates in place.
   - `RuntimeSession` does NOT expose `pid`. Runtime-specific handles
     (`ClaudeSession`, `CursorSession`, `OpenCodeSession`, `CodexSession`)
-    may expose `pid` / native session ids as their own fields.
+    may expose `pid` / native id aliases (`chatId`, `threadId`) as their
+    own fields.
+
+  **Out of scope (by design):** `RuntimeSessionOptions` omits
+  `timeoutSeconds`/`maxRetries`/`retryDelaySeconds` — a session is a
+  caller-owned stream. Implement per-turn timeouts and retries via
+  `AbortSignal` + reopen with `resumeSessionId`. Mid-session model /
+  permissionMode / extraArgs changes likewise require reopening: the
+  flags are bound to the subprocess at spawn time.
 
   Five layers:
   - **Claude-specific.** `openClaudeSession(opts)` spawns `claude -p
@@ -754,6 +770,88 @@ stable — never renumber on move.
     `CAPABILITY_INVENTORY_{SYSTEM_PROMPT, PROMPT, SCHEMA}`,
     `parseCapabilityInventoryResponse`, `fetchInventoryViaInvoke`
     exported from `mod.ts`. Evidence: `ai-ide-cli/mod.ts`.
+
+### 3.21 FR-L21: Neutral Turn-End Signal
+
+- **Description:** Every session adapter emits exactly one synthetic
+  `RuntimeSessionEvent` with `type === SYNTHETIC_TURN_END` (value
+  `"turn-end"`) and `synthetic: true` per completed assistant turn,
+  immediately **after** the runtime's native turn-terminator. `raw`
+  carries the native payload so consumers who need per-runtime detail
+  (success/error subtype, cost, error fields) can reach through. Per-
+  runtime source signal:
+  - **Claude** — native `event.type === "result"`.
+  - **OpenCode** — edge-triggered busy → idle transition in the session
+    dispatcher (covers `session.idle` and `session.status { status:
+    idle }` uniformly, emits one event per transition).
+  - **Cursor** — per-turn subprocess's native `result` event (one
+    subprocess per `send`, so one turn-end per send).
+  - **Codex** — `turn/completed` JSON-RPC notification.
+  Honesty note: turn-end marks "runtime is ready for the next input",
+  not a success verdict. Detecting failure still requires inspecting
+  prior events or the `raw` payload per runtime (OpenCode's idle does
+  not carry a success/error flag, only Claude/Cursor/Codex do).
+- **Motivation:** Give downstream session-consumers (e.g. Telegram
+  bridges, TUI renderers, live-edit UIs) a single cross-runtime hook for
+  "finalize the current turn UI" instead of four per-runtime branches.
+- **Acceptance:**
+  - [x] `SYNTHETIC_TURN_END` exported from `runtime/types.ts` (and
+    re-exported via `mod.ts`). Evidence: `ai-ide-cli/runtime/types.ts`,
+    `ai-ide-cli/mod.ts`.
+  - [x] `RuntimeSessionEvent.synthetic?: true` documented; present on
+    adapter-injected events only. Evidence: `ai-ide-cli/runtime/types.ts`.
+  - [x] Claude / Cursor adapters drive turn-end via an `isTurnEnd`
+    predicate threaded through `adaptRuntimeSession` +
+    `adaptEventCallback`. Evidence:
+    `ai-ide-cli/runtime/{claude,cursor}-adapter.ts`,
+    `ai-ide-cli/runtime/session-adapter.ts`.
+  - [x] OpenCode adapter emits turn-end from an edge-triggered transition
+    inside `opencode/session.ts` dispatch (one event per busy → idle).
+    Evidence: `ai-ide-cli/opencode/session.ts` `dispatch` function.
+  - [x] Codex adapter emits turn-end inside `notificationPump` after each
+    `turn/completed` notification. Evidence:
+    `ai-ide-cli/codex/session.ts:notificationPump`.
+  - [x] Contract test asserts exactly one turn-end per turn, ordered
+    after the native terminator, with `synthetic: true` and native
+    `raw`. Evidence: `ai-ide-cli/runtime/session_contract_test.ts`
+    (`synthetic turn-end is emitted after native result`).
+
+### 3.22 FR-L22: Typed Session Errors
+
+- **Description:** `RuntimeSession.send` rejects with a `SessionError`
+  subclass rather than a plain `Error` with a prefixed message. Three
+  concrete classes distinguish recoverable states for consumers:
+  - `SessionInputClosedError` — `send` called after `endInput`.
+    Consumer should reopen the session if it needs to keep sending.
+  - `SessionAbortedError` — `send` called after `abort` or an external
+    `AbortSignal` tore the session down. Consumer should reopen with
+    the preserved `sessionId` as `resumeSessionId` to continue the
+    conversation.
+  - `SessionDeliveryError` — transport failure (HTTP non-2xx, broken
+    stdin, JSON-RPC failure). The underlying error is attached as
+    `cause`. Consumer should inspect `cause` to decide whether to retry
+    on the same handle or reopen.
+  All three descend from `SessionError` so consumers can catch one
+  class for generic session failures. `runtime: RuntimeId` is exposed
+  on the base class for attribution.
+- **Motivation:** Consumers currently match `err.message.startsWith("…
+  aborted")` — brittle across runtime-specific wording and future
+  refactors. Typed classes give a stable contract with `instanceof`.
+- **Acceptance:**
+  - [x] `SessionError`, `SessionInputClosedError`,
+    `SessionAbortedError`, `SessionDeliveryError` exported from
+    `runtime/types.ts` (and `mod.ts`). Evidence:
+    `ai-ide-cli/runtime/types.ts`, `ai-ide-cli/mod.ts`.
+  - [x] All four session implementations throw the typed classes in
+    their `send()` methods (input-closed / aborted / delivery). Evidence:
+    `ai-ide-cli/claude/session.ts`, `ai-ide-cli/opencode/session.ts`,
+    `ai-ide-cli/cursor/session.ts`, `ai-ide-cli/codex/session.ts`.
+  - [x] Codex wraps `CodexAppServerError` from `turn/start`/`turn/steer`
+    failures as `SessionDeliveryError` with the original error attached
+    as `cause`. Evidence: `ai-ide-cli/codex/session.ts` `send`.
+  - [x] Contract tests assert `instanceof` for
+    `SessionInputClosedError` and `SessionAbortedError`. Evidence:
+    `ai-ide-cli/runtime/session_contract_test.ts`.
 
 
 ## 4. Non-Functional Requirements

@@ -35,7 +35,11 @@
  * Entry point: {@link openCursorSession}.
  */
 
-import type { ExtraArgsMap } from "../runtime/types.ts";
+import {
+  type ExtraArgsMap,
+  SessionAbortedError,
+  SessionInputClosedError,
+} from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import { register, unregister } from "../process-registry.ts";
@@ -122,12 +126,22 @@ export interface CursorSession {
   /** Chat ID backing every `--resume` call. */
   readonly chatId: string;
   /**
+   * Alias of {@link chatId}, matching the neutral
+   * {@link import("../runtime/types.ts").RuntimeSession.sessionId} name.
+   * Always populated synchronously at open time (either from the supplied
+   * `resumeSessionId` or from `cursor agent create-chat`).
+   */
+  readonly sessionId: string;
+  /**
    * Enqueue the given text as a new user message. Resolves **immediately**
    * once the item has been queued — does NOT wait for the subprocess to
-   * spawn or complete. Throws synchronously if input is closed or the
-   * session has been aborted. Per-turn subprocess failures surface as a
-   * synthetic `{type:"error",subtype:"send_failed"}` event on the event
-   * stream, not as a rejected promise.
+   * spawn or complete. Rejects with {@link SessionInputClosedError} after
+   * {@link endInput} or {@link SessionAbortedError} after {@link abort}.
+   * Per-turn subprocess failures surface as a synthetic
+   * `{type:"error",subtype:"send_failed"}` event on the event stream, not
+   * as a rejected promise — the CLI's exit code is not a
+   * {@link SessionDeliveryError} because the send itself (i.e. enqueueing
+   * the message) already succeeded.
    */
   send(content: string): Promise<void>;
   /**
@@ -370,10 +384,10 @@ export async function openCursorSession(
 
   function send(content: string): Promise<void> {
     if (aborted) {
-      return Promise.reject(new Error("CursorSession: aborted"));
+      return Promise.reject(new SessionAbortedError("cursor"));
     }
     if (inputClosed) {
-      return Promise.reject(new Error("CursorSession: input already closed"));
+      return Promise.reject(new SessionInputClosedError("cursor"));
     }
     pending.push(content);
     wakeWorker();
@@ -422,6 +436,7 @@ export async function openCursorSession(
       return currentPid;
     },
     chatId,
+    sessionId: chatId,
     send,
     events: queue,
     endInput,

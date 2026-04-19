@@ -13,7 +13,14 @@
 
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { getRuntimeAdapter } from "./index.ts";
-import type { RuntimeSession } from "./types.ts";
+import {
+  type RuntimeSession,
+  type RuntimeSessionEvent,
+  SessionAbortedError,
+  SessionError,
+  SessionInputClosedError,
+  SYNTHETIC_TURN_END,
+} from "./types.ts";
 
 // ───────────── Type-level assertions ─────────────
 
@@ -24,6 +31,15 @@ type _RuntimeSessionHasNoPid = "pid" extends keyof RuntimeSession ? never
   : true;
 const _typeAssertNoPid: _RuntimeSessionHasNoPid = true;
 void _typeAssertNoPid;
+
+// `sessionId` IS part of the neutral contract (populated synchronously for
+// three runtimes; lazy-populated for Claude). Compile-time assertion catches
+// a regression that drops it.
+type _RuntimeSessionHasSessionId = "sessionId" extends keyof RuntimeSession
+  ? true
+  : never;
+const _typeAssertSessionId: _RuntimeSessionHasSessionId = true;
+void _typeAssertSessionId;
 
 // ───────────── Behavioural invariants (Claude stub) ─────────────
 
@@ -71,13 +87,37 @@ EOF`,
   );
 });
 
-Deno.test("RuntimeSession contract — send after endInput throws", async () => {
+Deno.test("RuntimeSession contract — send after endInput throws SessionInputClosedError", async () => {
   await withStubClaude(
     `cat > /dev/null`,
     async () => {
       const session = await claudeAdapter.openSession!({});
       await session.endInput();
-      await assertRejects(() => session.send("late"), Error);
+      const err = await assertRejects(
+        () => session.send("late"),
+        SessionInputClosedError,
+      );
+      // Every typed error descends from SessionError so consumers can
+      // catch one class for all three failure modes.
+      assert(err instanceof SessionError);
+      assertEquals(err.runtime, "claude");
+      await session.done;
+    },
+  );
+});
+
+Deno.test("RuntimeSession contract — send after abort throws SessionAbortedError", async () => {
+  await withStubClaude(
+    `trap 'exit 143' TERM; while true; do sleep 1; done`,
+    async () => {
+      const session = await claudeAdapter.openSession!({});
+      session.abort("test");
+      const err = await assertRejects(
+        () => session.send("after-abort"),
+        SessionAbortedError,
+      );
+      assert(err instanceof SessionError);
+      assertEquals(err.runtime, "claude");
       await session.done;
     },
   );
@@ -154,4 +194,79 @@ Deno.test("RuntimeSession contract — all four adapters advertise session capab
       `${runtime} must implement openSession`,
     );
   }
+});
+
+Deno.test("RuntimeSession contract — synthetic turn-end is emitted after native result", async () => {
+  // FR-L session-turn-end: every adapter emits exactly one synthetic
+  // turn-end event after the runtime signals readiness for the next input.
+  // Tested on the Claude backend (smallest stubbable surface) because the
+  // neutral wrapper is shared by three of the four runtimes.
+  await withStubClaude(
+    `cat <<'EOF'
+{"type":"system","subtype":"init","session_id":"s1"}
+{"type":"result","subtype":"success","result":"ok","is_error":false,"session_id":"s1"}
+EOF`,
+    async () => {
+      const session = await claudeAdapter.openSession!({});
+      try {
+        const collected: RuntimeSessionEvent[] = [];
+        for await (const ev of session.events) {
+          collected.push(ev);
+        }
+        const turnEnds = collected.filter((e) => e.type === SYNTHETIC_TURN_END);
+        assertEquals(
+          turnEnds.length,
+          1,
+          `expected exactly one synthetic turn-end, got ${turnEnds.length}`,
+        );
+        assert(
+          turnEnds[0].synthetic === true,
+          "synthetic flag must be true on the turn-end event",
+        );
+        assertEquals(turnEnds[0].runtime, "claude");
+        // The raw payload preserves the native terminator so consumers
+        // who need richer detail (subtype, cost, etc.) can reach through.
+        assertEquals(turnEnds[0].raw["type"], "result");
+        // Turn-end must appear AFTER the native `result` in the stream.
+        const resultIdx = collected.findIndex((e) =>
+          e.type === "result" && !e.synthetic
+        );
+        const turnEndIdx = collected.findIndex((e) =>
+          e.type === SYNTHETIC_TURN_END
+        );
+        assert(
+          resultIdx >= 0 && resultIdx < turnEndIdx,
+          "synthetic turn-end must follow the native result event",
+        );
+      } finally {
+        session.abort();
+        await session.done;
+      }
+    },
+  );
+});
+
+Deno.test("RuntimeSession contract — sessionId is populated after first event on Claude", async () => {
+  // Claude's id is assigned inside the subprocess and surfaced in the
+  // first system/init event. The neutral getter must reflect that once
+  // the stream has been consumed.
+  await withStubClaude(
+    `cat <<'EOF'
+{"type":"system","subtype":"init","session_id":"abc-123","model":"stub"}
+{"type":"result","subtype":"success","result":"","is_error":false,"session_id":"abc-123"}
+EOF`,
+    async () => {
+      const session = await claudeAdapter.openSession!({});
+      try {
+        for await (const _ of session.events) {
+          // drain — session.sessionId is populated in-place by the
+          // underlying Claude handle as events arrive.
+        }
+        assertEquals(session.sessionId, "abc-123");
+      } finally {
+        session.abort();
+        await session.done;
+      }
+    },
+  );
 });

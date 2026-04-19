@@ -27,6 +27,17 @@ function cursorEventToRuntime(event: CursorStreamEvent): RuntimeSessionEvent {
   };
 }
 
+/**
+ * Cursor emulates streaming by spawning a fresh `cursor agent -p --resume`
+ * subprocess per send. Each subprocess terminates its stream-json output
+ * with a `result` event — one per completed turn. Drives the neutral
+ * {@link SYNTHETIC_TURN_END} emission. Synthetic errors from failed
+ * subprocesses carry `type: "error"` and do not trip the turn-end check.
+ */
+function isCursorTurnEnd(event: CursorStreamEvent): boolean {
+  return event?.type === "result";
+}
+
 export const cursorRuntimeAdapter: RuntimeAdapter = {
   id: "cursor",
   capabilities: {
@@ -61,10 +72,19 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
       cwd: opts.cwd,
       env: opts.env,
       signal: opts.signal,
-      onEvent: adaptEventCallback(opts.onEvent, cursorEventToRuntime),
+      onEvent: adaptEventCallback(
+        opts.onEvent,
+        cursorEventToRuntime,
+        isCursorTurnEnd,
+      ),
       onStderr: opts.onStderr,
     });
-    return adaptRuntimeSession("cursor", inner, cursorEventToRuntime);
+    return adaptRuntimeSession(
+      "cursor",
+      inner,
+      cursorEventToRuntime,
+      isCursorTurnEnd,
+    );
   },
 
   launchInteractive(): Promise<InteractiveResult> {

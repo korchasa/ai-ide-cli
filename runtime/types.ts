@@ -247,6 +247,23 @@ export interface InteractiveResult {
  * omits one-shot fields (`taskPrompt`, retries, timeouts, hooks) that do not
  * apply to a long-lived session. Adapters that do not recognize a field
  * ignore it (e.g. non-Claude runtimes ignore `settingSources`).
+ *
+ * **Out of scope (by design):**
+ *
+ * - **Per-turn timeouts and retries.** A streaming session is a caller-owned
+ *   stream. Unlike {@link RuntimeInvokeOptions} — which wraps a one-shot CLI
+ *   call with `timeoutSeconds` / `maxRetries` / `retryDelaySeconds` — a
+ *   session has no "turn" that the library can meaningfully time out and
+ *   restart in place. If a turn hangs, the caller should cancel via
+ *   {@link RuntimeSessionOptions.signal} (AbortSignal) and reopen the
+ *   session with the captured `RuntimeSession.sessionId` as
+ *   {@link RuntimeSessionOptions.resumeSessionId}.
+ * - **Mid-session model / permission-mode / extraArgs changes.** Those flags
+ *   are bound to the underlying subprocess at spawn time. Changing them
+ *   requires reopening the session: close the current handle
+ *   (`abort()` or `endInput()` + `await done`), then call `openSession`
+ *   again, passing the previous session's `sessionId` as `resumeSessionId`
+ *   to preserve the conversation history.
  */
 export interface RuntimeSessionOptions {
   /** Optional runtime-native agent selector. */
@@ -287,6 +304,27 @@ export interface RuntimeSessionOptions {
  * runtime's native event shape verbatim; consumers that need typed access to
  * runtime-specific payloads should cast `raw` or use the runtime's own
  * helper (e.g. {@link import("../claude/session").openClaudeSession}).
+ *
+ * **Synthetic events.** Some events are injected by the adapter rather than
+ * parsed from the runtime's stream — they carry `synthetic: true` and exist
+ * to give consumers one cross-runtime handle to hook into. Synthetic events
+ * are always emitted **after** the native event they summarize (the native
+ * event still passes through untouched). Shipped synthetics:
+ *
+ * - {@link SYNTHETIC_TURN_END} (`type: "turn-end"`) — emitted by every
+ *   adapter once per completed turn, right after the runtime signals
+ *   readiness for the next input. `raw` carries the runtime's native
+ *   turn-terminator payload (Claude: `result`; OpenCode: `session.idle`;
+ *   Cursor: the subprocess's `result`; Codex: the `turn/completed`
+ *   JSON-RPC notification). Callers who need richer per-runtime detail
+ *   (success/error subtype, cost, etc.) read it out of `raw`.
+ * - Cursor additionally pushes a synthetic `{type:"system", subtype:"init"}`
+ *   at session open (Cursor has no native init event) and
+ *   `{type:"error", subtype:"send_failed"}` when a per-turn subprocess
+ *   exits non-zero. See [cursor/session.ts](../cursor/session.ts).
+ *
+ * Consumers that want to observe turn boundaries should match on the
+ * synthetic event, not on runtime-native discriminators.
  */
 export interface RuntimeSessionEvent {
   /** Runtime that produced the event. */
@@ -295,7 +333,33 @@ export interface RuntimeSessionEvent {
   type: string;
   /** Raw event object as parsed from the runtime's event stream. */
   raw: Record<string, unknown>;
+  /**
+   * `true` when the adapter injected this event rather than receiving it
+   * from the runtime's native stream. Absent (not `false`) for native
+   * events — do not rely on the falsy path.
+   */
+  synthetic?: true;
 }
+
+/**
+ * Neutral event type emitted by every adapter when the runtime signals the
+ * end of an assistant turn (i.e. readiness to accept the next user input).
+ *
+ * Per-runtime source signal preserved in {@link RuntimeSessionEvent.raw}:
+ *
+ * - Claude: the native `result` stream event.
+ * - OpenCode: the native `session.idle` event.
+ * - Cursor: the per-turn subprocess's native `result` stream event.
+ * - Codex: the `turn/completed` JSON-RPC notification
+ *   (`raw.method === "turn/completed"`, params under `raw.params`).
+ *
+ * **Honesty note.** This event marks "runtime is ready for next input".
+ * It is *not* a success/error verdict — OpenCode's `session.idle` fires
+ * whether the turn finished cleanly or errored mid-stream, and detecting
+ * failure across runtimes still requires inspecting prior events (or
+ * `raw` on Claude/Cursor/Codex where a terminator subtype exists).
+ */
+export const SYNTHETIC_TURN_END = "turn-end" as const;
 
 /** Terminal state of a runtime session subprocess. */
 export interface RuntimeSessionStatus {
@@ -320,37 +384,72 @@ export interface RuntimeSessionStatus {
  * - `send(content)` resolves once the runtime has **accepted** the input.
  *   It does NOT wait for the runtime to finish processing the turn.
  *   Transport/runtime errors surfaced during turn processing arrive via
- *   `events` and `done`, not via the `send` promise. `send` throws only
- *   when input has been closed (`endInput`), the session is aborted, or
- *   the adapter fails to deliver the message (e.g. HTTP non-2xx for
- *   OpenCode).
+ *   `events` and `done`, not via the `send` promise. `send` rejects with a
+ *   {@link SessionError} subclass:
+ *
+ *   - {@link SessionInputClosedError} when input was closed via
+ *     {@link endInput};
+ *   - {@link SessionAbortedError} when the session has been aborted;
+ *   - {@link SessionDeliveryError} when the adapter failed to deliver the
+ *     message to the runtime's transport (HTTP non-2xx for OpenCode, broken
+ *     stdin pipe for Claude, JSON-RPC error for Codex, etc.).
+ *
+ *   Consumers should `catch (err)` and branch on `err instanceof …` to
+ *   distinguish "reopen needed" (input-closed / aborted) from "transport
+ *   error, investigate" (delivery). Matching by message prefix is
+ *   discouraged — message wording is not part of the contract.
  * - `endInput()` signals "no more sends will come" and initiates graceful
  *   shutdown of the input channel. It returns promptly. Full-shutdown
  *   observation is `await session.done`.
  * - `abort(reason?)` is a best-effort forceful stop (SIGTERM or
  *   transport-specific equivalent). Idempotent.
  * - `events` is a single-consumer async iterable; re-iteration throws.
- *   Completes when the underlying transport terminates.
+ *   Completes when the underlying transport terminates. Emits one
+ *   {@link SYNTHETIC_TURN_END} event per completed turn so consumers can
+ *   write a single cross-runtime turn-boundary handler (see
+ *   {@link RuntimeSessionEvent} for details).
  * - `done` always resolves (never rejects) with {@link RuntimeSessionStatus}
  *   once the backing transport has fully terminated.
  *
  * Runtime-specific handles (e.g. `ClaudeSession`, `CursorSession`) may
- * expose additional fields such as `pid` or a native session id; cast
- * to the concrete type when you need them.
+ * expose additional fields such as `pid` or a runtime-native id alias
+ * (`chatId`, `threadId`); cast to the concrete type when you need them.
  */
 export interface RuntimeSession {
   /** Runtime that owns this session. */
   readonly runtime: RuntimeId;
   /**
+   * Session identifier suitable for passing to
+   * {@link RuntimeSessionOptions.resumeSessionId} on a subsequent
+   * `openSession` call.
+   *
+   * **Population timing is runtime-specific — read carefully:**
+   *
+   * - OpenCode, Cursor, Codex: populated synchronously before
+   *   `openSession()` resolves. Safe to persist immediately.
+   * - Claude: the CLI allocates the id inside the subprocess and emits it
+   *   in the first `system/init` event. The handle exposes an empty string
+   *   (`""`) until that event is parsed, then updates in place. Consumers
+   *   that need to persist the id for crash recovery should wait until
+   *   the first event (the first {@link SYNTHETIC_TURN_END} or any prior
+   *   event will do) before reading.
+   *
+   * This mirrors what the native CLIs actually guarantee — exposing a
+   * Promise here would make the API feel asymmetric for the 3 adapters
+   * that know the id synchronously.
+   */
+  readonly sessionId: string;
+  /**
    * Push an additional user message into the running session. Resolves
    * when the runtime has accepted the input (not when the turn completes).
-   * Throws if input has been closed, the session has been aborted, or the
-   * adapter fails to deliver the message.
+   * Rejects with a {@link SessionError} subclass — see the contract note
+   * on the interface itself for which subclass fires when.
    */
   send(content: string): Promise<void>;
   /**
    * Async iterable of normalized session events. Completes when the
-   * runtime's output stream closes. Can be iterated at most once.
+   * runtime's output stream closes. Can be iterated at most once. Includes
+   * adapter-injected synthetics (see {@link RuntimeSessionEvent}).
    */
   readonly events: AsyncIterable<RuntimeSessionEvent>;
   /**
@@ -362,6 +461,103 @@ export interface RuntimeSession {
   abort(reason?: string): void;
   /** Resolves with terminal status when the backing transport exits. */
   readonly done: Promise<RuntimeSessionStatus>;
+}
+
+/**
+ * Base class for every error thrown by {@link RuntimeSession.send}. Adapter
+ * implementations construct one of the three concrete subclasses so that
+ * consumers can branch on `instanceof` instead of parsing message prefixes.
+ *
+ * `cause` (standard `Error.cause`) carries the underlying transport error
+ * when one exists (e.g. the raw `fetch` failure for OpenCode, the
+ * {@link import("../codex/app-server.ts").CodexAppServerError} for Codex).
+ */
+export class SessionError extends Error {
+  /** Runtime that produced the error. */
+  readonly runtime: RuntimeId;
+  /**
+   * Construct a new base session error. Subclasses pre-fill `message`
+   * with a standard phrase; the base class is exposed for consumers that
+   * want to rethrow a generic failure (rare — prefer a concrete subclass).
+   *
+   * @param runtime Runtime that produced the error.
+   * @param message Human-readable failure description.
+   * @param options Standard `ErrorOptions` — use `cause` to attach the
+   *   underlying transport exception.
+   */
+  constructor(runtime: RuntimeId, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.runtime = runtime;
+    this.name = "SessionError";
+  }
+}
+
+/**
+ * Thrown by {@link RuntimeSession.send} after {@link RuntimeSession.endInput}
+ * has closed the input channel. Indicates programmer error on the consumer
+ * side (or a race with a graceful shutdown); reopening the session is the
+ * normal recovery path.
+ */
+export class SessionInputClosedError extends SessionError {
+  /**
+   * Construct a new input-closed error for the given runtime.
+   *
+   * @param runtime Runtime whose session rejected the send.
+   * @param message Optional override; defaults to
+   *   `"<runtime> session: input already closed"`.
+   * @param options Standard `ErrorOptions`.
+   */
+  constructor(runtime: RuntimeId, message?: string, options?: ErrorOptions) {
+    super(
+      runtime,
+      message ?? `${runtime} session: input already closed`,
+      options,
+    );
+    this.name = "SessionInputClosedError";
+  }
+}
+
+/**
+ * Thrown by {@link RuntimeSession.send} after {@link RuntimeSession.abort}
+ * (or an external `AbortSignal`) tore the session down. The consumer should
+ * open a fresh session, passing the prior `sessionId` as `resumeSessionId`
+ * to preserve the conversation.
+ */
+export class SessionAbortedError extends SessionError {
+  /**
+   * Construct a new aborted-session error for the given runtime.
+   *
+   * @param runtime Runtime whose session was aborted.
+   * @param message Optional override; defaults to `"<runtime> session: aborted"`.
+   * @param options Standard `ErrorOptions`.
+   */
+  constructor(runtime: RuntimeId, message?: string, options?: ErrorOptions) {
+    super(runtime, message ?? `${runtime} session: aborted`, options);
+    this.name = "SessionAbortedError";
+  }
+}
+
+/**
+ * Thrown by {@link RuntimeSession.send} when the adapter failed to put the
+ * message on the runtime's transport — HTTP non-2xx (OpenCode), broken
+ * stdin pipe (Claude / Codex app-server), JSON-RPC error (Codex), etc. The
+ * session may or may not still be usable; the consumer should inspect
+ * `cause` if it needs to decide whether to retry on the same handle or
+ * reopen.
+ */
+export class SessionDeliveryError extends SessionError {
+  /**
+   * Construct a new delivery-failure error for the given runtime.
+   *
+   * @param runtime Runtime whose transport refused or failed to accept the send.
+   * @param message Description of the delivery failure (e.g. HTTP status + body).
+   * @param options Standard `ErrorOptions`; attach the underlying transport
+   *   exception via `cause` so callers can branch on it.
+   */
+  constructor(runtime: RuntimeId, message: string, options?: ErrorOptions) {
+    super(runtime, message, options);
+    this.name = "SessionDeliveryError";
+  }
 }
 
 /** Adapter interface implemented by each supported runtime. */
@@ -378,9 +574,10 @@ export interface RuntimeAdapter {
    */
   launchInteractive(opts: InteractiveOptions): Promise<InteractiveResult>;
   /**
-   * Open a long-lived streaming-input session. Only implemented by adapters
-   * with `capabilities.session === true` (currently: Claude). Callers MUST
-   * check the capability flag or be prepared for `undefined`.
+   * Open a long-lived streaming-input session. Implemented by every
+   * shipped adapter (Claude, OpenCode, Cursor faux, Codex app-server).
+   * Callers MUST still check `capabilities.session` / that `openSession`
+   * is defined so future adapters that opt out do not crash consumers.
    */
   openSession?(opts: RuntimeSessionOptions): Promise<RuntimeSession>;
   /**
