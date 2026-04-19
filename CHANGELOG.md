@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.5.0](https://github.com/korchasa/ai-ide-cli/compare/v0.4.1...v0.5.0) (2026-04-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** RuntimeSession no longer exposes `pid`. Consumers that
+read `session.pid` through the neutral handle must cast to a concrete
+runtime session type (e.g. ClaudeSession) or observe the pid via
+runtime-native session events.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+### Features
+
+* **codex:** add openSession via experimental app-server JSON-RPC ([377c254](https://github.com/korchasa/ai-ide-cli/commit/377c25421e90eeea4063a9de73c2e9ce149405c2))
+* **cursor:** add openSession faux streaming session ([9c3223a](https://github.com/korchasa/ai-ide-cli/commit/9c3223aa445067890c02d8cf940b315283f8a1aa))
+
+
+### Chores
+
+* ignore .claude/ runtime state ([343be35](https://github.com/korchasa/ai-ide-cli/commit/343be35c03d4e74d61a1163aaa186db527a1f32a))
+
+
+### Code Refactoring
+
+* **runtime:** align openSession semantics across all four runtimes ([60de5ca](https://github.com/korchasa/ai-ide-cli/commit/60de5cafbc4921c910aae2f098ddd4ebf9c6656f))
+
 ### [0.4.1](https://github.com/korchasa/ai-ide-cli/compare/v0.4.0...v0.4.1) (2026-04-19)
 
 
