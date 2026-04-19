@@ -1,5 +1,16 @@
 import { invokeCursorCli } from "../cursor/process.ts";
-import type { InteractiveResult, RuntimeAdapter } from "./types.ts";
+import {
+  type CursorSession,
+  type CursorStreamEvent,
+  openCursorSession,
+} from "../cursor/session.ts";
+import type {
+  InteractiveResult,
+  RuntimeAdapter,
+  RuntimeSession,
+  RuntimeSessionEvent,
+  RuntimeSessionOptions,
+} from "./types.ts";
 import {
   type CapabilityInventory,
   type FetchCapabilitiesOptions,
@@ -14,7 +25,7 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     transcript: false,
     interactive: false,
     toolUseObservation: false,
-    session: false,
+    session: true,
     capabilityInventory: true,
   },
   invoke(opts) {
@@ -29,6 +40,61 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
       (inner) => this.invoke(inner),
       opts,
     );
+  },
+
+  async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    const wrappedOnEvent = opts.onEvent
+      ? (event: CursorStreamEvent) => {
+        const typeField = (event as { type?: unknown }).type;
+        opts.onEvent!({
+          runtime: "cursor",
+          type: typeof typeField === "string" ? typeField : "unknown",
+          raw: event as Record<string, unknown>,
+        });
+      }
+      : undefined;
+
+    const inner: CursorSession = await openCursorSession({
+      systemPrompt: opts.systemPrompt,
+      permissionMode: opts.permissionMode,
+      resumeSessionId: opts.resumeSessionId,
+      cursorArgs: opts.extraArgs,
+      cwd: opts.cwd,
+      env: opts.env,
+      signal: opts.signal,
+      onEvent: wrappedOnEvent,
+      onStderr: opts.onStderr,
+    });
+
+    const events: AsyncIterable<RuntimeSessionEvent> = {
+      async *[Symbol.asyncIterator]() {
+        for await (const event of inner.events) {
+          const raw = event as Record<string, unknown>;
+          const typeField = raw["type"];
+          yield {
+            runtime: "cursor",
+            type: typeof typeField === "string" ? typeField : "unknown",
+            raw,
+          };
+        }
+      },
+    };
+
+    return {
+      runtime: "cursor",
+      get pid() {
+        return inner.pid;
+      },
+      send: (content: string) => inner.send(content),
+      events,
+      endInput: () => inner.endInput(),
+      abort: (reason) => inner.abort(reason),
+      done: inner.done.then((status) => ({
+        exitCode: status.exitCode,
+        signal: status.signal,
+        stderr: status.stderr,
+      })),
+    };
   },
 
   launchInteractive(): Promise<InteractiveResult> {

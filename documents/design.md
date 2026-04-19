@@ -40,6 +40,9 @@ ai-ide-cli/
   cursor/
     process.ts          — buildCursorArgs, invokeCursorCli, extractCursorOutput,
                           formatCursorEventForOutput
+    session.ts          — openCursorSession, createCursorChat,
+                          buildCursorSendArgs, CursorSession (faux streaming
+                          session: create-chat + resume-per-send)
   skill/
     types.ts            — SkillDef, SkillFrontmatter (union of all IDE fields)
     parser.ts           — parseSkill(dir) → SkillDef
@@ -50,7 +53,6 @@ ai-ide-cli/
 from `types.ts` and `process-registry.ts`. Adapters import from their
 runtime's `process.ts`. `mod.ts` re-exports everything. Zero imports from
 engine or any external workflow package.
-
 
 ## 3. Components
 
@@ -75,7 +77,6 @@ OpenCode's MCP injection; Claude HITL handled engine-side via
 `HumanInputRequest` — normalized HITL question: `question`, `header`,
 `options[]`, `multiSelect`.
 
-
 ### 3.2 `process-registry.ts` — Process Tracker
 
 Pure tracker. No signal wiring. API: `register(p)`, `unregister(p)`,
@@ -87,10 +88,10 @@ Pure tracker. No signal wiring. API: `register(p)`, `unregister(p)`,
 Test helpers (`_reset`, `_getProcesses`, `_getShutdownCallbacks`) prefixed
 with `_` for test isolation.
 
-
 ### 3.3 `runtime/` — Adapter Layer
 
 **`runtime/types.ts`:**
+
 - `RuntimeCapabilities` — feature flags per adapter: `permissionMode`, `hitl`,
   `transcript`, `interactive`, `toolUseObservation`, `session`,
   `capabilityInventory`.
@@ -125,6 +126,7 @@ with `_` for test isolation.
   type dependency.
 
 **`runtime/index.ts`:**
+
 - `ADAPTERS` record keyed by `RuntimeId`.
 - `getRuntimeAdapter(id)` — lookup.
 - `resolveRuntimeConfig({defaults, node, parent})` — merges map-shape
@@ -136,12 +138,12 @@ with `_` for test isolation.
   `null` → drop. Throws synchronously on reserved keys.
 
 **`runtime/setting-sources.ts`:**
+
 - `SettingSource` = `'user' | 'project' | 'local'`.
 - `prepareSettingSourcesDir(sources, realConfigDir, realCwd)` — builds a
   temp `CLAUDE_CONFIG_DIR` symlinking the user-level `settings.json` when
   `'user'` is selected. `'project'`/`'local'` are recognized but not yet
   isolated — they still come from CWD.
-
 
 ### 3.4 `claude/process.ts` — Claude Runner
 
@@ -161,7 +163,6 @@ top. Reads stdout as NDJSON lines, delegates to `processStreamEvent()` from
 Collects stderr. Timeout via `setTimeout` → `SIGTERM`. Registered/unregistered
 in process registry.
 
-
 ### 3.5 `claude/stream.ts` — Stream Processing
 
 Typed `ClaudeStreamEvent` discriminated union:
@@ -177,6 +178,7 @@ non-object payloads, or a missing string `type`.
 
 `processStreamEvent(event, state)`: mutable state bag
 (`StreamProcessorState`). Fixed dispatch order:
+
 1. `state.onEvent?.(event)` — raw escape hatch.
 2. Typed lifecycle hook (`hooks.onInit` / `onAssistant` / `onResult`)
    with the narrowed event.
@@ -200,7 +202,6 @@ Semi-verbose skips `tool_use` blocks.
 `formatFooter(output)`: `status=<ok|error> duration=<X>s cost=$<Y>
 turns=<N>`.
 
-
 ### 3.6 `claude/session.ts` — Streaming-Input Session
 
 `buildClaudeSessionArgs(opts)`: constructs argv.
@@ -214,6 +215,7 @@ is reserved (added to `CLAUDE_RESERVED_FLAGS`).
 `stdin: "piped"`, `stdout: "piped"`, `stderr: "piped"`. Applies optional
 `settingSources` isolation (shared with one-shot path via
 `prepareSettingSourcesDir`). Returns `ClaudeSession`:
+
 - `send(content)` — writes `{"type":"user","message":{"role":"user","content":…}}\n`
   to stdin. Accepts string or pre-built `ClaudeSessionUserInput`.
 - `events` — single-consumer async iterable backed by a local `EventQueue`
@@ -227,7 +229,6 @@ is reserved (added to `CLAUDE_RESERVED_FLAGS`).
 
 External `AbortSignal` composed via listener; process-registry
 (`register`/`unregister`) wraps the subprocess lifecycle.
-
 
 ### 3.7 `opencode/process.ts` — OpenCode Runner
 
@@ -247,7 +248,6 @@ HITL interception: `extractHitlRequestFromEvent()` detects
 `hitl_request_human_input` tool_use with `status: "completed"`. Normalizes
 to `HumanInputRequest`. On detection → SIGTERM process → return output with
 `hitl_request` populated.
-
 
 ### 3.8 `opencode/session.ts` — OpenCode Streaming-Input Session
 
@@ -307,7 +307,6 @@ HITL pipeline after process termination.
 Constants: `OPENCODE_HITL_MCP_SERVER_NAME = "hitl"`,
 `OPENCODE_HITL_MCP_TOOL_NAME = "hitl_request_human_input"`.
 
-
 ### 3.10 `cursor/process.ts` — Cursor Runner
 
 `buildCursorArgs(opts)`: `agent` → `-p` → `--resume` → `--model` →
@@ -324,10 +323,39 @@ Same event shape as Claude stream-json. Semi-verbose filtering supported.
 dedicated flag). Retry loop with exponential backoff. Real-time NDJSON
 processing with log file + terminal output forwarding.
 
+### 3.10.1 `cursor/session.ts` — Cursor Faux Session
+
+Cursor CLI has no streaming-input transport, so the session is emulated.
+
+`createCursorChat(opts)`: runs `cursor agent create-chat`, trims stdout,
+returns the chat ID. Throws on non-zero exit or empty output. 30 s default
+timeout via `AbortSignal.timeout`.
+
+`buildCursorSendArgs({chatId, message, permissionMode?, cursorArgs?})`:
+`agent -p --resume <chatId>` → optional `--yolo` → expanded `cursorArgs`
+→ `--output-format stream-json` → `--trust` → message. Reuses
+`CURSOR_RESERVED_FLAGS` from `cursor/process.ts`.
+
+`openCursorSession(opts)`: resolves chat ID (create-chat or
+`resumeSessionId`), pushes a synthetic `{type:"system", subtype:"init",
+synthetic:true, session_id:<chatId>, runtime:"cursor"}` event, starts an
+internal worker loop. `send(content)` queues a message; the worker
+spawns one `cursor agent -p --resume <id> <msg>` subprocess per dequeued
+item, streams its NDJSON output into the shared event queue, waits for
+exit, and resolves the send's promise. `pid` is a getter returning the
+active subprocess PID or `0` while idle. `endInput()` closes the queue
+gracefully after drain. `abort(reason?)` SIGTERMs the active subprocess,
+rejects pending sends, closes the queue; idempotent. External
+`AbortSignal` is wired to `abort()`. `done` resolves with
+`{exitCode, signal, stderr}` (last subprocess exit + concatenated
+stderr across all turns). `systemPrompt` is merged into the **first**
+user message of a newly created chat; silently suppressed on resume.
+Model selection is ignored (Cursor's `--resume` rejects `--model`).
 
 ### 3.11 `skill/` — Skill Model
 
 **`skill/types.ts`:**
+
 - `SkillFrontmatter` — union of all known SKILL.md frontmatter fields across
   IDEs. Required: `name`, `description`. Optional Claude Code fields:
   `argument-hint`, `when_to_use`, `allowed-tools`, `model`, `effort`,
@@ -339,11 +367,11 @@ processing with log file + terminal output forwarding.
   `---`), `rootPath` (absolute), `files[]` (relative, excludes SKILL.md).
 
 **`skill/parser.ts`:**
+
 - `parseSkill(skillDir)` — reads `SKILL.md`, extracts YAML frontmatter via
   `@std/yaml`, validates required `name` and `description`, recursively scans
   directory for additional files. Error on: missing SKILL.md, invalid YAML,
   unterminated frontmatter, missing required fields.
-
 
 ## 4. Data
 
@@ -353,21 +381,33 @@ processing with log file + terminal output forwarding.
 |----------|----------------|-------|------------|-------------|--------------------|---------|---------------------|
 | claude   | true           | true  | true       | true        | true               | true    | true                |
 | opencode | true           | true  | false      | true        | false              | true    | true                |
-| cursor   | false          | false | false      | false       | false              | false   | true                |
+| cursor   | false          | false | false      | false       | false              | true    | true                |
 | codex    | true           | true  | true       | true        | true               | false   | true                |
 
 **`session` specifics:**
+
 - When `true`, adapter implements `openSession(opts)` returning a long-lived
   `RuntimeSession` with push-based `send()`, async-iterable `events`,
-  graceful `endInput()`, SIGTERM `abort()`. See FR-L19 and §3.6 / §3.8.
-- Claude (backed by `claude/session.ts`) uses `claude -p --input-format
-  stream-json --output-format stream-json --verbose` with piped stdin/stdout.
-  OpenCode (backed by `opencode/session.ts`) spawns a dedicated `opencode
-  serve` subprocess, creates a session via `POST /session`, and consumes
-  `GET /event` SSE — each `openSession` call spawns its own server (no
-  pooling). Codex could theoretically back this via `codex mcp-server`/
-  `app-server`; deferred until a concrete need lands. Cursor has no
-  bidirectional transport.
+  graceful `endInput()`, SIGTERM `abort()`. See FR-L19 and §3.6 / §3.8 / §3.10.1.
+- **Claude** — real streaming-input transport backed by `claude/session.ts`
+  (`claude -p --input-format stream-json --output-format stream-json
+  --verbose`); one long-lived subprocess with piped stdin/stdout.
+- **OpenCode** — `opencode/session.ts` spawns a dedicated `opencode serve`
+  subprocess, creates a session via `POST /session`, and consumes
+  `GET /event` SSE — each `openSession` call spawns its own server
+  (no pooling).
+- **Cursor** — _faux_ session backed by `cursor/session.ts`. Cursor CLI has
+  no streaming-input mode, so `openCursorSession` obtains a chat ID via
+  `cursor agent create-chat` (or accepts `resumeSessionId`) and spawns a
+  fresh `cursor agent -p --resume <chatId> <message>` subprocess for every
+  `send()`. Sends are serialized through a worker queue; `events` yields a
+  synthetic `system.init` carrying the chat ID followed by the raw NDJSON
+  events from each turn. `pid` is a getter — reflects the currently active
+  subprocess (or `0` while idle). Model selection is silently dropped
+  (Cursor's `--resume` rejects `--model`); `systemPrompt` is merged into
+  the first user message of newly created chats.
+- Codex could theoretically back this via `codex mcp-server` / `app-server`;
+  deferred until a concrete need lands.
 - Callers MUST check `adapter.capabilities.session` before invoking
   `openSession`; the method is optional on `RuntimeAdapter`.
 
@@ -393,6 +433,7 @@ processing with log file + terminal output forwarding.
   `RuntimeAdapter`.
 
 **Codex specifics:**
+
 - `permissionMode` — normalized values (`default` / `plan` / `acceptEdits` /
   `bypassPermissions`) map to `--sandbox` + `approval_policy` overrides;
   Codex-native pass-through values (`read-only` / `workspace-write` /
@@ -417,7 +458,6 @@ processing with log file + terminal output forwarding.
   `item.completed` for `command_execution`, `file_change`, `mcp_tool_call`,
   and `web_search` items; an `"abort"` decision SIGTERMs Codex and the
   runner synthesizes a `permission_denials[]` entry for the observed item.
-
 
 ## 5. Constraints
 

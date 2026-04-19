@@ -98,10 +98,23 @@ export type {
 // --- Cursor runner ---
 export {
   buildCursorArgs,
+  CURSOR_RESERVED_FLAGS,
   extractCursorOutput,
   formatCursorEventForOutput,
   invokeCursorCli,
 } from "./cursor/process.ts";
+export {
+  buildCursorSendArgs,
+  createCursorChat,
+  openCursorSession,
+} from "./cursor/session.ts";
+export type {
+  CreateCursorChatOptions,
+  CursorSession,
+  CursorSessionOptions,
+  CursorSessionStatus,
+  CursorStreamEvent,
+} from "./cursor/session.ts";
 
 // --- Codex runner ---
 export {

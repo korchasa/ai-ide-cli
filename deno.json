@@ -13,6 +13,7 @@
     "./claude/stream": "./claude/stream.ts",
     "./claude/session": "./claude/session.ts",
     "./cursor/process": "./cursor/process.ts",
+    "./cursor/session": "./cursor/session.ts",
     "./codex/process": "./codex/process.ts",
     "./codex/hitl-mcp": "./codex/hitl-mcp.ts",
     "./opencode/process": "./opencode/process.ts",

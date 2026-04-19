@@ -58,22 +58,21 @@ stable — never renumber on move.
   requires only a new adapter + registration.
 - **Acceptance:**
   - [x] `RuntimeAdapter` interface with `id`, `capabilities`, `invoke()`,
-    `launchInteractive()`, optional `openSession()` (see FR-L19). Evidence:
-    `ai-ide-cli/runtime/types.ts`.
+        `launchInteractive()`, optional `openSession()` (see FR-L19). Evidence:
+        `ai-ide-cli/runtime/types.ts`.
   - [x] `RuntimeCapabilities` flags: `permissionMode`, `hitl`, `transcript`,
-    `interactive`, `toolUseObservation`, `session`. Evidence:
-    `ai-ide-cli/runtime/types.ts`.
+        `interactive`, `toolUseObservation`, `session`. Evidence:
+        `ai-ide-cli/runtime/types.ts`.
   - [x] `getRuntimeAdapter(id)` returns adapter from registry.
-    Evidence: `ai-ide-cli/runtime/index.ts:18-20`.
+        Evidence: `ai-ide-cli/runtime/index.ts:18-20`.
   - [x] `resolveRuntimeConfig()` merges map-shape `runtime_args` across
-    cascade levels last-writer-wins; `null` survives to suppress the flag
-    at expansion time. Evidence: `ai-ide-cli/runtime/index.ts`,
-    `ai-ide-cli/runtime/index_test.ts`.
+        cascade levels last-writer-wins; `null` survives to suppress the flag
+        at expansion time. Evidence: `ai-ide-cli/runtime/index.ts`,
+        `ai-ide-cli/runtime/index_test.ts`.
   - [x] `RuntimeConfigSource` structural type — no workflow imports.
-    Evidence: `ai-ide-cli/runtime/types.ts:112-121`.
+        Evidence: `ai-ide-cli/runtime/types.ts:112-121`.
   - [x] Four adapters registered: `claude`, `opencode`, `cursor`, `codex`.
-    Evidence: `ai-ide-cli/runtime/index.ts:11-17`.
-
+        Evidence: `ai-ide-cli/runtime/index.ts:11-17`.
 
 ### 3.2 FR-L2: Normalized Output Shape (`CliRunOutput`)
 
@@ -86,16 +85,15 @@ stable — never renumber on move.
   cost aggregation, and log formatting.
 - **Acceptance:**
   - [x] `CliRunOutput` interface with all listed fields.
-    Evidence: `ai-ide-cli/types.ts:89-110`.
+        Evidence: `ai-ide-cli/types.ts:89-110`.
   - [x] Claude `extractClaudeOutput()` returns `CliRunOutput` with
-    `runtime: "claude"`. Evidence: `ai-ide-cli/claude/stream.ts:115-130`.
+        `runtime: "claude"`. Evidence: `ai-ide-cli/claude/stream.ts:115-130`.
   - [x] OpenCode `extractOpenCodeOutput()` returns `CliRunOutput` with
-    `runtime: "opencode"`. Evidence: `ai-ide-cli/opencode/process.ts:90-145`.
+        `runtime: "opencode"`. Evidence: `ai-ide-cli/opencode/process.ts:90-145`.
   - [x] Cursor `extractCursorOutput()` returns `CliRunOutput` with
-    `runtime: "cursor"`. Evidence: `ai-ide-cli/cursor/process.ts:62-74`.
+        `runtime: "cursor"`. Evidence: `ai-ide-cli/cursor/process.ts:62-74`.
   - [x] Codex `extractCodexOutput()` returns `CliRunOutput` with
-    `runtime: "codex"`. Evidence: `ai-ide-cli/codex/process.ts`.
-
+        `runtime: "codex"`. Evidence: `ai-ide-cli/codex/process.ts`.
 
 ### 3.3 FR-L3: Process Registry
 
@@ -107,14 +105,13 @@ stable — never renumber on move.
   across all runtimes without each adapter managing its own cleanup.
 - **Acceptance:**
   - [x] `register`, `unregister`, `killAll`, `onShutdown` exported.
-    Evidence: `ai-ide-cli/process-registry.ts`.
+        Evidence: `ai-ide-cli/process-registry.ts`.
   - [x] `killAll()` SIGTERM → 5s wait → SIGKILL → callbacks.
-    Evidence: `ai-ide-cli/process-registry.ts:36-80`.
+        Evidence: `ai-ide-cli/process-registry.ts:36-80`.
   - [x] All runtime runners call `register`/`unregister` around subprocess
-    lifecycle. Evidence: `ai-ide-cli/claude/process.ts:157-158,275`,
-    `ai-ide-cli/opencode/process.ts:244,391`,
-    `ai-ide-cli/cursor/process.ts:166-167,253`.
-
+        lifecycle. Evidence: `ai-ide-cli/claude/process.ts:157-158,275`,
+        `ai-ide-cli/opencode/process.ts:244,391`,
+        `ai-ide-cli/cursor/process.ts:166-167,253`.
 
 ### 3.4 FR-L4: Claude CLI Wrapper
 
@@ -128,14 +125,13 @@ stable — never renumber on move.
   TypeScript — https://github.com/anthropics/claude-agent-sdk-typescript
 - **Acceptance:**
   - [x] `buildClaudeArgs()` emits correct flags for fresh and resume modes.
-    Evidence: `ai-ide-cli/claude/process.ts:94-127`.
+        Evidence: `ai-ide-cli/claude/process.ts:94-127`.
   - [x] `invokeClaudeCli()` with retry loop + exponential backoff.
-    Evidence: `ai-ide-cli/claude/process.ts:52-91`.
+        Evidence: `ai-ide-cli/claude/process.ts:52-91`.
   - [x] Real-time NDJSON processing via `processStreamEvent()`.
-    Evidence: `ai-ide-cli/claude/stream.ts:63-112`.
+        Evidence: `ai-ide-cli/claude/stream.ts:63-112`.
   - [x] `CLAUDECODE=""` env override for nested invocations.
-    Evidence: `ai-ide-cli/claude/process.ts:148`.
-
+        Evidence: `ai-ide-cli/claude/process.ts:148`.
 
 ### 3.5 FR-L5: OpenCode CLI Wrapper
 
@@ -146,16 +142,15 @@ stable — never renumber on move.
   `hitl_request` in output. MCP injection via `OPENCODE_CONFIG_CONTENT` env.
 - **Acceptance:**
   - [x] `buildOpenCodeArgs()` emits `run`, `--format json`, `--session`,
-    `--model`, `--agent`, `--dangerously-skip-permissions`.
-    Evidence: `ai-ide-cli/opencode/process.ts:26-53`.
+        `--model`, `--agent`, `--dangerously-skip-permissions`.
+        Evidence: `ai-ide-cli/opencode/process.ts:26-53`.
   - [x] `buildOpenCodeConfigContent()` injects MCP server when HITL configured;
-    throws when `hitlMcpCommandBuilder` missing.
-    Evidence: `ai-ide-cli/opencode/process.ts:148-172`.
+        throws when `hitlMcpCommandBuilder` missing.
+        Evidence: `ai-ide-cli/opencode/process.ts:148-172`.
   - [x] HITL request extraction from `tool_use` events.
-    Evidence: `ai-ide-cli/opencode/process.ts:424-455`.
+        Evidence: `ai-ide-cli/opencode/process.ts:424-455`.
   - [x] Tests: args, output extraction, HITL, config content.
-    Evidence: `ai-ide-cli/opencode/process_test.ts`.
-
+        Evidence: `ai-ide-cli/opencode/process_test.ts`.
 
 ### 3.6 FR-L6: Cursor CLI Wrapper
 
@@ -166,15 +161,14 @@ stable — never renumber on move.
   workspace trust.
 - **Acceptance:**
   - [x] `buildCursorArgs()` emits `agent`, `-p`, `--output-format stream-json`,
-    `--trust`, `--resume`, `--model`, `--yolo`.
-    Evidence: `ai-ide-cli/cursor/process.ts:30-54`.
+        `--trust`, `--resume`, `--model`, `--yolo`.
+        Evidence: `ai-ide-cli/cursor/process.ts:30-54`.
   - [x] `extractCursorOutput()` normalizes result event to `CliRunOutput`.
-    Evidence: `ai-ide-cli/cursor/process.ts:60-74`.
+        Evidence: `ai-ide-cli/cursor/process.ts:60-74`.
   - [x] `formatCursorEventForOutput()` formats events with semi-verbose
-    filtering. Evidence: `ai-ide-cli/cursor/process.ts:83-113`.
+        filtering. Evidence: `ai-ide-cli/cursor/process.ts:83-113`.
   - [x] Tests: args, output extraction, event formatting.
-    Evidence: `ai-ide-cli/cursor/process_test.ts`.
-
+        Evidence: `ai-ide-cli/cursor/process_test.ts`.
 
 ### 3.7 FR-L7: Stream Event Formatting
 
@@ -185,14 +179,13 @@ stable — never renumber on move.
   `formatFooter()` for run summary.
 - **Acceptance:**
   - [x] Claude: `formatEventForOutput()`, `stampLines()`, `tsPrefix()`,
-    `formatFooter()`. Evidence: `ai-ide-cli/claude/stream.ts:180-252`.
+        `formatFooter()`. Evidence: `ai-ide-cli/claude/stream.ts:180-252`.
   - [x] OpenCode: `formatOpenCodeEventForOutput()`.
-    Evidence: `ai-ide-cli/opencode/process.ts:56-87`.
+        Evidence: `ai-ide-cli/opencode/process.ts:56-87`.
   - [x] Cursor: `formatCursorEventForOutput()`.
-    Evidence: `ai-ide-cli/cursor/process.ts:83-113`.
+        Evidence: `ai-ide-cli/cursor/process.ts:83-113`.
   - [x] Semi-verbose filtering skips `tool_use` blocks.
-    Evidence: tests in `process_test.ts` files.
-
+        Evidence: tests in `process_test.ts` files.
 
 ### 3.8 FR-L8: Repeated File Read Warning
 
@@ -202,13 +195,12 @@ stable — never renumber on move.
   Pure-logic class, unit-testable without I/O.
 - **Acceptance:**
   - [x] `FileReadTracker` with `track(path)`, `reset()`, configurable
-    threshold. Evidence: `ai-ide-cli/claude/stream.ts:16-38`.
+        threshold. Evidence: `ai-ide-cli/claude/stream.ts:16-38`.
   - [x] `processStreamEvent()` calls tracker on `Read` tool_use blocks.
-    Evidence: `ai-ide-cli/claude/stream.ts:80-89`.
+        Evidence: `ai-ide-cli/claude/stream.ts:80-89`.
   - [x] Tests: threshold boundary, per-path independence, custom threshold,
-    integration with log file.
-    Evidence: `ai-ide-cli/claude/stream.ts` tests (in engine test suite).
-
+        integration with log file.
+        Evidence: `ai-ide-cli/claude/stream.ts` tests (in engine test suite).
 
 ### 3.9 FR-L9: Custom Subprocess Environment
 
@@ -222,20 +214,19 @@ stable — never renumber on move.
   without polluting or depending on the host's global state.
 - **Acceptance:**
   - [x] `env?: Record<string, string>` on `RuntimeInvokeOptions`.
-    Evidence: `ai-ide-cli/runtime/types.ts`.
+        Evidence: `ai-ide-cli/runtime/types.ts`.
   - [x] `env?: Record<string, string>` on `ClaudeInvokeOptions`.
-    Evidence: `ai-ide-cli/claude/process.ts`.
+        Evidence: `ai-ide-cli/claude/process.ts`.
   - [x] Claude: merged as `{ CLAUDECODE: "", ...env }`.
-    Evidence: `ai-ide-cli/claude/process.ts` `executeClaudeProcess`.
+        Evidence: `ai-ide-cli/claude/process.ts` `executeClaudeProcess`.
   - [x] Cursor: passed to `Deno.Command` when present.
-    Evidence: `ai-ide-cli/cursor/process.ts` `executeCursorProcess`.
+        Evidence: `ai-ide-cli/cursor/process.ts` `executeCursorProcess`.
   - [x] OpenCode: merged with `OPENCODE_CONFIG_CONTENT`.
-    Evidence: `ai-ide-cli/opencode/process.ts` `executeOpenCodeProcess`.
+        Evidence: `ai-ide-cli/opencode/process.ts` `executeOpenCodeProcess`.
   - [x] Claude adapter forwards `env` field.
-    Evidence: `ai-ide-cli/runtime/claude-adapter.ts`.
+        Evidence: `ai-ide-cli/runtime/claude-adapter.ts`.
   - [x] Type-level test: env accepted without affecting CLI args.
-    Evidence: `ai-ide-cli/claude/process_test.ts`.
-
+        Evidence: `ai-ide-cli/claude/process_test.ts`.
 
 ### 3.10 FR-L10: Raw NDJSON Event Callback
 
@@ -249,23 +240,22 @@ stable — never renumber on move.
   event cache token counts without modifying `CliRunOutput`.
 - **Acceptance:**
   - [x] `onEvent` on `RuntimeInvokeOptions`.
-    Evidence: `ai-ide-cli/runtime/types.ts`.
+        Evidence: `ai-ide-cli/runtime/types.ts`.
   - [x] `onEvent` on `ClaudeInvokeOptions`.
-    Evidence: `ai-ide-cli/claude/process.ts`.
+        Evidence: `ai-ide-cli/claude/process.ts`.
   - [x] `onEvent` on `StreamProcessorState`, called at top of
-    `processStreamEvent()` before any filtering.
-    Evidence: `ai-ide-cli/claude/stream.ts`.
+        `processStreamEvent()` before any filtering.
+        Evidence: `ai-ide-cli/claude/stream.ts`.
   - [x] Cursor: `onEvent` called on each parsed event.
-    Evidence: `ai-ide-cli/cursor/process.ts`.
+        Evidence: `ai-ide-cli/cursor/process.ts`.
   - [x] OpenCode: `onEvent` called in `processOpenCodeLine()`.
-    Evidence: `ai-ide-cli/opencode/process.ts`.
+        Evidence: `ai-ide-cli/opencode/process.ts`.
   - [x] Claude adapter forwards `onEvent` field.
-    Evidence: `ai-ide-cli/runtime/claude-adapter.ts`.
+        Evidence: `ai-ide-cli/runtime/claude-adapter.ts`.
   - [x] Test: onEvent receives all events in order.
-    Evidence: `ai-ide-cli/claude/stream_test.ts`.
+        Evidence: `ai-ide-cli/claude/stream_test.ts`.
   - [x] Backward-compat: omitting onEvent causes no errors.
-    Evidence: `ai-ide-cli/claude/stream_test.ts`.
-
+        Evidence: `ai-ide-cli/claude/stream_test.ts`.
 
 ### 3.11 FR-L11: Skill Model
 
@@ -278,16 +268,15 @@ stable — never renumber on move.
   injection into runtimes. Parser enables bundled and project-level skills.
 - **Acceptance:**
   - [x] `SkillFrontmatter` with required `name`, `description` and optional
-    IDE-specific fields. Evidence: `ai-ide-cli/skill/types.ts:8-57`.
+        IDE-specific fields. Evidence: `ai-ide-cli/skill/types.ts:8-57`.
   - [x] `SkillDef` with `frontmatter`, `body`, `rootPath`, `files`.
-    Evidence: `ai-ide-cli/skill/types.ts:63-72`.
+        Evidence: `ai-ide-cli/skill/types.ts:63-72`.
   - [x] `parseSkill(dir)` reads SKILL.md, extracts frontmatter, scans files.
-    Evidence: `ai-ide-cli/skill/parser.ts:28-57`.
+        Evidence: `ai-ide-cli/skill/parser.ts:28-57`.
   - [x] Error cases: missing SKILL.md, invalid YAML, missing name/description.
-    Evidence: `ai-ide-cli/skill/parser_test.ts`.
+        Evidence: `ai-ide-cli/skill/parser_test.ts`.
   - [x] Sub-path export `@korchasa/ai-ide-cli/skill`.
-    Evidence: `ai-ide-cli/deno.json` exports.
-
+        Evidence: `ai-ide-cli/deno.json` exports.
 
 ### 3.12 FR-L12: Interactive Mode
 
@@ -302,18 +291,17 @@ stable — never renumber on move.
   skills. Injection strategy is runtime-specific — belongs in adapter layer.
 - **Acceptance:**
   - [x] `InteractiveOptions` and `InteractiveResult` types.
-    Evidence: `ai-ide-cli/runtime/types.ts:90-108`.
+        Evidence: `ai-ide-cli/runtime/types.ts:90-108`.
   - [x] `launchInteractive()` on `RuntimeAdapter` interface.
-    Evidence: `ai-ide-cli/runtime/types.ts:120-123`.
+        Evidence: `ai-ide-cli/runtime/types.ts:120-123`.
   - [x] `interactive` flag on `RuntimeCapabilities`.
-    Evidence: `ai-ide-cli/runtime/types.ts:18`.
+        Evidence: `ai-ide-cli/runtime/types.ts:18`.
   - [x] Claude adapter: temp config dir with skills, stdin inherit.
-    Evidence: `ai-ide-cli/runtime/claude-adapter.ts:17-49,78-120`.
+        Evidence: `ai-ide-cli/runtime/claude-adapter.ts:17-49,78-120`.
   - [x] OpenCode adapter: temp .claude/skills/, stdin inherit.
-    Evidence: `ai-ide-cli/runtime/opencode-adapter.ts:22-63`.
+        Evidence: `ai-ide-cli/runtime/opencode-adapter.ts:22-63`.
   - [x] Cursor adapter: throws UnsupportedError.
-    Evidence: `ai-ide-cli/runtime/cursor-adapter.ts:16-20`.
-
+        Evidence: `ai-ide-cli/runtime/cursor-adapter.ts:16-20`.
 
 ### 3.13 FR-L13: Codex CLI Wrapper
 
@@ -339,45 +327,45 @@ stable — never renumber on move.
   Claude Code / OpenCode / Cursor, without bundling an npm SDK.
 - **Acceptance:**
   - [x] `buildCodexArgs()` emits `exec`, `--experimental-json`, `--model`,
-    `--cd`, `--sandbox`, `--config`, `resume <id>`; prompt is NOT in argv.
-    Evidence: `ai-ide-cli/codex/process.ts`,
-    `ai-ide-cli/codex/process_test.ts`.
+        `--cd`, `--sandbox`, `--config`, `resume <id>`; prompt is NOT in argv.
+        Evidence: `ai-ide-cli/codex/process.ts`,
+        `ai-ide-cli/codex/process_test.ts`.
   - [x] `invokeCodexCli()` writes prompt to stdin, closes stdin, then reads
-    NDJSON from stdout. Evidence: `ai-ide-cli/codex/process.ts`.
+        NDJSON from stdout. Evidence: `ai-ide-cli/codex/process.ts`.
   - [x] Event aggregation: `thread.started` → `session_id`,
-    `item.completed`/`agent_message` → `result`, `turn.completed` →
-    `num_turns` + token counts, `turn.failed`/`error` → `is_error`.
-    Evidence: `ai-ide-cli/codex/process.ts`,
-    `ai-ide-cli/codex/process_test.ts`.
+        `item.completed`/`agent_message` → `result`, `turn.completed` →
+        `num_turns` + token counts, `turn.failed`/`error` → `is_error`.
+        Evidence: `ai-ide-cli/codex/process.ts`,
+        `ai-ide-cli/codex/process_test.ts`.
   - [x] Retry loop with exponential backoff (same policy as other runtimes).
-    Evidence: `ai-ide-cli/codex/process.ts`.
+        Evidence: `ai-ide-cli/codex/process.ts`.
   - [x] Adapter registered with capabilities
-    `{ permissionMode: true, hitl: true, transcript: true, interactive: true, toolUseObservation: true }`;
-    `launchInteractive()` spawns the Codex TUI with skill injection at
-    `~/.agents/skills/<name>/`. Evidence:
-    `ai-ide-cli/runtime/codex-adapter.ts`, `ai-ide-cli/runtime/index.ts`.
+        `{ permissionMode: true, hitl: true, transcript: true, interactive: true, toolUseObservation: true }`;
+        `launchInteractive()` spawns the Codex TUI with skill injection at
+        `~/.agents/skills/<name>/`. Evidence:
+        `ai-ide-cli/runtime/codex-adapter.ts`, `ai-ide-cli/runtime/index.ts`.
   - [x] `permissionMode` mapping covers `default` / `plan` / `acceptEdits` /
-    `bypassPermissions` (mapped to `--sandbox` + `approval_policy`) and
-    Codex-native pass-through values. Evidence:
-    `ai-ide-cli/codex/process.ts:permissionModeToCodexArgs`,
-    `ai-ide-cli/codex/process_test.ts`.
+        `bypassPermissions` (mapped to `--sandbox` + `approval_policy`) and
+        Codex-native pass-through values. Evidence:
+        `ai-ide-cli/codex/process.ts:permissionModeToCodexArgs`,
+        `ai-ide-cli/codex/process_test.ts`.
   - [x] HITL via `--config mcp_servers.hitl.command/args` overrides;
-    `mcp_tool_call` items targeting `hitl.request_human_input` are
-    intercepted and surfaced as `CliRunOutput.hitl_request`. Evidence:
-    `ai-ide-cli/codex/process.ts:buildCodexHitlConfigArgs`,
-    `ai-ide-cli/codex/hitl-mcp.ts`.
+        `mcp_tool_call` items targeting `hitl.request_human_input` are
+        intercepted and surfaced as `CliRunOutput.hitl_request`. Evidence:
+        `ai-ide-cli/codex/process.ts:buildCodexHitlConfigArgs`,
+        `ai-ide-cli/codex/hitl-mcp.ts`.
   - [x] Transcript path resolved post-run from
-    `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` and
-    surfaced as `CliRunOutput.transcript_path`. Evidence:
-    `ai-ide-cli/codex/process.ts:findCodexSessionFile`.
+        `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` and
+        surfaced as `CliRunOutput.transcript_path`. Evidence:
+        `ai-ide-cli/codex/process.ts:findCodexSessionFile`.
   - [x] `onToolUseObserved` fires for `command_execution`, `file_change`,
-    `mcp_tool_call`, `web_search` items; `"abort"` SIGTERMs Codex and
-    synthesizes `permission_denials[]`. Evidence:
-    `ai-ide-cli/codex/process.ts:codexItemToToolUseInfo` and
-    `executeCodexProcess`.
+        `mcp_tool_call`, `web_search` items; `"abort"` SIGTERMs Codex and
+        synthesizes `permission_denials[]`. Evidence:
+        `ai-ide-cli/codex/process.ts:codexItemToToolUseInfo` and
+        `executeCodexProcess`.
   - [x] Sub-path exports `@korchasa/ai-ide-cli/codex/process` and
-    `@korchasa/ai-ide-cli/codex/hitl-mcp`. Evidence:
-    `ai-ide-cli/deno.json` exports.
+        `@korchasa/ai-ide-cli/codex/hitl-mcp`. Evidence:
+        `ai-ide-cli/deno.json` exports.
 
 ### 3.14 FR-L14: Map-shaped `extraArgs` / `runtime_args`
 
@@ -394,17 +382,16 @@ stable — never renumber on move.
   Claude Agent SDK `extraArgs` option.
 - **Acceptance:**
   - [x] `ExtraArgsMap` type exported from `runtime/types.ts`.
-    Evidence: `ai-ide-cli/runtime/types.ts`.
+        Evidence: `ai-ide-cli/runtime/types.ts`.
   - [x] `expandExtraArgs` helper with empty/null/reserved semantics.
-    Evidence: `ai-ide-cli/runtime/index.ts`,
-    `ai-ide-cli/runtime/index_test.ts`.
+        Evidence: `ai-ide-cli/runtime/index.ts`,
+        `ai-ide-cli/runtime/index_test.ts`.
   - [x] Each `build*Args` expands `extraArgs` via `expandExtraArgs` with
-    its reserved list. Evidence: `ai-ide-cli/claude/process.ts`,
-    `ai-ide-cli/opencode/process.ts`, `ai-ide-cli/cursor/process.ts`,
-    `ai-ide-cli/codex/process.ts`.
+        its reserved list. Evidence: `ai-ide-cli/claude/process.ts`,
+        `ai-ide-cli/opencode/process.ts`, `ai-ide-cli/cursor/process.ts`,
+        `ai-ide-cli/codex/process.ts`.
   - [x] Cascade merge preserves `null` for flag suppression. Evidence:
-    `ai-ide-cli/runtime/index_test.ts`.
-
+        `ai-ide-cli/runtime/index_test.ts`.
 
 ### 3.15 FR-L15: `AbortSignal` Cancellation
 
@@ -422,17 +409,16 @@ stable — never renumber on move.
   orchestrators).
 - **Acceptance:**
   - [x] `signal?: AbortSignal` on `RuntimeInvokeOptions` and
-    `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/runtime/types.ts`,
-    `ai-ide-cli/claude/process.ts`.
+        `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/runtime/types.ts`,
+        `ai-ide-cli/claude/process.ts`.
   - [x] Aborted-before-start returns `"Aborted before start"` without
-    spawning. Evidence: `ai-ide-cli/claude/process_test.ts`.
+        spawning. Evidence: `ai-ide-cli/claude/process_test.ts`.
   - [x] AbortSignal composed with timeout via `AbortSignal.any`.
-    Evidence: `ai-ide-cli/claude/process.ts`,
-    `ai-ide-cli/opencode/process.ts`, `ai-ide-cli/cursor/process.ts`,
-    `ai-ide-cli/codex/process.ts`.
+        Evidence: `ai-ide-cli/claude/process.ts`,
+        `ai-ide-cli/opencode/process.ts`, `ai-ide-cli/cursor/process.ts`,
+        `ai-ide-cli/codex/process.ts`.
   - [x] Retry loop treats abort as terminal. Evidence:
-    `ai-ide-cli/claude/process.ts` retry loop error-mapping.
-
+        `ai-ide-cli/claude/process.ts` retry loop error-mapping.
 
 ### 3.16 FR-L16: Observed-Tool-Use Hook (Claude)
 
@@ -450,28 +436,27 @@ stable — never renumber on move.
 - **Motivation:** First-class audit / HITL pre-hook that the SDK inspired.
 - **Acceptance:**
   - [x] `onToolUseObserved` callback receives `{id, name, input, turn}`.
-    Evidence: `ai-ide-cli/claude/stream.ts`,
-    `ai-ide-cli/claude/stream_test.ts`.
+        Evidence: `ai-ide-cli/claude/stream.ts`,
+        `ai-ide-cli/claude/stream_test.ts`.
   - [x] Sync `"abort"` sets `state.denied` and aborts the run's
-    controller. Evidence: `ai-ide-cli/claude/stream_test.ts`.
+        controller. Evidence: `ai-ide-cli/claude/stream_test.ts`.
   - [x] Async `"abort"` (awaited decision) also aborts cleanly.
-    Evidence: `ai-ide-cli/claude/stream_test.ts`.
+        Evidence: `ai-ide-cli/claude/stream_test.ts`.
   - [x] `"allow"` is a no-op (run continues). Evidence:
-    `ai-ide-cli/claude/stream_test.ts`.
+        `ai-ide-cli/claude/stream_test.ts`.
   - [x] `RuntimeCapabilities.toolUseObservation` advertises support
-    (Claude `true`, others `false`). Evidence:
-    `ai-ide-cli/runtime/claude-adapter.ts`,
-    `ai-ide-cli/runtime/opencode-adapter.ts`,
-    `ai-ide-cli/runtime/cursor-adapter.ts`,
-    `ai-ide-cli/runtime/codex-adapter.ts`.
-
+        (Claude `true`, others `false`). Evidence:
+        `ai-ide-cli/runtime/claude-adapter.ts`,
+        `ai-ide-cli/runtime/opencode-adapter.ts`,
+        `ai-ide-cli/runtime/cursor-adapter.ts`,
+        `ai-ide-cli/runtime/codex-adapter.ts`.
 
 ### 3.17 FR-L17: Typed Lifecycle Hooks
 
 - **Description:** Claude exposes `ClaudeLifecycleHooks` with
   `onInit(ClaudeSystemEvent)`, `onAssistant(ClaudeAssistantEvent)`,
   `onResult(ClaudeResultEvent)` — each fires with the narrowed event
-  *before* internal state mutations (turn counter, file-read tracker, log
+  _before_ internal state mutations (turn counter, file-read tracker, log
   writes). Runtime-neutral `RuntimeLifecycleHooks` exposes `onInit(info)`
   and `onResult(output)` honored by all four adapters, which translate
   their native init events into the minimal `RuntimeInitInfo` shape.
@@ -482,15 +467,14 @@ stable — never renumber on move.
   raw event.
 - **Acceptance:**
   - [x] `ClaudeLifecycleHooks` on `StreamProcessorState` and
-    `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/claude/stream.ts`,
-    `ai-ide-cli/claude/process.ts`.
+        `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/claude/stream.ts`,
+        `ai-ide-cli/claude/process.ts`.
   - [x] `RuntimeLifecycleHooks` on `RuntimeInvokeOptions`. Evidence:
-    `ai-ide-cli/runtime/types.ts`.
+        `ai-ide-cli/runtime/types.ts`.
   - [x] Dispatch order onEvent → typed hook → internal mutation.
-    Evidence: `ai-ide-cli/claude/stream_test.ts`.
+        Evidence: `ai-ide-cli/claude/stream_test.ts`.
   - [x] Typed hook sees pre-increment `turnCount`. Evidence:
-    `ai-ide-cli/claude/stream_test.ts`.
-
+        `ai-ide-cli/claude/stream_test.ts`.
 
 ### 3.18 FR-L18: Setting-Source Isolation (Claude)
 
@@ -508,24 +492,23 @@ stable — never renumber on move.
   experiments — pairs naturally with FR-L9 `env` isolation.
 - **Acceptance:**
   - [x] `settingSources?: SettingSource[]` on `RuntimeInvokeOptions`
-    and `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/runtime/types.ts`,
-    `ai-ide-cli/claude/process.ts`.
+        and `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/runtime/types.ts`,
+        `ai-ide-cli/claude/process.ts`.
   - [x] `['user']` with existing `settings.json` symlinks into tmp dir.
-    Evidence: `ai-ide-cli/runtime/setting-sources_test.ts`.
+        Evidence: `ai-ide-cli/runtime/setting-sources_test.ts`.
   - [x] `['project']` / `[]` yield an empty tmp dir. Evidence:
-    `ai-ide-cli/runtime/setting-sources_test.ts`.
+        `ai-ide-cli/runtime/setting-sources_test.ts`.
   - [x] `undefined` leaves env untouched and skips tmp-dir setup.
-    Evidence: `ai-ide-cli/claude/process.ts`.
+        Evidence: `ai-ide-cli/claude/process.ts`.
   - [x] Cleanup runs on success and failure and is idempotent. Evidence:
-    `ai-ide-cli/runtime/setting-sources_test.ts`.
-
+        `ai-ide-cli/runtime/setting-sources_test.ts`.
 
 ### 3.19 FR-L19: Streaming-Input Session
 
 - **Description:** Long-lived agent session with push-based user input:
   caller opens a session, streams zero or more user messages into the
   running subprocess, consumes normalized events, and closes the session
-  gracefully (`endInput`) or forcefully (`abort`). Three layers:
+  gracefully (`endInput`) or forcefully (`abort`). Four layers:
   - **Claude-specific.** `openClaudeSession(opts)` spawns `claude -p
     --input-format stream-json --output-format stream-json --verbose` with
     piped stdin. Returns `ClaudeSession { pid, send, events, endInput,
@@ -549,39 +532,55 @@ stable — never renumber on move.
     the same `{ pid, send, events, endInput, abort, done }` shape plus
     `sessionId` and `baseUrl`. Each call spawns its own server — sessions
     do not share subprocesses.
+  - **Cursor-specific (faux).** Cursor CLI has no streaming-input transport,
+    so `openCursorSession(opts)` emulates a session by obtaining a chat ID
+    via `cursor agent create-chat` once (or accepting `resumeSessionId`)
+    and then spawning one short-lived `cursor agent -p --resume <chatId>
+    <message> --output-format stream-json --trust` subprocess per `send()`.
+    Sends are serialized through an internal worker queue; a synthetic
+    `{type:"system",subtype:"init",synthetic:true,session_id:<chatId>}`
+    event is pushed at open time so consumers see the chat ID before the
+    first turn. Returns `CursorSession { runtime, pid, chatId, send,
+    events, endInput, abort, done }`; `pid` is a getter reflecting the
+    currently-active subprocess (or `0` while idle). `systemPrompt` is
+    merged into the first user message of newly created chats and
+    suppressed on resume. Model selection is silently dropped (Cursor's
+    `--resume` rejects `--model`). `createCursorChat()` and
+    `buildCursorSendArgs()` are exported for advanced callers and tests.
   - **Runtime-neutral.** `RuntimeAdapter.openSession?(opts):
     Promise<RuntimeSession>` is optional; callers check
-    `capabilities.session` before invoking. Claude and OpenCode adapters
-    implement it by delegating to their runtime-specific opener and
-    translating events to `RuntimeSessionEvent { runtime, type, raw }`
+    `capabilities.session` before invoking. Claude, OpenCode, and Cursor
+    adapters implement it by delegating to their runtime-specific opener
+    and translating events to `RuntimeSessionEvent { runtime, type, raw }`
     (raw payload preserved for consumers that need runtime-specific
-    typing). `cursor` and `codex` adapters set `session: false` and omit
-    the method.
+    typing). `codex` adapter sets `session: false` and omits the method.
 - **Motivation:** SDK-parity bidirectional sessions — callers can push
-  follow-up messages without respawning the CLI or losing context; fits
-  interactive use cases (`/compact`-style flows, human correction loops,
-  multi-turn orchestrators).
+  follow-up messages without respawning the CLI from scratch or losing
+  context; fits interactive use cases (`/compact`-style flows, human
+  correction loops, multi-turn orchestrators). The Cursor faux path gives
+  consumers a uniform `openSession` API despite the CLI's lack of a real
+  streaming-input transport.
 - **Acceptance:**
   - [x] `openClaudeSession()`, `ClaudeSession`, `ClaudeSessionOptions`,
-    `ClaudeSessionStatus`, `ClaudeSessionUserInput`,
-    `buildClaudeSessionArgs()` exported. Evidence:
-    `ai-ide-cli/claude/session.ts`, `ai-ide-cli/mod.ts`,
-    `ai-ide-cli/deno.json` (`./claude/session` sub-path).
+        `ClaudeSessionStatus`, `ClaudeSessionUserInput`,
+        `buildClaudeSessionArgs()` exported. Evidence:
+        `ai-ide-cli/claude/session.ts`, `ai-ide-cli/mod.ts`,
+        `ai-ide-cli/deno.json` (`./claude/session` sub-path).
   - [x] Transport flags: `-p --input-format stream-json --output-format
     stream-json --verbose`; empirically verified against real binary.
-    Evidence: `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
-    `ai-ide-cli/scripts/smoke.ts` `session` group.
+        Evidence: `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
+        `ai-ide-cli/scripts/smoke.ts` `session` group.
   - [x] `send()` emits JSONL user-message shape; `endInput()` closes stdin
     gracefully; `abort()` SIGTERMs and is idempotent; `done` resolves with
     exit code + signal + stderr. Evidence:
     `ai-ide-cli/claude/session_test.ts`.
-  - [x] `capabilities.session: true` on Claude and OpenCode, `false` on
-    `cursor`/`codex`; `openSession?` implemented by Claude and OpenCode
-    adapters; `RuntimeSession`, `RuntimeSessionOptions`,
+  - [x] `capabilities.session: true` on Claude, OpenCode, and Cursor;
+    `false` on `codex`; `openSession?` implemented by Claude, OpenCode, and
+    Cursor adapters; `RuntimeSession`, `RuntimeSessionOptions`,
     `RuntimeSessionEvent`, `RuntimeSessionStatus` exported from `mod.ts`.
     Evidence: `ai-ide-cli/runtime/types.ts`,
-    `ai-ide-cli/runtime/{claude,opencode}-adapter.ts`,
-    `ai-ide-cli/runtime/{codex,cursor}-adapter.ts`, `ai-ide-cli/mod.ts`.
+    `ai-ide-cli/runtime/{claude,opencode,cursor}-adapter.ts`,
+    `ai-ide-cli/runtime/codex-adapter.ts`, `ai-ide-cli/mod.ts`.
   - [x] `openOpenCodeSession()`, `OpenCodeSession`, `OpenCodeSessionOptions`,
     `OpenCodeSessionStatus`, `OpenCodeSessionEvent` exported. Evidence:
     `ai-ide-cli/opencode/session.ts`, `ai-ide-cli/mod.ts`,
@@ -591,15 +590,25 @@ stable — never renumber on move.
     `POST /session/:id/prompt_async`, `abort()` to
     `POST /session/:id/abort`. Evidence:
     `ai-ide-cli/opencode/session.ts:openOpenCodeSession`.
-  - [x] Adapter-level tests for both runtimes use a PATH-stubbed binary:
-    Claude stub is a bash script emitting NDJSON on stdout; OpenCode stub
-    is a bash script that execs a Deno fake HTTP+SSE server. Claude
-    additionally has a smoke test running two live turns + mid-session
-    abort against the real binary. Evidence:
+  - [x] `openCursorSession()`, `createCursorChat()`, `buildCursorSendArgs()`,
+    `CursorSession`, `CursorSessionOptions`, `CursorSessionStatus`,
+    `CursorStreamEvent` exported. Faux session obtains a chat ID via
+    `cursor agent create-chat` when `resumeSessionId` is omitted, then
+    spawns `cursor agent -p --resume <id> <msg>` once per send;
+    serialized worker queue; synthetic `system.init` emits chat ID.
+    Evidence: `ai-ide-cli/cursor/session.ts`,
+    `ai-ide-cli/cursor/session_test.ts`, `ai-ide-cli/mod.ts`.
+  - [x] Adapter-level tests for all three runtimes use a PATH-stubbed
+    binary: Claude stub emits NDJSON on stdout; OpenCode stub execs a Deno
+    fake HTTP+SSE server; Cursor stub dispatches on `create-chat`/`-p` and
+    `exec`s the send script so SIGTERM propagates. Claude additionally
+    has a smoke test running two live turns + mid-session abort against
+    the real binary. Evidence:
     `ai-ide-cli/runtime/claude-adapter_test.ts`,
     `ai-ide-cli/runtime/opencode-adapter_test.ts`,
-    `ai-ide-cli/opencode/session_test.ts`, `ai-ide-cli/scripts/smoke.ts`.
-
+    `ai-ide-cli/opencode/session_test.ts`,
+    `ai-ide-cli/cursor/session_test.ts`,
+    `ai-ide-cli/scripts/smoke.ts`.
 
 ### 3.20 FR-L20: Capability Inventory (LLM-probed)
 
