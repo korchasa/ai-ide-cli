@@ -21,6 +21,7 @@ import {
   SessionInputClosedError,
   SYNTHETIC_TURN_END,
 } from "./types.ts";
+import { extractSessionContent } from "./content.ts";
 
 // ───────────── Type-level assertions ─────────────
 
@@ -238,6 +239,51 @@ EOF`,
           resultIdx >= 0 && resultIdx < turnEndIdx,
           "synthetic turn-end must follow the native result event",
         );
+      } finally {
+        session.abort();
+        await session.done;
+      }
+    },
+  );
+});
+
+Deno.test("RuntimeSession contract — extractSessionContent surfaces normalized stream (FR-L23)", async () => {
+  // End-to-end: stream the native events through the Claude stub, then
+  // run `extractSessionContent` on each and assert the normalized stream
+  // matches the expected shape (one text chunk, one tool, one final).
+  // Runs on the Claude stub because the extractor path for Claude and
+  // Cursor is shared — a regression on either path surfaces here.
+  await withStubClaude(
+    `cat <<'EOF'
+{"type":"system","subtype":"init","session_id":"s1"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"Reading file"},{"type":"tool_use","id":"tu_1","name":"Read","input":{"file_path":"cli.ts"}}]}}
+{"type":"result","subtype":"success","result":"Done reading.","is_error":false,"session_id":"s1"}
+EOF`,
+    async () => {
+      const session = await claudeAdapter.openSession!({});
+      try {
+        const collected: RuntimeSessionEvent[] = [];
+        for await (const ev of session.events) {
+          collected.push(ev);
+        }
+        // Flatten per-event normalization into a single stream for
+        // easier assertion.
+        const normalized = collected.flatMap(extractSessionContent);
+        assertEquals(normalized.length, 3);
+        assertEquals(normalized[0], {
+          kind: "text",
+          text: "Reading file",
+          cumulative: true,
+        });
+        assertEquals(normalized[1].kind, "tool");
+        assertEquals((normalized[1] as { name: string }).name, "Read");
+        assertEquals((normalized[1] as { id: string }).id, "tu_1");
+        assertEquals(normalized[2], { kind: "final", text: "Done reading." });
+
+        // Synthetic turn-end in the envelope must produce no content.
+        const turnEnd = collected.find((e) => e.type === SYNTHETIC_TURN_END);
+        assert(turnEnd, "expected a synthetic turn-end event");
+        assertEquals(extractSessionContent(turnEnd), []);
       } finally {
         session.abort();
         await session.done;

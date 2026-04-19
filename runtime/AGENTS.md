@@ -27,9 +27,24 @@
     - Codex — emitted in `codex/session.ts` after the `turn/completed` JSON-RPC notification.
     Honesty note: turn-end marks "runtime is ready for the next input", not "turn succeeded". Detecting failure still requires inspecting prior events or the `raw` payload per runtime.
   - **Out of scope for sessions (by design).** `RuntimeSessionOptions` deliberately omits `timeoutSeconds`/`maxRetries`/`retryDelaySeconds` (present on `RuntimeInvokeOptions`): a streaming session is caller-owned — implement per-turn timeouts and retries via `AbortSignal` + reopen with `resumeSessionId`. Mid-session model/permissionMode/extraArgs changes likewise require reopening (the flags are bound to the subprocess at spawn time).
+  - **Normalized content extraction (`extractSessionContent`, FR-L23).** Runtime-neutral helper in `runtime/content.ts` that turns a `RuntimeSessionEvent` into a `NormalizedContent[]` — the primitive every UI consumer should use instead of writing per-runtime `raw.*` branches. Envelope is unchanged; `raw` stays accessible. Pure, never throws on malformed payloads, returns `[]` for synthetic events and unknown types.
+    - **Kinds**:
+      - `{kind:"text", text, cumulative}` — streaming assistant text. `cumulative: true` (Claude/OpenCode/Cursor) means the consumer should replace its buffer; `false` (Codex) means append the delta.
+      - `{kind:"tool", id, name, input?}` — tool/command invocation. Order preserved when multiple blocks live in one event.
+      - `{kind:"final", text}` — complete assistant reply for the just-ended turn.
+    - **Per-runtime source events**:
+      - **Claude / Cursor** (shared stream-json extractor): `assistant` event fans out `message.content[]` in order (`text` → text content, `tool_use` → tool content, `thinking` skipped); `result` event emits `final` (empty string included — consumer decides whether to render).
+      - **Codex**: bound to app-server v2 **camelCase** types from `codex app-server generate-ts` — NOT to `codex/process.ts:codexItemToToolUseInfo` (which handles the parallel snake_case NDJSON from `codex exec`). `item/agentMessage/delta` → delta text; `item/completed` with `item.type === "agentMessage"` → final text (from `item.text` directly — not `content[]`). Tool kinds: `commandExecution` / `fileChange` / `webSearch` → `name = item.type`; `mcpToolCall` → `name = "<server>.<tool>"`; `dynamicToolCall` → `name = item.tool`. Input is the item payload minus `id` / `type`.
+      - **OpenCode**: `message.part.updated` with `part.type === "text"` → cumulative text; with `part.type === "tool"` at terminal state (`completed` / `failed`), non-HITL (filters on `OPENCODE_HITL_MCP_TOOL_NAME`) → tool content (id falls back to `part.callID` when `part.id` missing). Mirrors the FR-L16 terminal-state dispatch rule.
+    - **Timing asymmetry**: Claude / Cursor emit tool content at assistant-decision time (before execution — UI can show "📖 Read …" spinner). OpenCode / Codex emit at completion time (UI renders after the tool finishes). Matches the same dispatch points FR-L16 uses.
+    - **Documented gaps**:
+      - OpenCode has no native final-text event — consumers build `final` by keeping the last `cumulative:true` text they saw and flushing it on `SYNTHETIC_TURN_END`.
+      - Claude `thinking` blocks and `user` events carrying tool results are deliberately skipped (reserved for future `kind:"reasoning"` / `kind:"tool-result"` variants; additive, no breaking change).
+      - OpenCode may emit terminal-state `message.part.updated` more than once for the same tool id — stateless extractor forwards every occurrence; consumer dedupes by `id` if needed.
   - **Shared infrastructure** (no per-adapter copy-paste):
     - `runtime/event-queue.ts`: `SessionEventQueue<T>` backs every `session.events`.
     - `runtime/session-adapter.ts`: `adaptRuntimeSession` + `adaptEventCallback` translate runtime-specific sessions into the neutral handle.
+    - `runtime/content.ts`: `extractSessionContent` + `NormalizedContent` union — runtime-neutral content extraction (FR-L23).
   - **Per-runtime transport:**
     - **`claude`** — real streaming-input transport (`claude/session.ts`: `claude -p --input-format stream-json --output-format stream-json --verbose` with piped stdin/stdout). One subprocess for the whole session. `send` returns after stdin flush; `endInput` closes stdin and returns.
     - **`opencode`** — `opencode/session.ts` spawns a dedicated `opencode serve --port <free> --hostname 127.0.0.1`, creates a session via `POST /session`, subscribes to `GET /event` SSE, forwards `send()` to `POST /session/:id/prompt_async` (returns on HTTP 204). `endInput()` is signal-only — it flips `inputClosed` and schedules a background task that waits for `session.idle` then SIGTERMs the server.

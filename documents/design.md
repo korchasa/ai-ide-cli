@@ -27,6 +27,9 @@ ai-ide-cli/
     session-adapter.ts  — adaptRuntimeSession, adaptEventCallback: shared
                           helpers that translate runtime-specific sessions
                           into runtime-neutral RuntimeSession handles
+    content.ts          — extractSessionContent(event), NormalizedContent
+                          union: runtime-neutral content extraction from
+                          RuntimeSessionEvent (FR-L23)
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
@@ -186,6 +189,46 @@ with `_` for test isolation.
   temp `CLAUDE_CONFIG_DIR` symlinking the user-level `settings.json` when
   `'user'` is selected. `'project'`/`'local'` are recognized but not yet
   isolated — they still come from CWD.
+
+**`runtime/content.ts` — Normalized Content Extraction (FR-L23):**
+
+- `NormalizedContent` discriminated union: `NormalizedTextContent`
+  (streaming text with `cumulative` flag), `NormalizedToolContent`
+  (tool invocation — id, name, optional input), `NormalizedFinalContent`
+  (complete assistant reply).
+- `extractSessionContent(event): NormalizedContent[]` — pure
+  dispatcher keyed on `event.runtime`. Synthetic events and
+  unrecognized types return `[]`. Never throws on malformed payloads.
+- Per-runtime extractors:
+  - **Claude / Cursor** (shared — stream-json): `assistant` event
+    fans out `raw.message.content[]` preserving source order
+    (`text` → text content, `tool_use` → tool content, `thinking`
+    skipped); `result` event with string `result` → final content.
+  - **Codex** (app-server v2 JSON-RPC, **camelCase**):
+    `item/agentMessage/delta` → delta text;
+    `item/completed` with `item.type === "agentMessage"` → final
+    text (from `item.text` — direct, not `content[]`);
+    `commandExecution` / `fileChange` / `webSearch` → tool with
+    `name = item.type`; `mcpToolCall` →
+    `name = "<server>.<tool>"`; `dynamicToolCall` →
+    `name = item.tool`. Input map is `item` minus `id` / `type`
+    (preserved verbatim to survive upstream field additions).
+    Bound to the v2 bindings from `codex app-server generate-ts`,
+    NOT to `codex/process.ts:codexItemToToolUseInfo` (which parses
+    the parallel snake_case NDJSON protocol used by `codex exec`).
+  - **OpenCode** (SSE): `message.part.updated` with text part → text
+    content; with tool part at terminal state (`completed`/`failed`),
+    non-HITL, with resolvable id → tool content. Mirrors
+    `openCodeToolUseInfo`'s FR-L16 filtering rule.
+- **Documented gaps** (kept visible in `runtime/CLAUDE.md` too):
+  - OpenCode has no native final-text event → consumers flush the
+    last `cumulative:true` text on `SYNTHETIC_TURN_END`.
+  - Claude `thinking` blocks → skipped; reserved for a future
+    `kind:"reasoning"` variant.
+  - Claude `user` events carrying tool results → skipped; reserved
+    for a future `kind:"tool-result"` variant.
+  - Timing asymmetry: Claude / Cursor dispatch tools at
+    assistant-decision time; OpenCode / Codex at completion time.
 
 ### 3.4 `claude/process.ts` — Claude Runner
 

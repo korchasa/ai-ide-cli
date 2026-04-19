@@ -9,6 +9,7 @@
     "./runtime": "./runtime/index.ts",
     "./runtime/types": "./runtime/types.ts",
     "./runtime/setting-sources": "./runtime/setting-sources.ts",
+    "./runtime/content": "./runtime/content.ts",
     "./claude/process": "./claude/process.ts",
     "./claude/stream": "./claude/stream.ts",
     "./claude/session": "./claude/session.ts",

@@ -854,6 +854,86 @@ stable — never renumber on move.
     `ai-ide-cli/runtime/session_contract_test.ts`.
 
 
+### 3.23 FR-L23: Normalized Session Event Content
+
+- **Description:** Pure runtime-neutral helper
+  `extractSessionContent(event)` returns
+  `NormalizedContent[]` from a `RuntimeSessionEvent`. Union covers
+  three shapes: `NormalizedTextContent` (streaming assistant text,
+  with `cumulative` flag), `NormalizedToolContent` (tool/command
+  invocation — id, name, optional input map), `NormalizedFinalContent`
+  (complete assistant reply for the just-ended turn). Envelope
+  (`RuntimeSessionEvent`) unchanged; `raw` untouched. Extractor never
+  throws — malformed or unrecognized events return `[]`. Synthetic
+  events (including `SYNTHETIC_TURN_END`, Cursor's open-time init /
+  `send_failed`) return `[]` so consumers observe turn boundaries via
+  the existing synthetic-event flag, not via content.
+- **Per-runtime source mapping** (keep in sync with the upstream
+  protocols — the Codex session path uses app-server v2 camelCase
+  types, NOT the snake_case NDJSON types used by `codex exec`):
+  - **Claude / Cursor** (stream-json, same shape): `assistant` event
+    fans out `raw.message.content[]` (one entry per text or tool_use
+    block, order preserved; `thinking` skipped); `result` event
+    emits `{kind:"final", text:raw.result}` (empty string included).
+  - **Codex** (app-server JSON-RPC notifications):
+    `item/agentMessage/delta` → `{kind:"text", cumulative:false}`;
+    `item/completed` with `item.type === "agentMessage"` →
+    `{kind:"final", text:item.text}`; `commandExecution` / `fileChange`
+    / `webSearch` / `mcpToolCall` / `dynamicToolCall` →
+    `{kind:"tool", …}` with name mapping documented in
+    `runtime/CLAUDE.md`.
+  - **OpenCode** (SSE): `message.part.updated` with text part →
+    `{kind:"text", cumulative:true}`; with tool part at terminal
+    state (`completed`/`failed`), non-HITL → `{kind:"tool", …}`
+    (mirrors `openCodeToolUseInfo`'s filtering rule, FR-L16).
+- **Documented gaps:**
+  - OpenCode has no native final-text event — consumers build `final`
+    by keeping the last `cumulative:true` text and flushing on
+    `SYNTHETIC_TURN_END`.
+  - Claude `thinking` blocks are skipped (reserved for a future
+    `kind` variant).
+  - Claude `user` events carrying tool results are skipped (reserved
+    for a future `kind:"tool-result"` variant).
+  - Timing asymmetry: Claude / Cursor emit tool content at
+    assistant-decision time (before execution); OpenCode / Codex emit
+    at completion time. Documented in `runtime/CLAUDE.md`.
+- **Motivation:** Consumers (Telegram bridges, TUI renderers, live-edit
+  UIs) need a single rendering path for assistant text chunks, tool
+  invocations, and final replies without writing N-way `raw.*`
+  branches that break silently on every upstream CLI bump. Extends the
+  envelope-level normalization (`SYNTHETIC_TURN_END`, FR-L21) one
+  layer deeper into event content.
+- **Acceptance:**
+  - [x] `NormalizedContent`, `NormalizedTextContent`,
+        `NormalizedToolContent`, `NormalizedFinalContent` exported
+        from `mod.ts` and `./runtime/content` sub-path. Evidence:
+        `ai-ide-cli/runtime/content.ts`, `ai-ide-cli/mod.ts`,
+        `ai-ide-cli/deno.json` (`./runtime/content` export).
+  - [x] `extractSessionContent(event)` exported with explicit
+        `NormalizedContent[]` return type. Evidence:
+        `ai-ide-cli/runtime/content.ts:extractSessionContent`.
+  - [x] Dispatcher handles all four runtimes (Claude, OpenCode,
+        Cursor, Codex) exhaustively via `switch` on `event.runtime`.
+        Evidence: `ai-ide-cli/runtime/content.ts`.
+  - [x] Pure: no I/O, no state, never throws on malformed payloads.
+        Evidence: `ai-ide-cli/runtime/content_test.ts` (`malformed
+        raw never throws` case).
+  - [x] Synthetic events return `[]`. Evidence:
+        `ai-ide-cli/runtime/content_test.ts`
+        (`synthetic turn-end`, `cursor synthetic init`,
+        `cursor synthetic send_failed` cases).
+  - [x] Unit tests cover each runtime × each content kind, including
+        edge cases (empty final, mixed blocks, HITL filter, non-terminal
+        OpenCode tool states, Codex item types without ids). Evidence:
+        `ai-ide-cli/runtime/content_test.ts`.
+  - [x] Contract test asserts the normalized stream on a scripted
+        event sequence through the Claude stub adapter. Evidence:
+        `ai-ide-cli/runtime/session_contract_test.ts`
+        (`extractSessionContent surfaces normalized stream` test).
+  - [x] `// FR-L23` traceability comment on the
+        `extractSessionContent` dispatcher. Evidence:
+        `ai-ide-cli/runtime/content.ts`.
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

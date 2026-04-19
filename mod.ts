@@ -57,6 +57,13 @@ export type {
   RuntimeToolUseInfo,
 } from "./runtime/types.ts";
 export type { SettingSource } from "./runtime/setting-sources.ts";
+export { extractSessionContent } from "./runtime/content.ts";
+export type {
+  NormalizedContent,
+  NormalizedFinalContent,
+  NormalizedTextContent,
+  NormalizedToolContent,
+} from "./runtime/content.ts";
 export {
   CAPABILITY_INVENTORY_PROMPT,
   CAPABILITY_INVENTORY_SCHEMA,
