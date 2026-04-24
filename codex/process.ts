@@ -238,6 +238,13 @@ export function buildCodexArgs(opts: RuntimeInvokeOptions): string[] {
 
   args.push(...permissionModeToCodexArgs(opts.permissionMode));
   args.push(...buildCodexHitlConfigArgs(opts));
+  // FR-L25: abstract reasoning effort → native Codex config override.
+  if (opts.reasoningEffort) {
+    args.push(
+      "--config",
+      `model_reasoning_effort="${opts.reasoningEffort}"`,
+    );
+  }
   args.push(...expandExtraArgs(opts.extraArgs, CODEX_RESERVED_FLAGS));
 
   if (opts.resumeSessionId) {

@@ -209,6 +209,12 @@ export function buildOpenCodeArgs(opts: RuntimeInvokeOptions): string[] {
     args.push("--dangerously-skip-permissions");
   }
 
+  // FR-L25: abstract reasoning effort → OpenCode's `--variant`.
+  // Forwarded verbatim; provider-specific interpretation may differ.
+  if (opts.reasoningEffort) {
+    args.push("--variant", opts.reasoningEffort);
+  }
+
   args.push(...expandExtraArgs(opts.extraArgs, OPENCODE_RESERVED_FLAGS));
 
   args.push("--format", "json");

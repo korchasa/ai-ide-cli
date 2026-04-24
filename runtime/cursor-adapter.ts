@@ -18,6 +18,7 @@ import {
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
 import { validateToolFilter } from "./tool-filter.ts";
+import { validateReasoningEffort } from "./reasoning-effort.ts";
 
 // FR-L24: see runtime/opencode-adapter.ts for the shared rationale.
 let warnedToolFilter = false;
@@ -42,6 +43,29 @@ function warnToolFilterOnce(
  */
 export function _resetToolFilterWarning(): void {
   warnedToolFilter = false;
+}
+
+// FR-L25: Cursor CLI has no native reasoning-effort control. The typed
+// field is accepted for uniformity (YAML consumers can target any runtime
+// with the same config) but silently ignored; warn once per process.
+let warnedReasoningEffort = false;
+
+function warnReasoningEffortOnce(value: unknown): void {
+  if (warnedReasoningEffort) return;
+  if (value === undefined) return;
+  warnedReasoningEffort = true;
+  console.warn(
+    "[cursor] reasoningEffort ignored — runtime does not support reasoning-effort control (capabilities.reasoningEffort === false). See FR-L25.",
+  );
+}
+
+/**
+ * Test-only: reset the one-time reasoning-effort warning latch.
+ *
+ * @internal
+ */
+export function _resetReasoningEffortWarning(): void {
+  warnedReasoningEffort = false;
 }
 
 function cursorEventToRuntime(event: CursorStreamEvent): RuntimeSessionEvent {
@@ -76,10 +100,13 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     session: true,
     capabilityInventory: true,
     toolFilter: false,
+    reasoningEffort: false,
   },
   invoke(opts) {
     validateToolFilter("cursor", opts);
     warnToolFilterOnce(opts);
+    validateReasoningEffort("cursor", opts);
+    warnReasoningEffortOnce(opts.reasoningEffort);
     return invokeCursorCli(opts);
   },
 
@@ -96,6 +123,8 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
     validateToolFilter("cursor", opts);
     warnToolFilterOnce(opts);
+    validateReasoningEffort("cursor", opts);
+    warnReasoningEffortOnce(opts.reasoningEffort);
     const inner = await openCursorSession({
       systemPrompt: opts.systemPrompt,
       permissionMode: opts.permissionMode,

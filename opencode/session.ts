@@ -24,6 +24,7 @@ import {
   SessionDeliveryError,
   SessionInputClosedError,
 } from "../runtime/types.ts";
+import type { ReasoningEffort } from "../runtime/reasoning-effort.ts";
 
 /** Parsed SSE event from the OpenCode server's `/event` endpoint. */
 export interface OpenCodeSessionEvent {
@@ -59,6 +60,12 @@ export interface OpenCodeSessionOptions {
   model?: string;
   /** Resume an existing session ID instead of creating a new one via `POST /session`. */
   resumeSessionId?: string;
+  /**
+   * Abstract reasoning-effort depth. Forwarded verbatim as `body.variant`
+   * on every `POST /session/:id/prompt_async`. Provider-specific
+   * interpretation may differ from the requested depth — see FR-L25.
+   */
+  reasoningEffort?: ReasoningEffort;
   /** Working directory for the `opencode serve` subprocess. */
   cwd?: string;
   /** Extra env merged into the subprocess env. */
@@ -435,6 +442,8 @@ export async function openOpenCodeSession(
         }
         : opts.model;
     }
+    // FR-L25: abstract reasoning effort → OpenCode `body.variant`.
+    if (opts.reasoningEffort) body.variant = opts.reasoningEffort;
     hasSentAny = true;
     lastSendAt = Date.now();
     let res: Response;

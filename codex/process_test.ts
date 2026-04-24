@@ -561,3 +561,31 @@ Deno.test("findCodexSessionFile — no matching file returns undefined", async (
     await Deno.remove(tmp, { recursive: true });
   }
 });
+
+// FR-L25: reasoning effort — Codex maps the abstract enum 1:1 onto
+// `--config model_reasoning_effort="<value>"`.
+
+Deno.test("buildCodexArgs — reasoningEffort emits model_reasoning_effort config override", () => {
+  for (const value of ["minimal", "low", "medium", "high"] as const) {
+    const args = buildCodexArgs(makeInvokeOpts({ reasoningEffort: value }));
+    const idx = args.findIndex((a, i) =>
+      a === "--config" && args[i + 1] === `model_reasoning_effort="${value}"`
+    );
+    assert(idx >= 0, `Codex missing config override for ${value}`);
+  }
+});
+
+Deno.test("buildCodexArgs — reasoningEffort precedes expandExtraArgs (caller can still override)", () => {
+  const args = buildCodexArgs(
+    makeInvokeOpts({
+      reasoningEffort: "medium",
+      extraArgs: { "--foo": "bar" },
+    }),
+  );
+  const effortIdx = args.findIndex((a, i) =>
+    a === "--config" && args[i + 1]?.startsWith("model_reasoning_effort")
+  );
+  const fooIdx = args.indexOf("--foo");
+  assert(effortIdx >= 0 && fooIdx >= 0);
+  assert(effortIdx < fooIdx, "expected reasoning-effort config before extras");
+});

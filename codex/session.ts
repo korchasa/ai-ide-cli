@@ -178,6 +178,14 @@ export async function openCodexSession(
   } = {},
 ): Promise<CodexSession> {
   const extraArgv = expandCodexSessionExtraArgs(opts.extraArgs);
+  // FR-L25: abstract reasoning effort → Codex app-server --config override,
+  // inserted before the caller's extraArgs so they can still override.
+  if (opts.reasoningEffort) {
+    extraArgv.unshift(
+      "--config",
+      `model_reasoning_effort="${opts.reasoningEffort}"`,
+    );
+  }
 
   const client = CodexAppServerClient.spawn({
     binary: opts.binary,

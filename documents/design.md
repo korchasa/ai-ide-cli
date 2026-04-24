@@ -33,6 +33,9 @@ ai-ide-cli/
     tool-filter.ts      — validateToolFilter(runtime, opts): shared typed
                           tool-filter validation used by every adapter
                           (FR-L24)
+    reasoning-effort.ts — validateReasoningEffort(runtime, opts): shared
+                          typed reasoning-effort validation + enum
+                          (FR-L25)
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
@@ -745,6 +748,49 @@ callers never see a zombie process on rejection.
   `allowedTools` / `disallowedTools` are validated (same rules as
   Claude via `validateToolFilter`) and ignored in argv; first
   set-value call emits one `console.warn` per process. See FR-L24.
+
+### 3.x Reasoning-effort mapping (FR-L25)
+
+Abstract enum on `RuntimeInvokeOptions.reasoningEffort` /
+`RuntimeSessionOptions.reasoningEffort`:
+`"minimal" | "low" | "medium" | "high"`. `runtime/reasoning-effort.ts`
+owns the enum + shared `validateReasoningEffort(runtime, opts)` that
+every adapter invokes before dispatch.
+
+- **Claude (`capabilities.reasoningEffort: true`)** —
+  `buildClaudeArgs` / `buildClaudeSessionArgs` emit
+  `--effort <value>` via `mapReasoningEffortToClaude`. Claude's
+  native enum is `low | medium | high | xhigh | max`; the abstract
+  `"minimal"` has no equivalent and degrades to `"low"` with a
+  one-time `console.warn` (latch in `claude/process.ts`;
+  `_resetClaudeReasoningEffortWarning` for tests).
+- **Codex (`capabilities.reasoningEffort: true`)** — `buildCodexArgs`
+  emits `--config model_reasoning_effort="<value>"` for the
+  `codex exec` transport. `openCodexSession` prepends the same
+  `--config` override to the `codex app-server` argv via
+  `expandCodexSessionExtraArgs`, so the effort applies across turns.
+  1:1 mapping; no warning.
+- **OpenCode (`capabilities.reasoningEffort: true`)** — invoke path
+  (`opencode run`) emits `--variant <value>`; session path sets
+  `body.variant = <value>` on every
+  `POST /session/:id/prompt_async`. OpenCode's `--variant` is
+  provider-specific (the value is forwarded to the active model
+  provider's reasoning-effort dial, whose enum may differ from the
+  abstract 4-level ladder), so the adapter emits a one-time
+  `console.warn` on first set-value use
+  (`_resetReasoningEffortWarning` for tests).
+- **Cursor (`capabilities.reasoningEffort: false`)** — no native
+  control. The typed field is validated (so malformed input still
+  throws uniformly) and ignored in argv / subprocess args; first
+  set-value call emits one `console.warn` per process.
+
+**Validation contract** (uniform across adapters):
+
+- Value outside the 4-level enum → synchronous throw.
+- Typed field set AND either `--effort` or `--variant` present in
+  `extraArgs` → synchronous throw (collision).
+- Legacy `extraArgs: {"--effort": …}` / `{"--variant": …}` without
+  the typed field still works — reserved-flag lists are NOT extended.
 
 ## 5. Constraints
 

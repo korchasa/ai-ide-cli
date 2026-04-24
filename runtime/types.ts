@@ -10,6 +10,7 @@ import type {
   CapabilityInventory,
   FetchCapabilitiesOptions,
 } from "./capabilities.ts";
+import type { ReasoningEffort } from "./reasoning-effort.ts";
 
 /**
  * Map-shaped extra CLI arguments.
@@ -63,6 +64,17 @@ export interface RuntimeCapabilities {
    * ignore it. See FR-L24.
    */
   toolFilter: boolean;
+  /**
+   * Whether the adapter translates
+   * {@link RuntimeInvokeOptions.reasoningEffort} /
+   * {@link RuntimeSessionOptions.reasoningEffort} into a runtime-native
+   * reasoning-effort control. Adapters with `false` silently accept the
+   * field, emit one `console.warn` on first use per process, and
+   * otherwise ignore it. Adapters with `true` may still warn on a lossy
+   * mapping (e.g. Claude has no `"minimal"` level and substitutes
+   * `"low"`). See FR-L25.
+   */
+  reasoningEffort: boolean;
 }
 
 /**
@@ -236,6 +248,21 @@ export interface RuntimeInvokeOptions {
   allowedTools?: string[];
   /** Tool-name deny-list — counterpart to {@link allowedTools}. See FR-L24. */
   disallowedTools?: string[];
+  /**
+   * Abstract depth of model reasoning for this call. Runtime-neutral:
+   * every adapter maps it to its closest native control
+   * (`--effort` on Claude, `--config model_reasoning_effort=…` on Codex,
+   * `--variant` on OpenCode; ignored with a one-time warning on Cursor).
+   *
+   * Adapters with
+   * {@link RuntimeCapabilities.reasoningEffort} === `false` accept the
+   * field, warn once per process via `console.warn`, and ignore it
+   * otherwise. Adapters with `true` may still warn on a lossy mapping
+   * (Claude has no native `"minimal"` and substitutes `"low"`; OpenCode
+   * forwards the value verbatim to the active provider whose
+   * interpretation may differ). See FR-L25.
+   */
+  reasoningEffort?: ReasoningEffort;
 }
 
 /** Result returned by a runtime adapter invocation. */
@@ -326,6 +353,11 @@ export interface RuntimeSessionOptions {
    * {@link RuntimeInvokeOptions.disallowedTools} — see that field's JSDoc.
    */
   disallowedTools?: string[];
+  /**
+   * Abstract reasoning-effort depth. Same contract as
+   * {@link RuntimeInvokeOptions.reasoningEffort} — see that field's JSDoc.
+   */
+  reasoningEffort?: ReasoningEffort;
   /** Fires for every parsed event from the runtime's event stream, in order. */
   onEvent?: (event: RuntimeSessionEvent) => void;
   /** Fires for every decoded stderr chunk (may be empty on a flush). */

@@ -100,6 +100,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     session: true,
     capabilityInventory: true,
     toolFilter: true,
+    reasoningEffort: true,
   },
   async invoke(opts) {
     // Translate runtime-neutral onToolUseObserved into the Claude-specific
@@ -164,6 +165,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       settingSources: opts.settingSources,
       allowedTools: opts.allowedTools,
       disallowedTools: opts.disallowedTools,
+      reasoningEffort: opts.reasoningEffort,
     });
     if (result.output) opts.hooks?.onResult?.(result.output);
     return result;
@@ -183,6 +185,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       settingSources: opts.settingSources,
       allowedTools: opts.allowedTools,
       disallowedTools: opts.disallowedTools,
+      reasoningEffort: opts.reasoningEffort,
       onEvent: adaptEventCallback(
         opts.onEvent,
         claudeEventToRuntime,

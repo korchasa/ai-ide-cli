@@ -20,6 +20,10 @@ import type { ExtraArgsMap, RuntimeInvokeResult } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import {
+  type ReasoningEffort,
+  validateReasoningEffort,
+} from "../runtime/reasoning-effort.ts";
+import {
   defaultClaudeConfigDir,
   prepareSettingSourcesDir,
   type SettingSource,
@@ -130,6 +134,49 @@ export interface ClaudeInvokeOptions {
    * Mutually exclusive with {@link allowedTools}. See FR-L24.
    */
   disallowedTools?: string[];
+  /**
+   * Abstract reasoning-effort depth — mapped to Claude's `--effort`. See
+   * {@link import("../runtime/reasoning-effort.ts").ReasoningEffort}. Note
+   * that `"minimal"` has no native equivalent and is translated to
+   * `"low"` with a one-time warning. See FR-L25.
+   */
+  reasoningEffort?: ReasoningEffort;
+}
+
+/**
+ * Translate the abstract {@link ReasoningEffort} into the native Claude
+ * `--effort` value. Emits a one-time warning when the mapping is lossy
+ * (Claude has no `"minimal"` level and substitutes `"low"`).
+ *
+ * Exported for testing; adapters should prefer the typed option.
+ */
+export function mapReasoningEffortToClaude(
+  value: ReasoningEffort,
+): string {
+  if (value === "minimal") {
+    warnClaudeReasoningEffortMappingOnce();
+    return "low";
+  }
+  return value;
+}
+
+let warnedClaudeEffortMapping = false;
+
+function warnClaudeReasoningEffortMappingOnce(): void {
+  if (warnedClaudeEffortMapping) return;
+  warnedClaudeEffortMapping = true;
+  console.warn(
+    '[claude] reasoningEffort="minimal" mapped to --effort low — Claude CLI has no native "minimal" level. See FR-L25.',
+  );
+}
+
+/**
+ * Test-only: reset the one-time reasoning-effort mapping warning latch.
+ *
+ * @internal
+ */
+export function _resetClaudeReasoningEffortWarning(): void {
+  warnedClaudeEffortMapping = false;
 }
 
 /** Invoke claude CLI with retry logic. */
@@ -213,6 +260,15 @@ export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
     args.push("--allowedTools", opts.allowedTools!.join(","));
   } else if (toolFilterMode === "disallowed") {
     args.push("--disallowedTools", opts.disallowedTools!.join(","));
+  }
+
+  // FR-L25: abstract reasoning effort → Claude's `--effort`.
+  const effort = validateReasoningEffort("claude", {
+    reasoningEffort: opts.reasoningEffort,
+    extraArgs: opts.claudeArgs,
+  });
+  if (effort !== undefined) {
+    args.push("--effort", mapReasoningEffortToClaude(effort));
   }
 
   // Extra CLI args go next (expanded from the map shape).

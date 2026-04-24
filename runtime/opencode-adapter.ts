@@ -19,6 +19,7 @@ import {
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
 import { validateToolFilter } from "./tool-filter.ts";
+import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -49,6 +50,30 @@ function warnToolFilterOnce(
  */
 export function _resetToolFilterWarning(): void {
   warnedToolFilter = false;
+}
+
+// FR-L25: OpenCode maps `reasoningEffort` → `--variant` / `body.variant`,
+// but the value is provider-specific — a given provider may or may not
+// support the requested depth. Warn once per process on first use so
+// consumers know the translation is approximate.
+let warnedReasoningEffort = false;
+
+function warnReasoningEffortOnce(value: unknown): void {
+  if (warnedReasoningEffort) return;
+  if (value === undefined) return;
+  warnedReasoningEffort = true;
+  console.warn(
+    "[opencode] reasoningEffort forwarded as provider-specific --variant / body.variant — interpretation depends on the active model provider. See FR-L25.",
+  );
+}
+
+/**
+ * Test-only: reset the one-time reasoning-effort warning latch.
+ *
+ * @internal
+ */
+export function _resetReasoningEffortWarning(): void {
+  warnedReasoningEffort = false;
 }
 
 function opencodeEventToRuntime(
@@ -88,10 +113,13 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     session: true,
     capabilityInventory: true,
     toolFilter: false,
+    reasoningEffort: true,
   },
   invoke(opts) {
     validateToolFilter("opencode", opts);
     warnToolFilterOnce(opts);
+    validateReasoningEffort("opencode", opts);
+    warnReasoningEffortOnce(opts.reasoningEffort);
     return invokeOpenCodeCli(opts);
   },
 
@@ -108,11 +136,14 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
     validateToolFilter("opencode", opts);
     warnToolFilterOnce(opts);
+    validateReasoningEffort("opencode", opts);
+    warnReasoningEffortOnce(opts.reasoningEffort);
     const inner = await openOpenCodeSession({
       agent: opts.agent,
       systemPrompt: opts.systemPrompt,
       model: opts.model,
       resumeSessionId: opts.resumeSessionId,
+      reasoningEffort: opts.reasoningEffort,
       cwd: opts.cwd,
       env: opts.env,
       signal: opts.signal,

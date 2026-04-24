@@ -998,6 +998,81 @@ stable — never renumber on move.
     sites. Evidence: `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
     `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`.
 
+### 3.25 FR-L25: Abstract Reasoning-Effort on Runtime Options
+
+- **Description:** `RuntimeInvokeOptions` and `RuntimeSessionOptions`
+  expose `reasoningEffort?: "minimal" | "low" | "medium" | "high"` as a
+  first-class typed field. The value is a runtime-neutral dial; each
+  adapter maps it to its closest native control (Claude `--effort`,
+  Codex `--config model_reasoning_effort=…`, OpenCode `--variant` /
+  `body.variant`). Cursor has no native control and accepts the field
+  with a one-time `console.warn`. Every adapter also emits a one-time
+  warn when the mapping is lossy (Claude's `"minimal"` degrades to
+  `"low"`; OpenCode's `--variant` is provider-specific and may or may
+  not honour the requested depth). `RuntimeCapabilities.reasoningEffort`
+  is a new boolean capability — Claude / Codex / OpenCode `true`,
+  Cursor `false`.
+- **Validation contract** (runs on every adapter via shared
+  `validateReasoningEffort` in `runtime/reasoning-effort.ts`):
+  - Value outside the 4-level enum → synchronous throw
+    (`reasoningEffort must be one of …`).
+  - Typed field set AND either `--effort` or `--variant` present in
+    `extraArgs` → synchronous throw (`extraArgs key "..." collides`).
+  - Legacy path preserved: `extraArgs: {"--effort": …}` or
+    `{"--variant": …}` without the typed field still works
+    (backwards-compatible — reserved flag lists are **not** extended).
+- **Scenario:** A consumer iterates the same config against all four
+  runtimes and wants the model to "think harder" for a hard task
+  without branching on runtime name. Setting
+  `reasoningEffort: "high"` produces `--effort high` on Claude,
+  `--config model_reasoning_effort="high"` on Codex, and
+  `--variant high` (plus `body.variant = "high"` on the session
+  transport) on OpenCode; Cursor logs one warning and runs unchanged.
+- **Acceptance:**
+  - [x] `RuntimeInvokeOptions.reasoningEffort` accepts the 4-level
+    enum. Evidence: `ai-ide-cli/runtime/types.ts`.
+  - [x] `RuntimeSessionOptions.reasoningEffort` accepts the 4-level
+    enum. Evidence: `ai-ide-cli/runtime/types.ts`.
+  - [x] `RuntimeCapabilities.reasoningEffort: boolean` — Claude /
+    Codex / OpenCode `true`, Cursor `false`. Evidence: all four
+    adapters in `ai-ide-cli/runtime/*-adapter.ts`.
+  - [x] Claude `invoke` and `openSession` emit `--effort <value>`
+    with `"minimal"` degraded to `"low"` plus a one-time console
+    warning. Evidence: `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
+    `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
+    `mapReasoningEffortToClaude`.
+  - [x] Codex `invoke` emits `--config model_reasoning_effort="<value>"`
+    and `openSession` prepends the same `--config` override to the
+    `codex app-server` argv. Evidence:
+    `ai-ide-cli/codex/process.ts:buildCodexArgs`,
+    `ai-ide-cli/codex/session.ts:openCodexSession`.
+  - [x] OpenCode `invoke` emits `--variant <value>` and `openSession`
+    sets `body.variant = <value>` on every `POST /session/:id/prompt_async`.
+    Evidence: `ai-ide-cli/opencode/process.ts:buildOpenCodeArgs`,
+    `ai-ide-cli/opencode/session.ts`.
+  - [x] Non-exact mappings trigger exactly one `console.warn` per
+    process (Claude `"minimal"` → `"low"`; OpenCode any value —
+    provider-specific). Cursor warns once on any value. Evidence:
+    `_resetClaudeReasoningEffortWarning` in
+    `ai-ide-cli/claude/process.ts`;
+    `_resetReasoningEffortWarning` in
+    `ai-ide-cli/runtime/{opencode,cursor}-adapter.ts`; tests in
+    `ai-ide-cli/runtime/cursor-adapter_test.ts`,
+    `ai-ide-cli/runtime/opencode-adapter_test.ts`,
+    `ai-ide-cli/claude/process_test.ts`.
+  - [x] Out-of-enum values and `--effort`/`--variant` collisions in
+    `extraArgs` throw synchronously through `validateReasoningEffort`.
+    Evidence: `ai-ide-cli/runtime/reasoning-effort.ts`,
+    `ai-ide-cli/runtime/reasoning-effort_test.ts`.
+  - [x] `// FR-L25` traceability comments at the argv / body
+    emission sites. Evidence:
+    `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
+    `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
+    `ai-ide-cli/codex/process.ts:buildCodexArgs`,
+    `ai-ide-cli/codex/session.ts:openCodexSession`,
+    `ai-ide-cli/opencode/process.ts:buildOpenCodeArgs`,
+    `ai-ide-cli/opencode/session.ts`.
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

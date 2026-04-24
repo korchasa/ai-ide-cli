@@ -1,5 +1,9 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
-import { buildClaudeArgs, invokeClaudeCli } from "./process.ts";
+import {
+  _resetClaudeReasoningEffortWarning,
+  buildClaudeArgs,
+  invokeClaudeCli,
+} from "./process.ts";
 import type { ClaudeInvokeOptions } from "./process.ts";
 
 function makeOpts(
@@ -145,6 +149,58 @@ Deno.test("buildClaudeArgs — both typed fields set throws", () => {
     Error,
     "mutually exclusive",
   );
+});
+
+// FR-L25: reasoning effort.
+
+Deno.test("buildClaudeArgs — reasoningEffort low/medium/high emits --effort verbatim", () => {
+  for (const value of ["low", "medium", "high"] as const) {
+    const args = buildClaudeArgs(makeOpts({ reasoningEffort: value }));
+    const idx = args.indexOf("--effort");
+    assert(idx >= 0, `--effort missing for ${value}`);
+    assertEquals(args[idx + 1], value);
+  }
+});
+
+Deno.test("buildClaudeArgs — reasoningEffort minimal downgrades to --effort low", () => {
+  _resetClaudeReasoningEffortWarning();
+  // Silence the expected warning so test output stays clean.
+  const origWarn = console.warn;
+  const warnCalls: string[] = [];
+  console.warn = (msg: string) => warnCalls.push(msg);
+  try {
+    const args = buildClaudeArgs(makeOpts({ reasoningEffort: "minimal" }));
+    const idx = args.indexOf("--effort");
+    assert(idx >= 0);
+    assertEquals(args[idx + 1], "low");
+    assertEquals(warnCalls.length, 1);
+    assert(warnCalls[0].includes("minimal"));
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+Deno.test("buildClaudeArgs — reasoningEffort collision with extraArgs --effort throws", () => {
+  assertThrows(
+    () =>
+      buildClaudeArgs(
+        makeOpts({
+          reasoningEffort: "high",
+          claudeArgs: { "--effort": "low" },
+        }),
+      ),
+    Error,
+    "collides with typed reasoningEffort",
+  );
+});
+
+Deno.test("buildClaudeArgs — legacy extraArgs --effort path still works without typed field", () => {
+  const args = buildClaudeArgs(
+    makeOpts({ claudeArgs: { "--effort": "xhigh" } }),
+  );
+  const idx = args.indexOf("--effort");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "xhigh");
 });
 
 Deno.test("buildClaudeArgs — typed field + --allowedTools in extraArgs throws", () => {

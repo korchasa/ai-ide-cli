@@ -65,6 +65,15 @@ export type {
   NormalizedToolContent,
 } from "./runtime/content.ts";
 export {
+  REASONING_EFFORT_FLAGS,
+  REASONING_EFFORT_VALUES,
+  validateReasoningEffort,
+} from "./runtime/reasoning-effort.ts";
+export type {
+  ReasoningEffort,
+  ReasoningEffortInput,
+} from "./runtime/reasoning-effort.ts";
+export {
   CAPABILITY_INVENTORY_PROMPT,
   CAPABILITY_INVENTORY_SCHEMA,
   CAPABILITY_INVENTORY_SYSTEM_PROMPT,

@@ -24,6 +24,11 @@ import {
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
+import {
+  type ReasoningEffort,
+  validateReasoningEffort,
+} from "../runtime/reasoning-effort.ts";
+import { mapReasoningEffortToClaude } from "./process.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   defaultClaudeConfigDir,
@@ -69,6 +74,11 @@ export interface ClaudeSessionOptions {
    * Mutually exclusive with {@link allowedTools}. See FR-L24.
    */
   disallowedTools?: string[];
+  /**
+   * Abstract reasoning-effort depth — mapped to Claude's `--effort`.
+   * See FR-L25 and {@link mapReasoningEffortToClaude}.
+   */
+  reasoningEffort?: ReasoningEffort;
   /** Fires for every parsed stream-json event in stdout order. */
   onEvent?: (event: ClaudeStreamEvent) => void;
   /** Fires for every decoded stderr line (trimmed, may be empty). */
@@ -182,6 +192,15 @@ export function buildClaudeSessionArgs(opts: ClaudeSessionOptions): string[] {
     args.push("--allowedTools", opts.allowedTools!.join(","));
   } else if (toolFilterMode === "disallowed") {
     args.push("--disallowedTools", opts.disallowedTools!.join(","));
+  }
+
+  // FR-L25: abstract reasoning effort → Claude's `--effort`.
+  const effort = validateReasoningEffort("claude", {
+    reasoningEffort: opts.reasoningEffort,
+    extraArgs: opts.claudeArgs,
+  });
+  if (effort !== undefined) {
+    args.push("--effort", mapReasoningEffortToClaude(effort));
   }
 
   args.push(...expandExtraArgs(opts.claudeArgs, CLAUDE_RESERVED_FLAGS));
