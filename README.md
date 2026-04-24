@@ -63,6 +63,8 @@ adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
 | skill loading        | yes (`~/.claude/skills/`) | yes (`.claude/skills/`) | no | yes (`~/.agents/skills/`) |
 | model selection      | yes            | yes            | partial (dropped on `--resume`) | yes |
 | session resume by id | `--resume`     | `--session`    | `--resume`        | `resume <id>`  |
+| toolFilter (FR-L24)  | yes (`--allowedTools` / `--disallowedTools`) | warn-only | warn-only | warn-only |
+| reasoningEffort (FR-L25) | yes (`--effort`, `minimal` warn-mapped to `low`) | yes (`--variant` / `body.variant`, provider-specific warn) | warn-only | yes (`--config model_reasoning_effort`) |
 
 Universal across all four runtimes: NDJSON event streaming, `AbortSignal`
 + timeout, custom `cwd` / `env`, `extraArgs` / `runtime_args` passthrough,
