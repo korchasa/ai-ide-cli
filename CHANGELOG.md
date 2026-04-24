@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.5](https://github.com/korchasa/ai-ide-cli/compare/v0.5.4...v0.5.5) (2026-04-24)
+
+
+### Features
+
+* **runtime:** abstract reasoningEffort on call options (FR-L25) ([382ecb5](https://github.com/korchasa/ai-ide-cli/commit/382ecb57864d5cfeba71c3ca2e20ca61e9c38ec4))
+
 ### [0.5.4](https://github.com/korchasa/ai-ide-cli/compare/v0.5.3...v0.5.4) (2026-04-19)
 
 
