@@ -46,7 +46,8 @@ support without guessing:
 ```ts
 const adapter = getRuntimeAdapter("codex");
 adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
-                      //   toolUseObservation, session, capabilityInventory }
+                      //   toolUseObservation, session, capabilityInventory,
+                      //   toolFilter, reasoningEffort }
 ```
 
 ### Feature support matrix

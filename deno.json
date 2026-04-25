@@ -10,6 +10,8 @@
     "./runtime/types": "./runtime/types.ts",
     "./runtime/setting-sources": "./runtime/setting-sources.ts",
     "./runtime/content": "./runtime/content.ts",
+    "./runtime/tool-filter": "./runtime/tool-filter.ts",
+    "./runtime/reasoning-effort": "./runtime/reasoning-effort.ts",
     "./claude/process": "./claude/process.ts",
     "./claude/stream": "./claude/stream.ts",
     "./claude/session": "./claude/session.ts",

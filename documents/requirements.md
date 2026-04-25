@@ -39,7 +39,7 @@ stable — never renumber on move.
   member alongside `@korchasa/flowai-workflow`. Consumers import via sub-path
   specifiers (`/runtime`, `/claude/process`, `/cursor/process`, etc.).
 - **Assumptions:**
-  - Agent CLI binaries (`claude`, `opencode`, `cursor`) installed and on PATH.
+  - Agent CLI binaries (`claude`, `opencode`, `cursor`, `codex`) installed and on PATH.
   - Deno runtime available (library uses `Deno.Command` for subprocess spawn).
   - Consumers handle signal installation; library exposes `killAll()` but
     does not wire OS signals.

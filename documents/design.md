@@ -39,6 +39,7 @@ ai-ide-cli/
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
+    codex-adapter.ts    — Codex RuntimeAdapter (delegates to codex/process + codex/session)
   claude/
     process.ts          — buildClaudeArgs, invokeClaudeCli, executeClaudeProcess
     stream.ts           — processStreamEvent, extractClaudeOutput, FileReadTracker,
@@ -84,8 +85,8 @@ engine or any external workflow package.
 
 ### 3.1 `types.ts` — Shared Types
 
-`RuntimeId` union: `"claude" | "opencode" | "cursor"`. `VALID_RUNTIME_IDS`
-array for config validation.
+`RuntimeId` union: `"claude" | "opencode" | "cursor" | "codex"`.
+`VALID_RUNTIME_IDS` array for config validation.
 
 `PermissionMode` — Claude Code `--permission-mode` values. Kept here because
 multiple runtimes reference it for compatibility checks.
