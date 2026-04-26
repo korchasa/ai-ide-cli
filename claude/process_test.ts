@@ -180,6 +180,21 @@ Deno.test("buildClaudeArgs — reasoningEffort minimal downgrades to --effort lo
   }
 });
 
+Deno.test("buildClaudeArgs — resume path suppresses --effort (mirror of --model skip)", () => {
+  // FR-L25 (resume-skip): --effort must be omitted on --resume so the session
+  // inherits its original effort level, mirroring --model semantics on
+  // process.ts:290.
+  const args = buildClaudeArgs(
+    makeOpts({
+      reasoningEffort: "high",
+      resumeSessionId: "ses_abc",
+    }),
+  );
+  assertEquals(args.includes("--effort"), false);
+  // sanity: --resume still present
+  assert(args.indexOf("--resume") >= 0);
+});
+
 Deno.test("buildClaudeArgs — reasoningEffort collision with extraArgs --effort throws", () => {
   assertThrows(
     () =>

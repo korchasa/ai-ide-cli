@@ -1072,6 +1072,21 @@ stable — never renumber on move.
     `ai-ide-cli/codex/session.ts:openCodexSession`,
     `ai-ide-cli/opencode/process.ts:buildOpenCodeArgs`,
     `ai-ide-cli/opencode/session.ts`.
+  - [x] `RuntimeConfigSource.effort?: ReasoningEffort` cascades through
+    `resolveRuntimeConfig` (`node` → `parent` → `defaults`) and is exposed
+    on `ResolvedRuntimeConfig.reasoningEffort`. Mirrors the `model`
+    precedence rule on `runtime/index.ts:97`. Evidence:
+    `ai-ide-cli/runtime/index.ts:resolveRuntimeConfig`,
+    `ai-ide-cli/runtime/types.ts:RuntimeConfigSource,ResolvedRuntimeConfig`,
+    `ai-ide-cli/runtime/index_test.ts` (4 tests under
+    "reasoning effort cascade").
+  - [x] Claude `buildClaudeArgs` suppresses `--effort` emission when
+    `resumeSessionId` is set, mirroring `--model` semantics on
+    `claude/process.ts:290`. The session inherits its original
+    reasoning-effort level on resume. Evidence:
+    `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
+    `ai-ide-cli/claude/process_test.ts`
+    ("buildClaudeArgs — resume path suppresses --effort").
 
 ## 4. Non-Functional Requirements
 

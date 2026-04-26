@@ -263,11 +263,14 @@ export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
   }
 
   // FR-L25: abstract reasoning effort → Claude's `--effort`.
+  // Validation runs unconditionally (catches malformed input on resume too),
+  // but emission is suppressed on --resume so the session inherits its
+  // original effort level — symmetric with --model on line 290.
   const effort = validateReasoningEffort("claude", {
     reasoningEffort: opts.reasoningEffort,
     extraArgs: opts.claudeArgs,
   });
-  if (effort !== undefined) {
+  if (effort !== undefined && !opts.resumeSessionId) {
     args.push("--effort", mapReasoningEffortToClaude(effort));
   }
 

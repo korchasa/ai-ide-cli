@@ -674,6 +674,8 @@ export interface ResolvedRuntimeConfig {
   model?: string;
   /** Effective permission mode after precedence resolution. */
   permissionMode?: string;
+  /** Effective reasoning-effort after precedence resolution (FR-L25 cascade). */
+  reasoningEffort?: ReasoningEffort;
 }
 
 /**
@@ -696,4 +698,11 @@ export interface RuntimeConfigSource {
    * See {@link ExtraArgsMap} for value semantics.
    */
   runtime_args?: ExtraArgsMap;
+  /**
+   * Reasoning-effort dial applied at this cascade level (FR-L25). Resolved by
+   * {@link import("./index").resolveRuntimeConfig} into
+   * {@link ResolvedRuntimeConfig.reasoningEffort}; consumers feed that value
+   * into {@link RuntimeInvokeOptions.reasoningEffort} on the adapter call.
+   */
+  effort?: ReasoningEffort;
 }
