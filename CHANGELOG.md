@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.6](https://github.com/korchasa/ai-ide-cli/compare/v0.5.5...v0.5.6) (2026-04-26)
+
+
+### Features
+
+* **runtime:** cascade reasoningEffort + suppress --effort on Claude resume (FR-L25) ([c258188](https://github.com/korchasa/ai-ide-cli/commit/c258188945d2f583095d6ebb31465fc3919dfa2e))
+
+
+### Documentation
+
+* fix codex coverage gaps and expose validator sub-paths ([21375fb](https://github.com/korchasa/ai-ide-cli/commit/21375fb3254e40f85785af6c76107792ac91a1cc))
+* **readme:** list toolFilter and reasoningEffort in feature matrix ([e3ac545](https://github.com/korchasa/ai-ide-cli/commit/e3ac545dfbc1344e6eebe7206a03eca5e0cae208))
+
+
+### Chores
+
+* **jsr:** expose runtime/capabilities sub-path ([1d01456](https://github.com/korchasa/ai-ide-cli/commit/1d0145694c4c2bd7576036122cde4258388df558))
+
 ### [0.5.5](https://github.com/korchasa/ai-ide-cli/compare/v0.5.4...v0.5.5) (2026-04-24)
 
 
