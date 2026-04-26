@@ -36,6 +36,7 @@
  */
 
 import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import type { CodexUntypedNotification } from "./events.ts";
 
 /**
  * Flags reserved by {@link CodexAppServerClient}. Keys in `extraArgs` that
@@ -46,13 +47,24 @@ export const CODEX_APP_SERVER_RESERVED_FLAGS: readonly string[] = [
   "--listen",
 ];
 
-/** Shape of a server-sent notification (no `id`, just `method` + `params`). */
-export interface CodexAppServerNotification {
-  /** Notification method name, e.g. `"turn/started"`, `"thread/started"`. */
-  method: string;
-  /** Notification payload; shape depends on the method. */
-  params: Record<string, unknown>;
-}
+/**
+ * Raw runtime shape of a server-sent notification (no `id`, just `method`
+ * + `params`). This is the on-the-wire shape; `method` is arbitrary string
+ * since the Codex CLI may emit notifications the library does not narrow
+ * yet (FR-L26).
+ *
+ * Consumers that want a sharp discriminated variant call
+ * {@link import("./events.ts").isCodexNotification} as a type guard:
+ *
+ * ```ts
+ * for await (const note of client.notifications) {
+ *   if (isCodexNotification(note, "turn/started")) {
+ *     // note.params.turn is now `CodexTurn`.
+ *   }
+ * }
+ * ```
+ */
+export type CodexAppServerNotification = CodexUntypedNotification;
 
 /**
  * Options for {@link CodexAppServerClient.spawn}.

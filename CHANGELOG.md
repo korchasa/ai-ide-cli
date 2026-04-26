@@ -7,7 +7,30 @@ All notable changes to this project will be documented in this file. See [standa
 
 ### Features
 
-* **process-registry:** instance-scoped ProcessRegistry + per-call routing (FR-L3) ([481b4e1](https://github.com/korchasa/ai-ide-cli/commit/481b4e1e8c4d4bd20ad48fe12a16320747cc90a8))
+* **process-registry:** expose `ProcessRegistry` class for instance-scoped
+  child-process tracking. The module continues to export
+  `register`/`unregister`/`onShutdown`/`killAll` as free-function wrappers
+  over a default singleton, so existing call sites are unchanged.
+* **runtime:** add optional `processRegistry?: ProcessRegistry` to
+  `RuntimeInvokeOptions` and `RuntimeSessionOptions`. Adapters route
+  spawned subprocesses through the supplied registry, falling back to
+  the module default when omitted. Lets embedders host multiple
+  independent runtimes in one Deno process and reap each one's
+  subprocesses via `killAll` without affecting siblings.
+* **codex:** typed Codex app-server notification events (FR-L26).
+  New `codex/events.ts` exposes the discriminated union
+  `CodexNotification` covering `thread/started`, `turn/started`,
+  `turn/completed`, `item/started`, `item/completed`,
+  `item/agentMessage/delta`, `item/reasoning/textDelta`,
+  `item/reasoning/summaryTextDelta`,
+  `item/commandExecution/outputDelta`, `error`, plus the
+  `CodexThreadItem` sub-union (`userMessage` / `agentMessage` /
+  `reasoning` / `plan` / `commandExecution` / `fileChange` /
+  `mcpToolCall` / `dynamicToolCall` / `webSearch` / `contextCompaction`).
+  Sharp narrowing through the `isCodexNotification(note, method)`
+  type guard. The `CodexAppServerNotification` transport shape is
+  unchanged (still `{method: string, params: Record<string, unknown>}`)
+  for forward-compat with new CLI methods.
 
 ### [0.5.6](https://github.com/korchasa/ai-ide-cli/compare/v0.5.5...v0.5.6) (2026-04-26)
 

@@ -577,6 +577,37 @@ payloads can shift between `codex-cli` versions; client targets
 `codex-cli >= 0.121.0`. Generate current TS bindings with `codex
 app-server generate-ts --out <dir>` when protocol drift is suspected.
 
+**FR-L26 typed events.** The `CodexAppServerNotification` type returned
+by `client.notifications` is a *runtime* shape (`{method: string,
+params: Record<string, unknown>}` — re-exported as
+`CodexUntypedNotification` from `codex/events.ts`) — `method` is
+arbitrary because new Codex CLI versions can emit notifications the
+library has not narrowed yet. Sharp narrowing is opt-in via
+`isCodexNotification(note, method)` in `codex/events.ts`, which acts as
+a TypeScript type guard:
+
+```ts
+for await (const note of client.notifications) {
+  if (isCodexNotification(note, "turn/started")) {
+    // note.params.turn is `CodexTurn` here — no cast required.
+  }
+}
+```
+
+`codex/events.ts` hand-mirrors the variants from
+`codex app-server generate-ts --experimental` output. Today it covers
+`thread/started`, `turn/started`, `turn/completed`, `item/started`,
+`item/completed`, `item/agentMessage/delta`, `item/reasoning/textDelta`,
+`item/reasoning/summaryTextDelta`,
+`item/commandExecution/outputDelta`, `error`. The `CodexThreadItem`
+sub-union covers `userMessage`, `agentMessage`, `reasoning`, `plan`,
+`commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall`,
+`webSearch`, `contextCompaction`. Both unions deliberately omit a
+fallback `type: string` variant — including one would break literal
+discriminator narrowing on every `if (event.type === "X")` check.
+Future variants surface at the runtime layer (`CodexUntypedNotification`
+/ `CodexUntypedItem`) where consumers can assert manually.
+
 
 ### 3.12 `codex/session.ts` — Streaming-Input Session
 

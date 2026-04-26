@@ -78,6 +78,7 @@ import {
   CodexAppServerError,
   type CodexAppServerNotification,
 } from "./app-server.ts";
+import { isCodexNotification } from "./events.ts";
 
 /**
  * Permission-mode mapping for the app-server transport.
@@ -421,12 +422,14 @@ export function updateActiveTurnId(
   current: string | null,
   note: CodexAppServerNotification,
 ): string | null {
-  if (note.method === "turn/started") {
-    const turn = note.params.turn as Record<string, unknown> | undefined;
-    if (turn && typeof turn.id === "string") return turn.id;
-    return current;
+  // FR-L26: `isCodexNotification` promotes the raw notification to a sharp
+  // discriminated variant — `note.params.turn` is `CodexTurn` after narrow.
+  if (isCodexNotification(note, "turn/started")) {
+    return typeof note.params.turn.id === "string"
+      ? note.params.turn.id
+      : current;
   }
-  if (note.method === "turn/completed") {
+  if (isCodexNotification(note, "turn/completed")) {
     return null;
   }
   return current;
