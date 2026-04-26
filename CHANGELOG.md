@@ -2,20 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## Unreleased
+### [0.5.7](https://github.com/korchasa/ai-ide-cli/compare/v0.5.6...v0.5.7) (2026-04-26)
+
 
 ### Features
 
-* **process-registry:** expose `ProcessRegistry` class for instance-scoped
-  child-process tracking. The module continues to export
-  `register`/`unregister`/`onShutdown`/`killAll` as free-function wrappers
-  over a default singleton, so existing call sites are unchanged.
-* **runtime:** add optional `processRegistry?: ProcessRegistry` to
-  `RuntimeInvokeOptions` and `RuntimeSessionOptions`. Adapters route
-  spawned subprocesses through the supplied registry, falling back to
-  the module default when omitted. Lets embedders host multiple
-  independent runtimes in one Deno process and reap each one's
-  subprocesses via `killAll` without affecting siblings.
+* **process-registry:** instance-scoped ProcessRegistry + per-call routing (FR-L3) ([481b4e1](https://github.com/korchasa/ai-ide-cli/commit/481b4e1e8c4d4bd20ad48fe12a16320747cc90a8))
 
 ### [0.5.6](https://github.com/korchasa/ai-ide-cli/compare/v0.5.5...v0.5.6) (2026-04-26)
 
