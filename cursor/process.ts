@@ -14,7 +14,7 @@ import type {
   RuntimeLifecycleHooks,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 
 /**
  * Flags reserved by {@link buildCursorArgs}. Keys in `extraArgs` that
@@ -152,6 +152,7 @@ export async function invokeCursorCli(
         opts.onEvent,
         opts.signal,
         opts.hooks,
+        opts.processRegistry,
       );
       if (output.is_error) {
         lastError = `Cursor CLI returned error: ${output.result}`;
@@ -213,6 +214,7 @@ async function executeCursorProcess(
   onEvent?: (event: Record<string, unknown>) => void,
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
+  processRegistry?: ProcessRegistry,
 ): Promise<CliRunOutput> {
   const cmd = new Deno.Command("cursor", {
     args,
@@ -224,7 +226,8 @@ async function executeCursorProcess(
   });
 
   const process = cmd.spawn();
-  register(process);
+  const registry = processRegistry ?? defaultRegistry;
+  registry.register(process);
 
   try {
     const timeoutSignal = AbortSignal.timeout(timeoutSeconds * 1000);
@@ -361,7 +364,7 @@ async function executeCursorProcess(
       "Cursor CLI stream-json output contained no result event",
     );
   } finally {
-    unregister(process);
+    registry.unregister(process);
   }
 }
 

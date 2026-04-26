@@ -194,6 +194,7 @@ export async function openCodexSession(
     env: opts.env,
     signal: opts.signal,
     onStderr: opts.onStderr,
+    processRegistry: opts.processRegistry,
   });
 
   // Deliberately do not await the subprocess exit here — the client's

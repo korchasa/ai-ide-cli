@@ -18,7 +18,7 @@ import {
   OPENCODE_HITL_MCP_SERVER_NAME,
   OPENCODE_HITL_MCP_TOOL_NAME,
 } from "./hitl-mcp.ts";
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import type {
   OnRuntimeToolUseObservedCallback,
   RuntimeInvokeOptions,
@@ -449,6 +449,7 @@ export async function invokeOpenCodeCli(
         opts.signal,
         opts.hooks,
         opts.onToolUseObserved,
+        opts.processRegistry,
       );
       if (output.is_error) {
         lastError = `OpenCode returned error: ${output.result}`;
@@ -506,6 +507,7 @@ async function executeOpenCodeProcess(
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
+  processRegistry?: ProcessRegistry,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };
   if (configContent) {
@@ -521,7 +523,8 @@ async function executeOpenCodeProcess(
   });
 
   const process = cmd.spawn();
-  register(process);
+  const registry = processRegistry ?? defaultRegistry;
+  registry.register(process);
 
   let timedOut = false;
   let interruptedForHitl = false;
@@ -776,7 +779,7 @@ async function executeOpenCodeProcess(
 
     throw new Error("OpenCode JSON output contained no parseable events");
   } finally {
-    unregister(process);
+    registry.unregister(process);
   }
 }
 

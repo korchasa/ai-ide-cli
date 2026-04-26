@@ -79,7 +79,7 @@ import type {
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import {
   CODEX_HITL_MCP_SERVER_NAME,
   CODEX_HITL_MCP_TOOL_NAME,
@@ -640,6 +640,7 @@ export async function invokeCodexCli(
         opts.signal,
         opts.hooks,
         opts.onToolUseObserved,
+        opts.processRegistry,
       );
       // HITL request: surface output, do not retry.
       if (output.hitl_request) {
@@ -706,6 +707,7 @@ async function executeCodexProcess(
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
+  processRegistry?: ProcessRegistry,
 ): Promise<CliRunOutput> {
   const cmd = new Deno.Command("codex", {
     args,
@@ -717,7 +719,8 @@ async function executeCodexProcess(
   });
 
   const process = cmd.spawn();
-  register(process);
+  const registry = processRegistry ?? defaultRegistry;
+  registry.register(process);
 
   let interruptedForHitl = false;
   let denialAbort = false;
@@ -940,7 +943,7 @@ async function executeCodexProcess(
     }
     return output;
   } finally {
-    unregister(process);
+    registry.unregister(process);
   }
 }
 

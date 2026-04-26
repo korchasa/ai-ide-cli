@@ -43,6 +43,10 @@ stable — never renumber on move.
   - Deno runtime available (library uses `Deno.Command` for subprocess spawn).
   - Consumers handle signal installation; library exposes `killAll()` but
     does not wire OS signals.
+  - Library is safe to embed in a host process that runs several
+    independent runtimes side-by-side: every spawn point honours a
+    caller-supplied `ProcessRegistry` (FR-L3) so the host can scope
+    subprocess cleanup per subsystem.
 
 ## 3. Functional Requirements
 
@@ -97,21 +101,41 @@ stable — never renumber on move.
 
 ### 3.3 FR-L3: Process Registry
 
-- **Description:** Pure child-process tracker. `register(p)` / `unregister(p)`
-  track spawned processes. `killAll()` sends SIGTERM, waits 5s, then SIGKILL.
-  `onShutdown(cb)` registers cleanup callbacks. No OS signal wiring — consumers
-  own that.
+- **Description:** Pure child-process tracker exposed in two flavors:
+  (a) the `ProcessRegistry` class for instance-scoped use — one registry
+  per logical scope (e.g. one per active session in an embedder that hosts
+  multiple independent runtimes in one process), and (b) a module-level
+  default singleton plus `register`/`unregister`/`onShutdown`/`killAll`
+  free functions that wrap it for backward compatibility. Both flavors
+  expose `register(p)` / `unregister(p)` to track spawned processes,
+  `killAll()` (SIGTERM, wait 5s, SIGKILL, then run callbacks), and
+  `onShutdown(cb)` returning a disposer that removes the callback. No OS
+  signal wiring — consumers own that.
 - **Motivation:** Centralized process lifecycle enables graceful shutdown
-  across all runtimes without each adapter managing its own cleanup.
+  across all runtimes without each adapter managing its own cleanup. The
+  instance-scoped flavor lets embedders (e.g. flowai-center) host several
+  independent runtimes in one Deno process and reap their subprocesses
+  without disturbing one another.
 - **Acceptance:**
-  - [x] `register`, `unregister`, `killAll`, `onShutdown` exported.
-        Evidence: `ai-ide-cli/process-registry.ts`.
-  - [x] `killAll()` SIGTERM → 5s wait → SIGKILL → callbacks.
-        Evidence: `ai-ide-cli/process-registry.ts:36-80`.
-  - [x] All runtime runners call `register`/`unregister` around subprocess
-        lifecycle. Evidence: `ai-ide-cli/claude/process.ts:157-158,275`,
-        `ai-ide-cli/opencode/process.ts:244,391`,
-        `ai-ide-cli/cursor/process.ts:166-167,253`.
+  - [x] `ProcessRegistry` class + free-function wrappers + default
+        singleton exported. Evidence: `ai-ide-cli/process-registry.ts`.
+  - [x] `killAll()` SIGTERM → 5s wait → SIGKILL → callbacks. Test:
+        `ai-ide-cli/process-registry_test.ts::ProcessRegistry SIGKILL
+        escalation`.
+  - [x] All runtime runners route subprocess lifecycle through the
+        registry resolved from `opts.processRegistry ?? defaultRegistry`.
+        Evidence: `ai-ide-cli/claude/process.ts`,
+        `ai-ide-cli/claude/session.ts`, `ai-ide-cli/opencode/process.ts`,
+        `ai-ide-cli/opencode/session.ts`, `ai-ide-cli/cursor/process.ts`,
+        `ai-ide-cli/cursor/session.ts`, `ai-ide-cli/codex/process.ts`,
+        `ai-ide-cli/codex/app-server.ts`.
+  - [x] `RuntimeInvokeOptions` and `RuntimeSessionOptions` carry an
+        optional `processRegistry` that, when supplied, scopes the
+        spawned subprocess to that registry instead of the default
+        singleton. Test:
+        `ai-ide-cli/runtime/process-registry-routing_test.ts::processRegistry
+        routing — createCursorChat tracks subprocess on supplied registry,
+        not default`.
 
 ### 3.4 FR-L4: Claude CLI Wrapper
 

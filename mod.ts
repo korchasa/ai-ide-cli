@@ -234,8 +234,10 @@ export { parseSkill } from "./skill/parser.ts";
 
 // --- Process registry (pure tracker) ---
 export {
+  defaultRegistry,
   killAll,
   onShutdown,
+  ProcessRegistry,
   register,
   unregister,
 } from "./process-registry.ts";

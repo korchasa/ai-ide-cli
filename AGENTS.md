@@ -55,8 +55,10 @@ import this package to invoke IDE CLIs uniformly.
   plus streaming-input session backed by the experimental
   `codex app-server --listen stdio://` JSON-RPC transport (`openCodexSession`).
 - `skill/` — SKILL.md parser and typed skill model.
-- `process-registry.ts` — cross-runtime child process registry with graceful
-  shutdown hooks.
+- `process-registry.ts` — cross-runtime child-process registry with graceful
+  shutdown hooks. Exports the `ProcessRegistry` class for instance-scoped
+  use plus a module-level default singleton with backward-compatible free
+  functions (`register`/`unregister`/`onShutdown`/`killAll`).
 - `documents/` — SRS (`requirements.md`) and SDS (`design.md`).
   FR numbering: `FR-L<N>`.
 - `scripts/check.ts` — self-contained verification (fmt, lint, type check,
@@ -125,7 +127,11 @@ Runtime-neutral adapter pattern:
 - Per-runtime directories (`claude/`, `opencode/`, `cursor/`, `codex/`) own
   process invocation, event streaming, session resume, and HITL MCP wiring.
 - `process-registry.ts` tracks spawned children for graceful shutdown on
-  SIGINT/SIGTERM.
+  SIGINT/SIGTERM. Embedders that host multiple independent runtimes in
+  one process can pass a private `ProcessRegistry` via
+  `RuntimeInvokeOptions.processRegistry` /
+  `RuntimeSessionOptions.processRegistry` to scope `killAll()` per
+  subsystem. Standalone use keeps the module-level default singleton.
 - `skill/` parses SKILL.md files into a typed skill model.
 - HITL MCP servers (`opencode/hitl-mcp.ts`, `codex/hitl-mcp.ts`,
   `hitl-mcp.ts`) are exposed as handlers; consumers supply a

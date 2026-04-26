@@ -35,12 +35,17 @@ import {
   prepareSettingSourcesDir,
   type SettingSource,
 } from "../runtime/setting-sources.ts";
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import { CLAUDE_RESERVED_FLAGS } from "./process.ts";
 import { type ClaudeStreamEvent, parseClaudeStreamEvent } from "./stream.ts";
 
 /** Options for {@link openClaudeSession}. */
 export interface ClaudeSessionOptions {
+  /**
+   * Optional process tracker scope. Falls back to the default singleton when
+   * omitted. See {@link import("../runtime/types.ts").RuntimeSessionOptions.processRegistry}.
+   */
+  processRegistry?: ProcessRegistry;
   /** Agent name passed via --agent. */
   agent?: string;
   /** System prompt appended via --append-system-prompt. */
@@ -265,7 +270,8 @@ export async function openClaudeSession(
   });
 
   const process = cmd.spawn();
-  register(process);
+  const registry = opts.processRegistry ?? defaultRegistry;
+  registry.register(process);
 
   const encoder = new TextEncoder();
   const stdinWriter = process.stdin.getWriter();
@@ -409,7 +415,7 @@ export async function openClaudeSession(
       if (opts.signal) {
         opts.signal.removeEventListener("abort", onExternalAbort);
       }
-      unregister(process);
+      registry.unregister(process);
       if (settingCleanup) {
         await settingCleanup();
       }

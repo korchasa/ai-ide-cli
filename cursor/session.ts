@@ -42,7 +42,7 @@ import {
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import { CURSOR_RESERVED_FLAGS } from "./process.ts";
 
 /** Options for {@link openCursorSession}. */
@@ -81,6 +81,14 @@ export interface CursorSessionOptions {
   onEvent?: (event: CursorStreamEvent) => void;
   /** Fires for every decoded stderr line across all send subprocesses. */
   onStderr?: (line: string) => void;
+  /**
+   * Optional process registry that owns this session's send subprocesses.
+   * When omitted, the module-level default registry is used, preserving
+   * backward compatibility. Embedders that host multiple independent
+   * runtimes in one process should pass an instance-scoped
+   * {@link ProcessRegistry} so `killAll` is scoped to the embedder.
+   */
+  processRegistry?: ProcessRegistry;
 }
 
 /**
@@ -178,6 +186,11 @@ export interface CreateCursorChatOptions {
    * Default: 30 seconds.
    */
   timeoutSeconds?: number;
+  /**
+   * Optional process registry that owns the spawned subprocess. When
+   * omitted, the module-level default registry is used.
+   */
+  processRegistry?: ProcessRegistry;
 }
 
 /**
@@ -199,7 +212,8 @@ export async function createCursorChat(
     signal: AbortSignal.timeout(timeoutMs),
   });
   const proc = cmd.spawn();
-  register(proc);
+  const registry = opts.processRegistry ?? defaultRegistry;
+  registry.register(proc);
   try {
     const [status, stdoutBuf, stderrBuf] = await Promise.all([
       proc.status,
@@ -222,7 +236,7 @@ export async function createCursorChat(
     }
     return id;
   } finally {
-    unregister(proc);
+    registry.unregister(proc);
   }
 }
 
@@ -259,8 +273,13 @@ export function buildCursorSendArgs(opts: {
 export async function openCursorSession(
   opts: CursorSessionOptions = {},
 ): Promise<CursorSession> {
+  const registry = opts.processRegistry ?? defaultRegistry;
   const chatId = opts.resumeSessionId ??
-    (await createCursorChat({ cwd: opts.cwd, env: opts.env }));
+    (await createCursorChat({
+      cwd: opts.cwd,
+      env: opts.env,
+      processRegistry: opts.processRegistry,
+    }));
 
   const queue = new SessionEventQueue<CursorStreamEvent>("CursorSession");
   queue.push({
@@ -315,7 +334,7 @@ export async function openCursorSession(
 
     currentProcess = proc;
     currentPid = proc.pid;
-    register(proc);
+    registry.register(proc);
 
     // If abort landed between spawn and registration, catch it now.
     if (aborted) {
@@ -341,7 +360,7 @@ export async function openCursorSession(
         );
       }
     } finally {
-      unregister(proc);
+      registry.unregister(proc);
       currentProcess = undefined;
       currentPid = 0;
     }

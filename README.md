@@ -192,6 +192,57 @@ await invokeClaudeCli({
 });
 ```
 
+## Scoping subprocesses (`ProcessRegistry`)
+
+Every adapter call (`invoke`, `openSession`) spawns one or more child
+processes. Two ways to track them for graceful shutdown:
+
+- **Default singleton.** Standalone CLI use and existing consumers do
+  nothing — the package's module-level `defaultRegistry` tracks every
+  spawn, and the free functions
+  `register`/`unregister`/`onShutdown`/`killAll` operate on it. Importing
+  `installSignalHandlers()` from a downstream package (e.g.
+  `@korchasa/flowai-workflow`) wires `SIGINT`/`SIGTERM` to
+  `killAll()` + `Deno.exit(130|143)`.
+- **Instance-scoped (`ProcessRegistry`).** When one Deno process hosts
+  several independent runtimes (e.g. a workflow engine and a chat
+  bridge in the same binary), pass a private `ProcessRegistry` to each
+  subsystem so `killAll()` on one does not touch the others.
+
+```ts
+import {
+  getRuntimeAdapter,
+  ProcessRegistry,
+} from "jsr:@korchasa/ai-ide-cli";
+
+const engineRegistry = new ProcessRegistry();
+const bridgeRegistry = new ProcessRegistry();
+
+const adapter = getRuntimeAdapter("claude");
+const result = await adapter.invoke({
+  taskPrompt: "...",
+  timeoutSeconds: 60,
+  maxRetries: 1,
+  retryDelaySeconds: 1,
+  processRegistry: engineRegistry, // scope this spawn to engineRegistry
+});
+
+// Reaps engine-spawned subprocesses only. Bridge-spawned subprocesses
+// stay alive.
+await engineRegistry.killAll();
+```
+
+Both `RuntimeInvokeOptions` and `RuntimeSessionOptions` accept the
+optional `processRegistry` field; when omitted, the default singleton is
+used (backward-compatible with all earlier consumers).
+
+> **OS signals:** the library never installs `SIGINT`/`SIGTERM` handlers
+> itself. Downstream `installSignalHandlers()` helpers typically reap
+> only the **default singleton**. Subprocesses tracked by a private
+> `ProcessRegistry` will NOT be killed on signal unless the embedder
+> wires its own handler (e.g. `Deno.addSignalListener("SIGINT", () =>
+> Promise.all([engineRegistry.killAll(), bridgeRegistry.killAll()]))`).
+
 ## Capability inventory (`fetchCapabilitiesSlow`)
 
 Probe a runtime for the skills and slash commands it currently exposes in

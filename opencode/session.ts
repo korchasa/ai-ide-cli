@@ -17,7 +17,7 @@
  * Entry point: {@link openOpenCodeSession}.
  */
 
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   SessionAbortedError,
@@ -86,6 +86,14 @@ export interface OpenCodeSessionOptions {
   port?: number;
   /** Bind hostname. Defaults to `127.0.0.1`. */
   hostname?: string;
+  /**
+   * Optional process registry that owns this session's `opencode serve`
+   * subprocess. When omitted, the module-level default registry is used,
+   * preserving backward compatibility. Embedders that host multiple
+   * independent runtimes in one process should pass an instance-scoped
+   * {@link ProcessRegistry} so `killAll` is scoped to the embedder.
+   */
+  processRegistry?: ProcessRegistry;
 }
 
 /** Terminal state of the OpenCode server subprocess. */
@@ -176,7 +184,8 @@ export async function openOpenCodeSession(
   });
 
   const process = cmd.spawn();
-  register(process);
+  const registry = opts.processRegistry ?? defaultRegistry;
+  registry.register(process);
 
   let readyResolve: (() => void) | null = null;
   let readyReject: ((e: Error) => void) | null = null;
@@ -284,7 +293,7 @@ export async function openOpenCodeSession(
       }),
     ]);
   } catch (err) {
-    unregister(process);
+    registry.unregister(process);
     throw err;
   }
 
@@ -300,13 +309,13 @@ export async function openOpenCodeSession(
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       doKill();
-      unregister(process);
+      registry.unregister(process);
       throw new Error(`POST /session failed: ${res.status} ${text}`);
     }
     const body = await res.json() as { id?: unknown };
     if (typeof body.id !== "string") {
       doKill();
-      unregister(process);
+      registry.unregister(process);
       throw new Error("POST /session returned no id");
     }
     sessionId = body.id;
@@ -548,7 +557,7 @@ export async function openOpenCodeSession(
       if (opts.signal) {
         opts.signal.removeEventListener("abort", onExternalAbort);
       }
-      unregister(process);
+      registry.unregister(process);
     }
   })();
 

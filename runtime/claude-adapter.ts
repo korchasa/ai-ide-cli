@@ -166,6 +166,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       allowedTools: opts.allowedTools,
       disallowedTools: opts.disallowedTools,
       reasoningEffort: opts.reasoningEffort,
+      processRegistry: opts.processRegistry,
     });
     if (result.output) opts.hooks?.onResult?.(result.output);
     return result;
@@ -192,6 +193,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
         isClaudeTurnEnd,
       ),
       onStderr: opts.onStderr,
+      processRegistry: opts.processRegistry,
     });
     return adaptRuntimeSession(
       "claude",

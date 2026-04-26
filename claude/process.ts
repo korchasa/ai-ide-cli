@@ -28,7 +28,7 @@ import {
   prepareSettingSourcesDir,
   type SettingSource,
 } from "../runtime/setting-sources.ts";
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import {
   type ClaudeLifecycleHooks,
   type ClaudeStreamEvent,
@@ -58,6 +58,11 @@ export const CLAUDE_RESERVED_FLAGS: readonly string[] = [
 
 /** Low-level options for a single claude CLI invocation (initial or resume). */
 export interface ClaudeInvokeOptions {
+  /**
+   * Optional process tracker scope. Falls back to the default singleton when
+   * omitted. See {@link import("../runtime/types.ts").RuntimeInvokeOptions.processRegistry}.
+   */
+  processRegistry?: ProcessRegistry;
   /** Name of Claude Code agent (without .md) passed via --agent flag. Skipped on resume. */
   agent?: string;
   /** System context passed via --append-system-prompt. Skipped on resume. */
@@ -337,7 +342,8 @@ async function executeClaudeProcess(
   });
 
   const process = cmd.spawn();
-  register(process);
+  const registry = opts.processRegistry ?? defaultRegistry;
+  registry.register(process);
 
   // Build a combined abort signal: user signal + timeout. SIGTERM fires
   // on either source, the retry-sleep reacts to the user signal only.
@@ -499,7 +505,7 @@ async function executeClaudeProcess(
       "Claude CLI stream-json output contained no result event",
     );
   } finally {
-    unregister(process);
+    registry.unregister(process);
     if (settingCleanup) {
       await settingCleanup();
     }

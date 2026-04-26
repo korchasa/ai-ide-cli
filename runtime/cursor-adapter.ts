@@ -139,6 +139,7 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
         isCursorTurnEnd,
       ),
       onStderr: opts.onStderr,
+      processRegistry: opts.processRegistry,
     });
     return adaptRuntimeSession(
       "cursor",

@@ -7,8 +7,13 @@ Design specification for `@korchasa/ai-ide-cli`.
 - **Purpose:** Design of the `@korchasa/ai-ide-cli` library — thin wrapper
   around agent-CLI binaries providing normalized invocation, stream parsing,
   retry, and HITL wiring.
-- **Relation to SRS:** Implements FR-L1..FR-L22 from
+- **Relation to SRS:** Implements FR-L1..FR-L25 from
   [requirements.md](requirements.md).
+- **Embedding-friendly:** every spawned subprocess is tracked through a
+  `ProcessRegistry` that the caller can supply per-call (FR-L3). Standalone
+  CLI use keeps the module-level default singleton; embedders that host
+  several independent runtimes in one Deno process pass private registries
+  to scope `killAll` per subsystem.
 
 ## 2. Architecture
 
@@ -106,14 +111,30 @@ OpenCode's MCP injection; Claude HITL handled engine-side via
 
 ### 3.2 `process-registry.ts` — Process Tracker
 
-Pure tracker. No signal wiring. API: `register(p)`, `unregister(p)`,
-`killAll()`, `onShutdown(cb)`.
+Pure tracker. No signal wiring. Two flavors share one implementation:
 
-`killAll()` sequence: SIGTERM all → `Promise.race([allSettled, 5s timeout])`
-→ SIGKILL survivors → run shutdown callbacks.
+- **`ProcessRegistry` class** — instance-scoped. Each instance owns a
+  private `Set<Deno.ChildProcess>` and a private shutdown-callback array.
+  `killAll()` is scoped to the instance. Constructor accepts
+  `{ graceMs }` (default 5000). API: `register(p)`, `unregister(p)`,
+  `onShutdown(cb)` (returns disposer), `killAll()`. Test helpers
+  `_reset` / `_getProcesses` / `_getShutdownCallbacks` prefixed with `_`.
+- **Default singleton + free functions.** Module-level `defaultRegistry`
+  is a `ProcessRegistry` instance; `register`, `unregister`,
+  `onShutdown`, `killAll`, `_reset`, `_getProcesses`,
+  `_getShutdownCallbacks` are thin wrappers over it for backward
+  compatibility and standalone CLI use.
 
-Test helpers (`_reset`, `_getProcesses`, `_getShutdownCallbacks`) prefixed
-with `_` for test isolation.
+`killAll()` sequence (both flavors): SIGTERM all →
+`Promise.race([allSettled, graceMs timeout])` → SIGKILL survivors →
+run shutdown callbacks.
+
+Adapters resolve the active registry as
+`opts.processRegistry ?? defaultRegistry` at the spawn site. Embedders
+that host multiple independent runtimes in one process pass a private
+`ProcessRegistry` through `RuntimeInvokeOptions.processRegistry` /
+`RuntimeSessionOptions.processRegistry` so `killAll` is scoped to the
+embedder.
 
 ### 3.3 `runtime/` — Adapter Layer
 
@@ -126,14 +147,17 @@ with `_` for test isolation.
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
   `hitlConfig`, `hitlMcpCommandBuilder`, `cwd`, `agent`, `systemPrompt`,
-  `env`, `onEvent`, `allowedTools`, `disallowedTools` (FR-L24).
+  `env`, `onEvent`, `allowedTools`, `disallowedTools` (FR-L24),
+  `processRegistry` (FR-L3 — optional `ProcessRegistry` instance for
+  scoping the spawned subprocess; falls back to the module default).
 - `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string }`.
 - `InteractiveOptions` — `{ skills?, systemPrompt?, cwd?, env? }`.
 - `InteractiveResult` — `{ exitCode: number }`.
 - `RuntimeSessionOptions` — streaming-session options: `agent`, `systemPrompt`,
   `resumeSessionId`, `extraArgs`, `permissionMode`, `model`, `signal`, `cwd`,
   `env`, `settingSources`, `allowedTools`, `disallowedTools` (FR-L24),
-  `onEvent`, `onStderr`. Omits one-shot-only fields
+  `onEvent`, `onStderr`, `processRegistry` (FR-L3 — same semantics as
+  on `RuntimeInvokeOptions`). Omits one-shot-only fields
   (`taskPrompt`, retries, timeouts, hooks). **Out of scope by design:**
   per-turn `timeoutSeconds`/`maxRetries`/`retryDelaySeconds` — caller-owned
   via `AbortSignal` + reopen with `resumeSessionId`; mid-session model /
