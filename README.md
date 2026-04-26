@@ -66,10 +66,14 @@ adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
 | session resume by id | `--resume`     | `--session`    | `--resume`        | `resume <id>`  |
 | toolFilter (FR-L24)  | yes (`--allowedTools` / `--disallowedTools`) | warn-only | warn-only | warn-only |
 | reasoningEffort (FR-L25) | yes (`--effort`, `minimal` warn-mapped to `low`) | yes (`--variant` / `body.variant`, provider-specific warn) | warn-only | yes (`--config model_reasoning_effort`) |
+| typed event union    | yes (`ClaudeStreamEvent` over stream-json) | partial (`OpenCodeStreamEvent` for `run --format json` only; SSE session events are untyped — FR-L27 pending) | no (raw `Record<string, unknown>`) | yes (`CodexNotification` + `isCodexNotification` type guard, FR-L26) |
+| settingSources cleanroom | yes (`CLAUDE_CONFIG_DIR` redirect, FR-L18) | silent ignore | silent ignore | silent ignore (FR-L28 pending — `CODEX_HOME` redirect) |
 
 Universal across all four runtimes: NDJSON event streaming, `AbortSignal`
 + timeout, custom `cwd` / `env`, `extraArgs` / `runtime_args` passthrough,
-typed lifecycle `hooks`, raw `onEvent` escape hatch.
+typed lifecycle `hooks` (`onInit` / `onResult`), raw `onEvent` escape
+hatch (`Record<string, unknown>`), normalized session-event content
+extraction via `extractSessionContent` (FR-L23).
 
 Notes:
 
