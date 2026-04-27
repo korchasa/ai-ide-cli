@@ -41,6 +41,17 @@ import this package to invoke IDE CLIs uniformly.
   - `runtime/session_contract_test.ts` — backend-agnostic contract tests +
     compile-time negative-type assertion that `pid` is absent from
     `RuntimeSession`.
+  - `runtime/capabilities.ts` — `CapabilityInventory` types + shared
+    LLM-probe driver behind `fetchCapabilitiesSlow` (FR-L20).
+  - `runtime/content.ts` — `extractSessionContent(event)` →
+    `NormalizedContent[]` (text / tool / final), runtime-neutral content
+    extraction (FR-L23).
+  - `runtime/tool-filter.ts` — shared typed `allowedTools` /
+    `disallowedTools` validation used by every adapter (FR-L24).
+  - `runtime/setting-sources.ts` — Claude `settingSources` cleanroom
+    isolation (FR-L18).
+  - `runtime/reasoning-effort.ts` — abstract `reasoningEffort` enum +
+    `validateReasoningEffort` mapped per-runtime (FR-L25).
 - `claude/process.ts`, `claude/stream.ts`, `claude/session.ts` — Claude CLI
   invocation, streaming output parser, and streaming-input session.
 - `opencode/process.ts`, `opencode/session.ts`, `opencode/hitl-mcp.ts` —
@@ -55,6 +66,8 @@ import this package to invoke IDE CLIs uniformly.
   plus streaming-input session backed by the experimental
   `codex app-server --listen stdio://` JSON-RPC transport (`openCodexSession`).
 - `skill/` — SKILL.md parser and typed skill model.
+- `hitl-mcp.ts` — top-level shared HITL MCP request/response NDJSON runner
+  reused by Codex and OpenCode adapters.
 - `process-registry.ts` — cross-runtime child-process registry with graceful
   shutdown hooks. Exports the `ProcessRegistry` class for instance-scoped
   use plus a module-level default singleton with backward-compatible free
@@ -64,9 +77,11 @@ import this package to invoke IDE CLIs uniformly.
 - `scripts/check.ts` — self-contained verification (fmt, lint, type check,
   tests, doc-lint, publish dry-run).
 - `scripts/smoke.ts` — behavioural checks against real agent CLI binaries
-  (AbortSignal SIGTERM, timeout, `settingSources`). Not part of
-  `deno task check`; invoke manually via `deno run -A scripts/smoke.ts
-  [abort|settings]`.
+  (AbortSignal SIGTERM, timeout, `settingSources`, streaming sessions). Not
+  part of `deno task check`; invoke manually via `deno run -A
+  scripts/smoke.ts [abort|settings|session|session-cursor|session-opencode|session-codex]`.
+- `scripts/generate-release-notes.ts` — release-notes generator invoked
+  from CI.
 
 ## Deno Tasks
 
