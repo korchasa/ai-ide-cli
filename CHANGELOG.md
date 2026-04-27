@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.8](https://github.com/korchasa/ai-ide-cli/compare/v0.5.7...v0.5.8) (2026-04-27)
+
+
+### Features
+
+* **codex:** typed app-server notification events (FR-L26) ([b41e8f4](https://github.com/korchasa/ai-ide-cli/commit/b41e8f49b9d1b1da94ae0673c9413eacaee41aed))
+
+
+### Documentation
+
+* **agents:** update capabilities and content extraction details in AGENTS.md ([ed95b8e](https://github.com/korchasa/ai-ide-cli/commit/ed95b8e7d18a6c201abab0abb377e1206f0bb129))
+* **readme:** expand typed-API asymmetry rows in feature matrix ([d9c3df1](https://github.com/korchasa/ai-ide-cli/commit/d9c3df1db5d663aa78abd03426eeedad379bbeb1))
+* **readme:** surface typed-event-union and settingSources asymmetry ([90fff94](https://github.com/korchasa/ai-ide-cli/commit/90fff948b31a3a91ec7b700454b7e8287f665ac7))
+
 ### [0.5.7](https://github.com/korchasa/ai-ide-cli/compare/v0.5.6...v0.5.7) (2026-04-26)
 
 
