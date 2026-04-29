@@ -625,14 +625,11 @@ Thread/turn semantics:
   yields `-32602` "invalid params"). Resolves on the RPC ack (input
   accepted by the server); turn completion is observable via events.
 - Subsequent `send(content)` calls while a turn is active issue
-  `turn/steer` with `expectedTurnId` taken from the most recent
-  `turn/started` notification. The `turn/start` response can arrive
-  before or after the matching notification; only the notification path
-  drives `activeTurnId` to avoid a race where `expectedTurnId` points at
-  a turn the server hasn't yet acknowledged. Both RPC methods' failures
-  are wrapped in `SessionDeliveryError` (the original
-  `CodexAppServerError` is attached via standard `Error.cause`) so
-  consumers catch a single typed class across runtimes (FR-L22).
+  `turn/steer` with `expectedTurnId` set to the current `activeTurnId`.
+  Both RPC methods' failures are wrapped in `SessionDeliveryError`
+  (the original `CodexAppServerError` is attached via standard
+  `Error.cause`) so consumers catch a single typed class across
+  runtimes (FR-L22).
 - `send` rejects with `SessionAbortedError` / `SessionInputClosedError`
   for the closed-input / aborted states — same contract as other
   runtimes.
@@ -649,9 +646,38 @@ Thread/turn semantics:
   "turn-end", synthetic: true, raw: {method: "turn/completed", params}}`
   event into the same queue (FR-L21) — same contract as the other three
   adapters so consumers can write one turn-boundary handler.
-- `activeTurnId` tracking is a single-writer side-channel in the
-  notification pump; `updateActiveTurnId(current, note)` is exported as
-  a pure helper.
+- `activeTurnId` tracking has two writers, ordered to close the
+  response-vs-notification race:
+  1. **Synchronous (RPC response)** — `send()` promotes `result.turn.id`
+     from the `TurnStartResponse` (and `result.turnId` from
+     `TurnSteerResponse`) into `activeTurnId` immediately after the RPC
+     ack returns. Without this, two `send()` calls back-to-back would
+     both route through `turn/start` because the asynchronous
+     `turn/started` notification has not yet been drained from the
+     event queue.
+  2. **Asynchronous (notifications)** — the notification pump applies
+     `updateActiveTurnId(current, note)` per inbound notification:
+     `turn/started` overwrites with the authoritative id (no-op when
+     it matches the value already set from the response);
+     `turn/completed` clears the field so the next `send` starts a new
+     turn. The pure helper is exported for testing.
+
+Wire shape — only the fields actually accepted by the upstream
+generated schemas (`v2/ThreadStartParams.ts`,
+`v2/ThreadResumeParams.ts`, `v2/UserInput.ts`) are emitted:
+
+- `thread/start` sends `model?`, `cwd?`, `approvalPolicy?`, `sandbox?`,
+  `baseInstructions?`. Earlier drafts also sent
+  `experimentalRawEvents: false` (orphaned — never present in the
+  upstream schema, silently ignored by the server) and
+  `persistExtendedHistory: false` (a no-op duplicating the server
+  default; the field is gated by `capabilities.experimentalApi: true`
+  and only meaningful when set to `true`). Both were removed.
+- `thread/resume` sends `threadId`, plus the same overrides as
+  `thread/start`.
+- `turn/start` / `turn/steer` send `threadId` + `input` (variant
+  `{type:"text", text, text_elements: []}` from `v2/UserInput.ts`),
+  plus `expectedTurnId` for the `turn/steer` precondition.
 
 Permission-mode mapping mirrors `permissionModeToCodexArgs` in
 `codex/process.ts` but emits structured `{approvalPolicy?, sandbox?}`

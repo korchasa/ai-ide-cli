@@ -269,7 +269,8 @@ export async function openCodexSession(
     const send = async (content: string): Promise<void> => {
       if (sessionAborted) throw new SessionAbortedError("codex");
       if (ended) throw new SessionInputClosedError("codex");
-      const params = activeTurnId === null
+      const isFirstTurn = activeTurnId === null;
+      const params = isFirstTurn
         ? {
           threadId,
           input: [{ type: "text", text: content, text_elements: [] }],
@@ -279,9 +280,30 @@ export async function openCodexSession(
           input: [{ type: "text", text: content, text_elements: [] }],
           expectedTurnId: activeTurnId,
         };
-      const method = activeTurnId === null ? "turn/start" : "turn/steer";
+      const method = isFirstTurn ? "turn/start" : "turn/steer";
       try {
-        await client.request(method, params);
+        // `turn/start` returns `TurnStartResponse = { turn: Turn }` —
+        // promote `turn.id` to `activeTurnId` synchronously to close the
+        // race where a follow-up `send()` arrives before the asynchronous
+        // `turn/started` notification. `turn/steer` returns
+        // `TurnSteerResponse = { turnId }` — keep `activeTurnId` aligned.
+        if (isFirstTurn) {
+          const result = await client.request<
+            { turn?: { id?: unknown } } | undefined
+          >(method, params);
+          const turnIdFromResponse = result?.turn?.id;
+          if (typeof turnIdFromResponse === "string" && activeTurnId === null) {
+            activeTurnId = turnIdFromResponse;
+          }
+        } else {
+          const result = await client.request<
+            { turnId?: unknown } | undefined
+          >(method, params);
+          const turnIdFromResponse = result?.turnId;
+          if (typeof turnIdFromResponse === "string") {
+            activeTurnId = turnIdFromResponse;
+          }
+        }
       } catch (err) {
         // JSON-RPC error, broken stdin pipe, or subprocess exit before
         // response all mean "the message did not reach Codex". Surface them
@@ -366,10 +388,7 @@ async function startThread(
   const { approvalPolicy, sandbox } = permissionModeToThreadStartFields(
     opts.permissionMode,
   );
-  const params: Record<string, unknown> = {
-    experimentalRawEvents: false,
-    persistExtendedHistory: false,
-  };
+  const params: Record<string, unknown> = {};
   if (opts.model) params.model = opts.model;
   if (opts.cwd) params.cwd = opts.cwd;
   if (approvalPolicy) params.approvalPolicy = approvalPolicy;
@@ -392,7 +411,6 @@ async function resumeThread(
   );
   const params: Record<string, unknown> = {
     threadId: opts.resumeSessionId,
-    persistExtendedHistory: false,
   };
   if (opts.model) params.model = opts.model;
   if (opts.cwd) params.cwd = opts.cwd;

@@ -642,12 +642,21 @@ stable — never renumber on move.
     `thread/start` (fresh) or `thread/resume` (on `resumeSessionId`).
     Returns `CodexSession { pid, threadId, send, events, endInput, abort,
     done }`. First `send` maps to `turn/start`; subsequent `send` calls
-    while a turn is active map to `turn/steer` with `expectedTurnId` taken
-    from the latest `turn/started` notification (not the `turn/start`
-    response — those can arrive in either order, the notification is
-    authoritative). `turn/completed` clears the active turn. The
-    underlying `CodexAppServerClient` is transport-only; thread/turn
-    semantics live in `codex/session.ts`. Targets `codex-cli >= 0.121.0`.
+    while a turn is active map to `turn/steer` with `expectedTurnId` set
+    to `activeTurnId`. `activeTurnId` is set synchronously from the RPC
+    response (`TurnStartResponse.turn.id` /
+    `TurnSteerResponse.turnId`) the moment `client.request()` resolves,
+    and reconciled asynchronously from `turn/started` notifications;
+    `turn/completed` clears it. Setting from the response closes the
+    race where two back-to-back `send()` calls would both route through
+    `turn/start` while the notification is still queued. The wire
+    payload only includes fields present in the upstream-generated
+    schemas (`v2/{ThreadStartParams,ThreadResumeParams,TurnStartParams,
+    TurnSteerParams,UserInput}.ts`); orphan fields
+    (`experimentalRawEvents`) and no-op duplicates of server defaults
+    (`persistExtendedHistory: false`) are not emitted. The underlying
+    `CodexAppServerClient` is transport-only; thread/turn semantics
+    live in `codex/session.ts`. Targets `codex-cli >= 0.121.0`.
   - **Runtime-neutral.** `RuntimeAdapter.openSession?(opts):
     Promise<RuntimeSession>` is optional; callers check
     `capabilities.session` before invoking. Claude, OpenCode, Cursor, and
