@@ -1,6 +1,6 @@
 /**
  * @module
- * Generator for the session-contract matrix (FR-L25). For every
+ * Generator for the session-contract matrix (FR-L31). For every
  * (runtime × scenario) pair allowed by the scenario's `only` / `skip`
  * lists, registers one `Deno.test` guarded by the pre-resolved `E2E` gate.
  *

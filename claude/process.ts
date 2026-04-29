@@ -20,11 +20,15 @@ import type { ExtraArgsMap, RuntimeInvokeResult } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import {
+  type ReasoningEffort,
+  validateReasoningEffort,
+} from "../runtime/reasoning-effort.ts";
+import {
   defaultClaudeConfigDir,
   prepareSettingSourcesDir,
   type SettingSource,
 } from "../runtime/setting-sources.ts";
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import {
   type ClaudeLifecycleHooks,
   type ClaudeStreamEvent,
@@ -54,6 +58,11 @@ export const CLAUDE_RESERVED_FLAGS: readonly string[] = [
 
 /** Low-level options for a single claude CLI invocation (initial or resume). */
 export interface ClaudeInvokeOptions {
+  /**
+   * Optional process tracker scope. Falls back to the default singleton when
+   * omitted. See {@link import("../runtime/types.ts").RuntimeInvokeOptions.processRegistry}.
+   */
+  processRegistry?: ProcessRegistry;
   /** Name of Claude Code agent (without .md) passed via --agent flag. Skipped on resume. */
   agent?: string;
   /** System context passed via --append-system-prompt. Skipped on resume. */
@@ -130,6 +139,49 @@ export interface ClaudeInvokeOptions {
    * Mutually exclusive with {@link allowedTools}. See FR-L24.
    */
   disallowedTools?: string[];
+  /**
+   * Abstract reasoning-effort depth — mapped to Claude's `--effort`. See
+   * {@link import("../runtime/reasoning-effort.ts").ReasoningEffort}. Note
+   * that `"minimal"` has no native equivalent and is translated to
+   * `"low"` with a one-time warning. See FR-L25.
+   */
+  reasoningEffort?: ReasoningEffort;
+}
+
+/**
+ * Translate the abstract {@link ReasoningEffort} into the native Claude
+ * `--effort` value. Emits a one-time warning when the mapping is lossy
+ * (Claude has no `"minimal"` level and substitutes `"low"`).
+ *
+ * Exported for testing; adapters should prefer the typed option.
+ */
+export function mapReasoningEffortToClaude(
+  value: ReasoningEffort,
+): string {
+  if (value === "minimal") {
+    warnClaudeReasoningEffortMappingOnce();
+    return "low";
+  }
+  return value;
+}
+
+let warnedClaudeEffortMapping = false;
+
+function warnClaudeReasoningEffortMappingOnce(): void {
+  if (warnedClaudeEffortMapping) return;
+  warnedClaudeEffortMapping = true;
+  console.warn(
+    '[claude] reasoningEffort="minimal" mapped to --effort low — Claude CLI has no native "minimal" level. See FR-L25.',
+  );
+}
+
+/**
+ * Test-only: reset the one-time reasoning-effort mapping warning latch.
+ *
+ * @internal
+ */
+export function _resetClaudeReasoningEffortWarning(): void {
+  warnedClaudeEffortMapping = false;
 }
 
 /** Invoke claude CLI with retry logic. */
@@ -215,6 +267,18 @@ export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
     args.push("--disallowedTools", opts.disallowedTools!.join(","));
   }
 
+  // FR-L25: abstract reasoning effort → Claude's `--effort`.
+  // Validation runs unconditionally (catches malformed input on resume too),
+  // but emission is suppressed on --resume so the session inherits its
+  // original effort level — symmetric with --model on line 290.
+  const effort = validateReasoningEffort("claude", {
+    reasoningEffort: opts.reasoningEffort,
+    extraArgs: opts.claudeArgs,
+  });
+  if (effort !== undefined && !opts.resumeSessionId) {
+    args.push("--effort", mapReasoningEffortToClaude(effort));
+  }
+
   // Extra CLI args go next (expanded from the map shape).
   args.push(...expandExtraArgs(opts.claudeArgs, CLAUDE_RESERVED_FLAGS));
 
@@ -278,7 +342,8 @@ async function executeClaudeProcess(
   });
 
   const process = cmd.spawn();
-  register(process);
+  const registry = opts.processRegistry ?? defaultRegistry;
+  registry.register(process);
 
   // Build a combined abort signal: user signal + timeout. SIGTERM fires
   // on either source, the retry-sleep reacts to the user signal only.
@@ -440,7 +505,7 @@ async function executeClaudeProcess(
       "Claude CLI stream-json output contained no result event",
     );
   } finally {
-    unregister(process);
+    registry.unregister(process);
     if (settingCleanup) {
       await settingCleanup();
     }

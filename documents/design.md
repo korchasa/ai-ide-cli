@@ -7,8 +7,13 @@ Design specification for `@korchasa/ai-ide-cli`.
 - **Purpose:** Design of the `@korchasa/ai-ide-cli` library — thin wrapper
   around agent-CLI binaries providing normalized invocation, stream parsing,
   retry, and HITL wiring.
-- **Relation to SRS:** Implements FR-L1..FR-L22 from
+- **Relation to SRS:** Implements FR-L1..FR-L31 from
   [requirements.md](requirements.md).
+- **Embedding-friendly:** every spawned subprocess is tracked through a
+  `ProcessRegistry` that the caller can supply per-call (FR-L3). Standalone
+  CLI use keeps the module-level default singleton; embedders that host
+  several independent runtimes in one Deno process pass private registries
+  to scope `killAll` per subsystem.
 
 ## 2. Architecture
 
@@ -33,9 +38,13 @@ ai-ide-cli/
     tool-filter.ts      — validateToolFilter(runtime, opts): shared typed
                           tool-filter validation used by every adapter
                           (FR-L24)
+    reasoning-effort.ts — validateReasoningEffort(runtime, opts): shared
+                          typed reasoning-effort validation + enum
+                          (FR-L25)
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
+    codex-adapter.ts    — Codex RuntimeAdapter (delegates to codex/process + codex/session)
   claude/
     process.ts          — buildClaudeArgs, invokeClaudeCli, executeClaudeProcess
     stream.ts           — processStreamEvent, extractClaudeOutput, FileReadTracker,
@@ -70,7 +79,7 @@ ai-ide-cli/
     types.ts            — SkillDef, SkillFrontmatter (union of all IDE fields)
     parser.ts           — parseSkill(dir) → SkillDef
     mod.ts              — barrel export for @korchasa/ai-ide-cli/skill
-  e2e/                  — opt-in real-binary test suite (FR-L25)
+  e2e/                  — opt-in real-binary test suite (FR-L31)
     _helpers.ts         — detectBinary, e2eEnabled, resolveEnabledMap, ceiling,
                           ONE_WORD_OK/DONE, LONG_COUNT_PROMPT
     _matrix.ts          — SESSION_CONTRACT_MATRIX (7 scenarios), RUNTIME_SPECS
@@ -90,8 +99,8 @@ engine or any external workflow package.
 
 ### 3.1 `types.ts` — Shared Types
 
-`RuntimeId` union: `"claude" | "opencode" | "cursor"`. `VALID_RUNTIME_IDS`
-array for config validation.
+`RuntimeId` union: `"claude" | "opencode" | "cursor" | "codex"`.
+`VALID_RUNTIME_IDS` array for config validation.
 
 `PermissionMode` — Claude Code `--permission-mode` values. Kept here because
 multiple runtimes reference it for compatibility checks.
@@ -111,14 +120,30 @@ OpenCode's MCP injection; Claude HITL handled engine-side via
 
 ### 3.2 `process-registry.ts` — Process Tracker
 
-Pure tracker. No signal wiring. API: `register(p)`, `unregister(p)`,
-`killAll()`, `onShutdown(cb)`.
+Pure tracker. No signal wiring. Two flavors share one implementation:
 
-`killAll()` sequence: SIGTERM all → `Promise.race([allSettled, 5s timeout])`
-→ SIGKILL survivors → run shutdown callbacks.
+- **`ProcessRegistry` class** — instance-scoped. Each instance owns a
+  private `Set<Deno.ChildProcess>` and a private shutdown-callback array.
+  `killAll()` is scoped to the instance. Constructor accepts
+  `{ graceMs }` (default 5000). API: `register(p)`, `unregister(p)`,
+  `onShutdown(cb)` (returns disposer), `killAll()`. Test helpers
+  `_reset` / `_getProcesses` / `_getShutdownCallbacks` prefixed with `_`.
+- **Default singleton + free functions.** Module-level `defaultRegistry`
+  is a `ProcessRegistry` instance; `register`, `unregister`,
+  `onShutdown`, `killAll`, `_reset`, `_getProcesses`,
+  `_getShutdownCallbacks` are thin wrappers over it for backward
+  compatibility and standalone CLI use.
 
-Test helpers (`_reset`, `_getProcesses`, `_getShutdownCallbacks`) prefixed
-with `_` for test isolation.
+`killAll()` sequence (both flavors): SIGTERM all →
+`Promise.race([allSettled, graceMs timeout])` → SIGKILL survivors →
+run shutdown callbacks.
+
+Adapters resolve the active registry as
+`opts.processRegistry ?? defaultRegistry` at the spawn site. Embedders
+that host multiple independent runtimes in one process pass a private
+`ProcessRegistry` through `RuntimeInvokeOptions.processRegistry` /
+`RuntimeSessionOptions.processRegistry` so `killAll` is scoped to the
+embedder.
 
 ### 3.3 `runtime/` — Adapter Layer
 
@@ -131,14 +156,17 @@ with `_` for test isolation.
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
   `hitlConfig`, `hitlMcpCommandBuilder`, `cwd`, `agent`, `systemPrompt`,
-  `env`, `onEvent`, `allowedTools`, `disallowedTools` (FR-L24).
+  `env`, `onEvent`, `allowedTools`, `disallowedTools` (FR-L24),
+  `processRegistry` (FR-L3 — optional `ProcessRegistry` instance for
+  scoping the spawned subprocess; falls back to the module default).
 - `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string }`.
 - `InteractiveOptions` — `{ skills?, systemPrompt?, cwd?, env? }`.
 - `InteractiveResult` — `{ exitCode: number }`.
 - `RuntimeSessionOptions` — streaming-session options: `agent`, `systemPrompt`,
   `resumeSessionId`, `extraArgs`, `permissionMode`, `model`, `signal`, `cwd`,
   `env`, `settingSources`, `allowedTools`, `disallowedTools` (FR-L24),
-  `onEvent`, `onStderr`. Omits one-shot-only fields
+  `onEvent`, `onStderr`, `processRegistry` (FR-L3 — same semantics as
+  on `RuntimeInvokeOptions`). Omits one-shot-only fields
   (`taskPrompt`, retries, timeouts, hooks). **Out of scope by design:**
   per-turn `timeoutSeconds`/`maxRetries`/`retryDelaySeconds` — caller-owned
   via `AbortSignal` + reopen with `resumeSessionId`; mid-session model /
@@ -461,19 +489,68 @@ Constants: `OPENCODE_HITL_MCP_SERVER_NAME = "hitl"`,
 prompt. Resume skips `--model`.
 
 `extractCursorOutput(event)`: maps result event to `CliRunOutput` with
-`runtime: "cursor"`. Same stream-json format as Claude.
+`runtime: "cursor"`. Cursor's stream-json shape is **NOT** identical to
+Claude — see `cursor/stream.ts` (FR-L30) for the empirically captured
+taxonomy.
 
 `formatCursorEventForOutput(event, verbosity?)`: one-line summaries.
-Same event shape as Claude stream-json. Semi-verbose filtering supported.
+Handles `system/init`, `assistant` (text blocks only — Cursor does not
+inline tool blocks; tool calls are sibling `tool_call/*` events) and
+`result/success`.
 
 `invokeCursorCli(opts)`: prepends system prompt to task prompt (no
 dedicated flag). Retry loop with exponential backoff. Real-time NDJSON
-processing with log file + terminal output forwarding.
+processing with log file + terminal output forwarding. Fires
+`onToolUseObserved` (FR-L30) on every `tool_call/started` event;
+`"abort"` decision triggers SIGTERM and synthesizes a `CliRunOutput`
+with `is_error: true` plus a single `permission_denials[]` entry —
+symmetric with Claude. Cursor-specific lifecycle hooks (`cursorHooks`)
+expose typed `onInit` / `onAssistant` / `onResult` callbacks.
 
 Tool filter (FR-L24): `capabilities.toolFilter === false`.
 `allowedTools` / `disallowedTools` are validated (same rules as Claude
 via `validateToolFilter`) and ignored in argv; first set-value call
 emits one `console.warn` per process.
+
+### 3.10.0 `cursor/stream.ts` — Typed Stream-JSON Events (FR-L30)
+
+Discriminated union `CursorStreamEvent` mirroring the empirically
+captured taxonomy of `cursor agent -p --output-format stream-json`:
+
+- `CursorSystemInitEvent` (`type: "system", subtype: "init"`) — carries
+  `apiKeySource`, `cwd`, `session_id`, `model`, `permissionMode`.
+- `CursorUserEvent` (`type: "user"`) — echoed user message.
+- `CursorThinkingDeltaEvent` (`type: "thinking", subtype: "delta"`) —
+  streaming reasoning chunk with `text`. **Very high volume** (~90% of
+  events for a typical prompt).
+- `CursorThinkingCompletedEvent` (`type: "thinking", subtype:
+  "completed"`) — end-of-reasoning marker.
+- `CursorAssistantEvent` (`type: "assistant"`) — `message.content[]` of
+  `{type:"text", text}` blocks **only**. Cursor does NOT inline tool
+  blocks (unlike Claude's `tool_use` blocks).
+- `CursorToolCallStartedEvent` / `CursorToolCallCompletedEvent` (`type:
+  "tool_call"`, `subtype: "started" | "completed"`) — separate top-level
+  events with `call_id`, `model_call_id`, and a wrapper payload
+  `tool_call: {<name>ToolCall: {args | result}}` (e.g. `readToolCall`,
+  `grepToolCall`). The single key encodes the tool name; `args` on
+  `started`, `result` (or `result.error.errorMessage` on failure) on
+  `completed`.
+- `CursorResultEvent` (`type: "result", subtype: "success"`) — terminal
+  event with `result`, `duration_ms`, `duration_api_ms`, `is_error`,
+  `request_id`, and `usage: {inputTokens, outputTokens, cacheReadTokens,
+  cacheWriteTokens}`. Note: cursor does **not** emit `total_cost_usd`.
+- `CursorUnknownEvent` — forward-compat fallback.
+
+`parseCursorStreamEvent(line)`: NDJSON → typed event or `null` (mirrors
+`parseClaudeStreamEvent`). `unwrapCursorToolCall(toolCall)`: flattens
+the `<name>ToolCall` wrapper into `{name, args?, result?,
+errorMessage?}` (strips trailing `ToolCall` suffix from the wrapper key).
+
+`CursorLifecycleHooks`: `onInit(event)` / `onAssistant(event)` /
+`onResult(event)` typed counterparts to `RuntimeLifecycleHooks` for
+consumers that import the cursor sub-path directly. `onAssistant`
+fires once per `assistant` event, closing the matrix row
+"per-assistant-turn lifecycle hook: cursor: no".
 
 ### 3.10.1 `cursor/session.ts` — Cursor Faux Session
 
@@ -568,6 +645,37 @@ payloads can shift between `codex-cli` versions; client targets
 `codex-cli >= 0.121.0`. Generate current TS bindings with `codex
 app-server generate-ts --out <dir>` when protocol drift is suspected.
 
+**FR-L26 typed events.** The `CodexAppServerNotification` type returned
+by `client.notifications` is a *runtime* shape (`{method: string,
+params: Record<string, unknown>}` — re-exported as
+`CodexUntypedNotification` from `codex/events.ts`) — `method` is
+arbitrary because new Codex CLI versions can emit notifications the
+library has not narrowed yet. Sharp narrowing is opt-in via
+`isCodexNotification(note, method)` in `codex/events.ts`, which acts as
+a TypeScript type guard:
+
+```ts
+for await (const note of client.notifications) {
+  if (isCodexNotification(note, "turn/started")) {
+    // note.params.turn is `CodexTurn` here — no cast required.
+  }
+}
+```
+
+`codex/events.ts` hand-mirrors the variants from
+`codex app-server generate-ts --experimental` output. Today it covers
+`thread/started`, `turn/started`, `turn/completed`, `item/started`,
+`item/completed`, `item/agentMessage/delta`, `item/reasoning/textDelta`,
+`item/reasoning/summaryTextDelta`,
+`item/commandExecution/outputDelta`, `error`. The `CodexThreadItem`
+sub-union covers `userMessage`, `agentMessage`, `reasoning`, `plan`,
+`commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall`,
+`webSearch`, `contextCompaction`. Both unions deliberately omit a
+fallback `type: string` variant — including one would break literal
+discriminator narrowing on every `if (event.type === "X")` check.
+Future variants surface at the runtime layer (`CodexUntypedNotification`
+/ `CodexUntypedItem`) where consumers can assert manually.
+
 
 ### 3.12 `codex/session.ts` — Streaming-Input Session
 
@@ -585,14 +693,11 @@ Thread/turn semantics:
   yields `-32602` "invalid params"). Resolves on the RPC ack (input
   accepted by the server); turn completion is observable via events.
 - Subsequent `send(content)` calls while a turn is active issue
-  `turn/steer` with `expectedTurnId` taken from the most recent
-  `turn/started` notification. The `turn/start` response can arrive
-  before or after the matching notification; only the notification path
-  drives `activeTurnId` to avoid a race where `expectedTurnId` points at
-  a turn the server hasn't yet acknowledged. Both RPC methods' failures
-  are wrapped in `SessionDeliveryError` (the original
-  `CodexAppServerError` is attached via standard `Error.cause`) so
-  consumers catch a single typed class across runtimes (FR-L22).
+  `turn/steer` with `expectedTurnId` set to the current `activeTurnId`.
+  Both RPC methods' failures are wrapped in `SessionDeliveryError`
+  (the original `CodexAppServerError` is attached via standard
+  `Error.cause`) so consumers catch a single typed class across
+  runtimes (FR-L22).
 - `send` rejects with `SessionAbortedError` / `SessionInputClosedError`
   for the closed-input / aborted states — same contract as other
   runtimes.
@@ -609,9 +714,38 @@ Thread/turn semantics:
   "turn-end", synthetic: true, raw: {method: "turn/completed", params}}`
   event into the same queue (FR-L21) — same contract as the other three
   adapters so consumers can write one turn-boundary handler.
-- `activeTurnId` tracking is a single-writer side-channel in the
-  notification pump; `updateActiveTurnId(current, note)` is exported as
-  a pure helper.
+- `activeTurnId` tracking has two writers, ordered to close the
+  response-vs-notification race:
+  1. **Synchronous (RPC response)** — `send()` promotes `result.turn.id`
+     from the `TurnStartResponse` (and `result.turnId` from
+     `TurnSteerResponse`) into `activeTurnId` immediately after the RPC
+     ack returns. Without this, two `send()` calls back-to-back would
+     both route through `turn/start` because the asynchronous
+     `turn/started` notification has not yet been drained from the
+     event queue.
+  2. **Asynchronous (notifications)** — the notification pump applies
+     `updateActiveTurnId(current, note)` per inbound notification:
+     `turn/started` overwrites with the authoritative id (no-op when
+     it matches the value already set from the response);
+     `turn/completed` clears the field so the next `send` starts a new
+     turn. The pure helper is exported for testing.
+
+Wire shape — only the fields actually accepted by the upstream
+generated schemas (`v2/ThreadStartParams.ts`,
+`v2/ThreadResumeParams.ts`, `v2/UserInput.ts`) are emitted:
+
+- `thread/start` sends `model?`, `cwd?`, `approvalPolicy?`, `sandbox?`,
+  `baseInstructions?`. Earlier drafts also sent
+  `experimentalRawEvents: false` (orphaned — never present in the
+  upstream schema, silently ignored by the server) and
+  `persistExtendedHistory: false` (a no-op duplicating the server
+  default; the field is gated by `capabilities.experimentalApi: true`
+  and only meaningful when set to `true`). Both were removed.
+- `thread/resume` sends `threadId`, plus the same overrides as
+  `thread/start`.
+- `turn/start` / `turn/steer` send `threadId` + `input` (variant
+  `{type:"text", text, text_elements: []}` from `v2/UserInput.ts`),
+  plus `expectedTurnId` for the `turn/steer` precondition.
 
 Permission-mode mapping mirrors `permissionModeToCodexArgs` in
 `codex/process.ts` but emits structured `{approvalPolicy?, sandbox?}`
@@ -633,7 +767,7 @@ via the `initialize` handshake (visible in Codex logs).
 Handshake failure tears down the subprocess (`abort` → `await done`) so
 callers never see a zombie process on rejection.
 
-### 3.13 `e2e/` — Real-Binary Test Suite (FR-L25)
+### 3.13 `e2e/` — Real-Binary Test Suite (FR-L31)
 
 Opt-in Deno-native suite; does not run under `deno task check`. Layered:
 
@@ -845,6 +979,49 @@ never triggered by PRs or pushes).
   `allowedTools` / `disallowedTools` are validated (same rules as
   Claude via `validateToolFilter`) and ignored in argv; first
   set-value call emits one `console.warn` per process. See FR-L24.
+
+### 3.x Reasoning-effort mapping (FR-L25)
+
+Abstract enum on `RuntimeInvokeOptions.reasoningEffort` /
+`RuntimeSessionOptions.reasoningEffort`:
+`"minimal" | "low" | "medium" | "high"`. `runtime/reasoning-effort.ts`
+owns the enum + shared `validateReasoningEffort(runtime, opts)` that
+every adapter invokes before dispatch.
+
+- **Claude (`capabilities.reasoningEffort: true`)** —
+  `buildClaudeArgs` / `buildClaudeSessionArgs` emit
+  `--effort <value>` via `mapReasoningEffortToClaude`. Claude's
+  native enum is `low | medium | high | xhigh | max`; the abstract
+  `"minimal"` has no equivalent and degrades to `"low"` with a
+  one-time `console.warn` (latch in `claude/process.ts`;
+  `_resetClaudeReasoningEffortWarning` for tests).
+- **Codex (`capabilities.reasoningEffort: true`)** — `buildCodexArgs`
+  emits `--config model_reasoning_effort="<value>"` for the
+  `codex exec` transport. `openCodexSession` prepends the same
+  `--config` override to the `codex app-server` argv via
+  `expandCodexSessionExtraArgs`, so the effort applies across turns.
+  1:1 mapping; no warning.
+- **OpenCode (`capabilities.reasoningEffort: true`)** — invoke path
+  (`opencode run`) emits `--variant <value>`; session path sets
+  `body.variant = <value>` on every
+  `POST /session/:id/prompt_async`. OpenCode's `--variant` is
+  provider-specific (the value is forwarded to the active model
+  provider's reasoning-effort dial, whose enum may differ from the
+  abstract 4-level ladder), so the adapter emits a one-time
+  `console.warn` on first set-value use
+  (`_resetReasoningEffortWarning` for tests).
+- **Cursor (`capabilities.reasoningEffort: false`)** — no native
+  control. The typed field is validated (so malformed input still
+  throws uniformly) and ignored in argv / subprocess args; first
+  set-value call emits one `console.warn` per process.
+
+**Validation contract** (uniform across adapters):
+
+- Value outside the 4-level enum → synchronous throw.
+- Typed field set AND either `--effort` or `--variant` present in
+  `extraArgs` → synchronous throw (collision).
+- Legacy `extraArgs: {"--effort": …}` / `{"--variant": …}` without
+  the typed field still works — reserved-flag lists are NOT extended.
 
 ## 5. Constraints
 

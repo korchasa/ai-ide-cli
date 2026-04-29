@@ -1,6 +1,9 @@
 import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { getRuntimeAdapter } from "./index.ts";
-import { _resetToolFilterWarning } from "./opencode-adapter.ts";
+import {
+  _resetReasoningEffortWarning,
+  _resetToolFilterWarning,
+} from "./opencode-adapter.ts";
 
 const opencodeRuntimeAdapter = getRuntimeAdapter("opencode");
 
@@ -288,4 +291,73 @@ Deno.test("opencodeRuntimeAdapter.openSession — malformed input rejects withou
       assertEquals(calls.length, 1, "valid call after throw warns once");
     });
   });
+});
+
+// --- Reasoning effort (FR-L25) ---
+
+Deno.test("opencodeRuntimeAdapter — reasoningEffort capability is true", () => {
+  assertEquals(opencodeRuntimeAdapter.capabilities.reasoningEffort, true);
+});
+
+Deno.test("opencodeRuntimeAdapter.openSession — reasoningEffort warns once on provider-specific translation", async () => {
+  _resetReasoningEffortWarning();
+  await withStubOpenCode(async () => {
+    await withWarnSpy(async (calls) => {
+      const s1 = await opencodeRuntimeAdapter.openSession!({
+        reasoningEffort: "high",
+      });
+      s1.abort();
+      await s1.done;
+      const s2 = await opencodeRuntimeAdapter.openSession!({
+        reasoningEffort: "low",
+      });
+      s2.abort();
+      await s2.done;
+      const reCalls = calls.filter((c) =>
+        String(c[0]).includes("reasoningEffort")
+      );
+      assertEquals(reCalls.length, 1);
+      assert(String(reCalls[0][0]).includes("[opencode]"));
+      _resetReasoningEffortWarning();
+      const s3 = await opencodeRuntimeAdapter.openSession!({
+        reasoningEffort: "medium",
+      });
+      s3.abort();
+      await s3.done;
+      assertEquals(
+        calls.filter((c) => String(c[0]).includes("reasoningEffort")).length,
+        2,
+        "reset re-enables the warning",
+      );
+    });
+  });
+});
+
+Deno.test("opencodeRuntimeAdapter.openSession — reasoningEffort sets body.variant on prompt_async", async () => {
+  _resetReasoningEffortWarning();
+  const capture = await Deno.makeTempFile({ prefix: "opencode-capture-" });
+  try {
+    Deno.env.set("STUB_CAPTURE", capture);
+    await withStubOpenCode(async () => {
+      const session = await opencodeRuntimeAdapter.openSession!({
+        reasoningEffort: "high",
+      });
+      await session.send("hello");
+      // Drain one turn — the stub emits a session.idle after prompt_async.
+      for await (const e of session.events) {
+        if (e.type === "session.idle") break;
+      }
+      session.abort();
+      await session.done;
+    });
+    Deno.env.delete("STUB_CAPTURE");
+    const body = await Deno.readTextFile(capture);
+    const line = body.trim().split("\n")[0];
+    const parsed = JSON.parse(line);
+    assertEquals(parsed.variant, "high");
+  } finally {
+    try {
+      await Deno.remove(capture);
+    } catch { /* noop */ }
+  }
 });

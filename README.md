@@ -46,7 +46,8 @@ support without guessing:
 ```ts
 const adapter = getRuntimeAdapter("codex");
 adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
-                      //   toolUseObservation, session, capabilityInventory }
+                      //   toolUseObservation, session, capabilityInventory,
+                      //   toolFilter, reasoningEffort }
 ```
 
 ### Feature support matrix
@@ -57,16 +58,25 @@ adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
 | hitl                 | yes (denials)  | yes (MCP)      | no                | yes (MCP)      |
 | transcript path      | yes            | yes (via `opencode export`) | no  | yes            |
 | interactive TUI      | yes            | yes            | no                | yes            |
-| toolUseObservation   | yes            | yes            | no                | yes            |
+| toolUseObservation   | yes            | yes            | yes (FR-L30, fires on `tool_call/started`) | yes |
 | `openSession`        | yes (real)     | yes (`opencode serve`) | faux (per-send subprocess) | yes (app-server) |
 | capabilityInventory  | yes            | yes            | yes               | yes            |
 | skill loading        | yes (`~/.claude/skills/`) | yes (`.claude/skills/`) | no | yes (`~/.agents/skills/`) |
 | model selection      | yes            | yes            | partial (dropped on `--resume`) | yes |
 | session resume by id | `--resume`     | `--session`    | `--resume`        | `resume <id>`  |
+| toolFilter (FR-L24)  | yes (`--allowedTools` / `--disallowedTools`) | warn-only | warn-only | warn-only |
+| reasoningEffort (FR-L25) | yes (`--effort`, `minimal` warn-mapped to `low`) | yes (`--variant` / `body.variant`, provider-specific warn) | warn-only | yes (`--config model_reasoning_effort`) |
+| typed event union    | yes (`ClaudeStreamEvent` over stream-json) | partial (`OpenCodeStreamEvent` for `run --format json` only; SSE session events are untyped — FR-L27 pending) | yes (`CursorStreamEvent` over stream-json: system / user / thinking / assistant / tool_call / result, FR-L30) | yes (`CodexNotification` + `isCodexNotification` type guard, FR-L26) |
+| typed assistant content blocks | yes (`ClaudeAssistantBlock`: `text` / `tool_use` / `thinking` discriminator) | partial (`OpenCodeToolUseEvent` from `run --format json`; `Part` union from `@opencode-ai/sdk` not re-exported yet — FR-L27 pending) | partial (`CursorAssistantBlock`: text-only — Cursor does NOT inline tool blocks; tool calls are sibling `tool_call/{started,completed}` events with a `tool_call.<name>ToolCall.{args\|result}` wrapper unflattened by `unwrapCursorToolCall`, FR-L30) | yes (`CodexThreadItem` 10-variant union: `agentMessage` / `reasoning` / `plan` / `commandExecution` / `fileChange` / `mcpToolCall` / `dynamicToolCall` / `webSearch` / …, FR-L26) |
+| structured init w/ capabilities | yes (`ClaudeSystemEvent` carries `tools[]` / `skills[]` / `agents[]` / `mcp_servers[]` / `slash_commands[]` / `plugins[]`) | no in event stream (capability inventory available out-of-band via the `/agent` and `/config` server endpoints) | no (init only carries `model` / `cwd` / `permissionMode` / `apiKeySource`) | no in event stream (`thread/start` response carries `instructionSources[]` only — no tool enum) |
+| per-assistant-turn lifecycle hook | yes (`ClaudeLifecycleHooks.onAssistant` fires once per assistant turn with the typed `ClaudeAssistantEvent`) | no (cross-runtime `RuntimeLifecycleHooks.onInit` / `onResult` only) | yes (`CursorLifecycleHooks.onAssistant` fires once per assistant turn with the typed `CursorAssistantEvent`, FR-L30) | no (cross-runtime hooks only — FR-L29 pending: `onCodexTurnCompleted` bound to `turn/completed`) |
+| settingSources cleanroom | yes (`CLAUDE_CONFIG_DIR` redirect, FR-L18) | silent ignore | silent ignore | silent ignore (FR-L28 pending — `CODEX_HOME` redirect) |
 
 Universal across all four runtimes: NDJSON event streaming, `AbortSignal`
 + timeout, custom `cwd` / `env`, `extraArgs` / `runtime_args` passthrough,
-typed lifecycle `hooks`, raw `onEvent` escape hatch.
+typed lifecycle `hooks` (`onInit` / `onResult`), raw `onEvent` escape
+hatch (`Record<string, unknown>`), normalized session-event content
+extraction via `extractSessionContent` (FR-L23).
 
 Notes:
 
@@ -165,9 +175,10 @@ hatch), `hooks` (typed lifecycle).
 
 Runtime-scoped (check `capabilities` before using):
 
-- `onToolUseObserved` — Claude, Codex, and OpenCode
-  (`capabilities.toolUseObservation`). Cursor silently ignores the
-  callback (no tool events surfaced by the CLI).
+- `onToolUseObserved` — Claude, Codex, OpenCode, and Cursor (FR-L30)
+  (`capabilities.toolUseObservation`). Cursor fires the callback on
+  every `tool_call/started` event with the flattened tool name from
+  `unwrapCursorToolCall`.
 - `settingSources` — Claude only (cleanroom `CLAUDE_CONFIG_DIR` setup).
   Other runtimes have no equivalent; the option is ignored.
 
@@ -188,6 +199,57 @@ await invokeClaudeCli({
   settingSources: ["user"], // symlink host ~/.claude/settings.json only
 });
 ```
+
+## Scoping subprocesses (`ProcessRegistry`)
+
+Every adapter call (`invoke`, `openSession`) spawns one or more child
+processes. Two ways to track them for graceful shutdown:
+
+- **Default singleton.** Standalone CLI use and existing consumers do
+  nothing — the package's module-level `defaultRegistry` tracks every
+  spawn, and the free functions
+  `register`/`unregister`/`onShutdown`/`killAll` operate on it. Importing
+  `installSignalHandlers()` from a downstream package (e.g.
+  `@korchasa/flowai-workflow`) wires `SIGINT`/`SIGTERM` to
+  `killAll()` + `Deno.exit(130|143)`.
+- **Instance-scoped (`ProcessRegistry`).** When one Deno process hosts
+  several independent runtimes (e.g. a workflow engine and a chat
+  bridge in the same binary), pass a private `ProcessRegistry` to each
+  subsystem so `killAll()` on one does not touch the others.
+
+```ts
+import {
+  getRuntimeAdapter,
+  ProcessRegistry,
+} from "jsr:@korchasa/ai-ide-cli";
+
+const engineRegistry = new ProcessRegistry();
+const bridgeRegistry = new ProcessRegistry();
+
+const adapter = getRuntimeAdapter("claude");
+const result = await adapter.invoke({
+  taskPrompt: "...",
+  timeoutSeconds: 60,
+  maxRetries: 1,
+  retryDelaySeconds: 1,
+  processRegistry: engineRegistry, // scope this spawn to engineRegistry
+});
+
+// Reaps engine-spawned subprocesses only. Bridge-spawned subprocesses
+// stay alive.
+await engineRegistry.killAll();
+```
+
+Both `RuntimeInvokeOptions` and `RuntimeSessionOptions` accept the
+optional `processRegistry` field; when omitted, the default singleton is
+used (backward-compatible with all earlier consumers).
+
+> **OS signals:** the library never installs `SIGINT`/`SIGTERM` handlers
+> itself. Downstream `installSignalHandlers()` helpers typically reap
+> only the **default singleton**. Subprocesses tracked by a private
+> `ProcessRegistry` will NOT be killed on signal unless the embedder
+> wires its own handler (e.g. `Deno.addSignalListener("SIGINT", () =>
+> Promise.all([engineRegistry.killAll(), bridgeRegistry.killAll()]))`).
 
 ## Capability inventory (`fetchCapabilitiesSlow`)
 
@@ -279,7 +341,7 @@ throws at invocation time with an explicit error.
   unit tests (PATH-stubbed binaries, zero tokens), doc-lint, publish
   dry-run. Runs in CI on every push / PR.
 - `deno task test` — unit tests only; use during TDD iterations.
-- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L25).
+- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L31).
   Requires Claude / OpenCode / Cursor / Codex CLIs on `$PATH` and spends
   real tokens. Guarded by `E2E=1`; narrow to one runtime with
   `deno task e2e:<claude|opencode|cursor|codex>` (sets `E2E_RUNTIMES`).
@@ -301,7 +363,7 @@ This package is deliberately minimal:
 - No domain-specific logic
 
 Runtime-specific stream parsers, session openers, and HITL MCP handlers
-are available via sub-path exports (`./claude/stream`, `./opencode/session`,
-`./cursor/session`, `./codex/app-server`, etc.) for callers that need
-typed access beyond the neutral `RuntimeAdapter` / `RuntimeSession`
-interfaces.
+are available via sub-path exports (`./claude/stream`, `./cursor/stream`,
+`./opencode/session`, `./cursor/session`, `./codex/app-server`, etc.)
+for callers that need typed access beyond the neutral
+`RuntimeAdapter` / `RuntimeSession` interfaces.

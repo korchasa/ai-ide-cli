@@ -39,10 +39,14 @@ stable — never renumber on move.
   member alongside `@korchasa/flowai-workflow`. Consumers import via sub-path
   specifiers (`/runtime`, `/claude/process`, `/cursor/process`, etc.).
 - **Assumptions:**
-  - Agent CLI binaries (`claude`, `opencode`, `cursor`) installed and on PATH.
+  - Agent CLI binaries (`claude`, `opencode`, `cursor`, `codex`) installed and on PATH.
   - Deno runtime available (library uses `Deno.Command` for subprocess spawn).
   - Consumers handle signal installation; library exposes `killAll()` but
     does not wire OS signals.
+  - Library is safe to embed in a host process that runs several
+    independent runtimes side-by-side: every spawn point honours a
+    caller-supplied `ProcessRegistry` (FR-L3) so the host can scope
+    subprocess cleanup per subsystem.
 
 ## 3. Functional Requirements
 
@@ -97,21 +101,41 @@ stable — never renumber on move.
 
 ### 3.3 FR-L3: Process Registry
 
-- **Description:** Pure child-process tracker. `register(p)` / `unregister(p)`
-  track spawned processes. `killAll()` sends SIGTERM, waits 5s, then SIGKILL.
-  `onShutdown(cb)` registers cleanup callbacks. No OS signal wiring — consumers
-  own that.
+- **Description:** Pure child-process tracker exposed in two flavors:
+  (a) the `ProcessRegistry` class for instance-scoped use — one registry
+  per logical scope (e.g. one per active session in an embedder that hosts
+  multiple independent runtimes in one process), and (b) a module-level
+  default singleton plus `register`/`unregister`/`onShutdown`/`killAll`
+  free functions that wrap it for backward compatibility. Both flavors
+  expose `register(p)` / `unregister(p)` to track spawned processes,
+  `killAll()` (SIGTERM, wait 5s, SIGKILL, then run callbacks), and
+  `onShutdown(cb)` returning a disposer that removes the callback. No OS
+  signal wiring — consumers own that.
 - **Motivation:** Centralized process lifecycle enables graceful shutdown
-  across all runtimes without each adapter managing its own cleanup.
+  across all runtimes without each adapter managing its own cleanup. The
+  instance-scoped flavor lets embedders (e.g. flowai-center) host several
+  independent runtimes in one Deno process and reap their subprocesses
+  without disturbing one another.
 - **Acceptance:**
-  - [x] `register`, `unregister`, `killAll`, `onShutdown` exported.
-        Evidence: `ai-ide-cli/process-registry.ts`.
-  - [x] `killAll()` SIGTERM → 5s wait → SIGKILL → callbacks.
-        Evidence: `ai-ide-cli/process-registry.ts:36-80`.
-  - [x] All runtime runners call `register`/`unregister` around subprocess
-        lifecycle. Evidence: `ai-ide-cli/claude/process.ts:157-158,275`,
-        `ai-ide-cli/opencode/process.ts:244,391`,
-        `ai-ide-cli/cursor/process.ts:166-167,253`.
+  - [x] `ProcessRegistry` class + free-function wrappers + default
+        singleton exported. Evidence: `ai-ide-cli/process-registry.ts`.
+  - [x] `killAll()` SIGTERM → 5s wait → SIGKILL → callbacks. Test:
+        `ai-ide-cli/process-registry_test.ts::ProcessRegistry SIGKILL
+        escalation`.
+  - [x] All runtime runners route subprocess lifecycle through the
+        registry resolved from `opts.processRegistry ?? defaultRegistry`.
+        Evidence: `ai-ide-cli/claude/process.ts`,
+        `ai-ide-cli/claude/session.ts`, `ai-ide-cli/opencode/process.ts`,
+        `ai-ide-cli/opencode/session.ts`, `ai-ide-cli/cursor/process.ts`,
+        `ai-ide-cli/cursor/session.ts`, `ai-ide-cli/codex/process.ts`,
+        `ai-ide-cli/codex/app-server.ts`.
+  - [x] `RuntimeInvokeOptions` and `RuntimeSessionOptions` carry an
+        optional `processRegistry` that, when supplied, scopes the
+        spawned subprocess to that registry instead of the default
+        singleton. Test:
+        `ai-ide-cli/runtime/process-registry-routing_test.ts::processRegistry
+        routing — createCursorChat tracks subprocess on supplied registry,
+        not default`.
 
 ### 3.4 FR-L4: Claude CLI Wrapper
 
@@ -618,12 +642,21 @@ stable — never renumber on move.
     `thread/start` (fresh) or `thread/resume` (on `resumeSessionId`).
     Returns `CodexSession { pid, threadId, send, events, endInput, abort,
     done }`. First `send` maps to `turn/start`; subsequent `send` calls
-    while a turn is active map to `turn/steer` with `expectedTurnId` taken
-    from the latest `turn/started` notification (not the `turn/start`
-    response — those can arrive in either order, the notification is
-    authoritative). `turn/completed` clears the active turn. The
-    underlying `CodexAppServerClient` is transport-only; thread/turn
-    semantics live in `codex/session.ts`. Targets `codex-cli >= 0.121.0`.
+    while a turn is active map to `turn/steer` with `expectedTurnId` set
+    to `activeTurnId`. `activeTurnId` is set synchronously from the RPC
+    response (`TurnStartResponse.turn.id` /
+    `TurnSteerResponse.turnId`) the moment `client.request()` resolves,
+    and reconciled asynchronously from `turn/started` notifications;
+    `turn/completed` clears it. Setting from the response closes the
+    race where two back-to-back `send()` calls would both route through
+    `turn/start` while the notification is still queued. The wire
+    payload only includes fields present in the upstream-generated
+    schemas (`v2/{ThreadStartParams,ThreadResumeParams,TurnStartParams,
+    TurnSteerParams,UserInput}.ts`); orphan fields
+    (`experimentalRawEvents`) and no-op duplicates of server defaults
+    (`persistExtendedHistory: false`) are not emitted. The underlying
+    `CodexAppServerClient` is transport-only; thread/turn semantics
+    live in `codex/session.ts`. Targets `codex-cli >= 0.121.0`.
   - **Runtime-neutral.** `RuntimeAdapter.openSession?(opts):
     Promise<RuntimeSession>` is optional; callers check
     `capabilities.session` before invoking. Claude, OpenCode, Cursor, and
@@ -652,7 +685,7 @@ stable — never renumber on move.
     --output-format stream-json --verbose`; empirically verified against
     real binary. Evidence:
     `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
-    `ai-ide-cli/e2e/_matrix.ts:scenarioTwoTurns` (FR-L25).
+    `ai-ide-cli/e2e/_matrix.ts:scenarioTwoTurns` (FR-L31).
   - [x] Claude `send()` emits JSONL user-message shape; `endInput()`
     closes stdin gracefully and returns promptly (signal-only);
     `abort()` SIGTERMs and is idempotent; `done` resolves with exit code +
@@ -724,7 +757,7 @@ stable — never renumber on move.
     `ai-ide-cli/opencode/session_test.ts`,
     `ai-ide-cli/cursor/session_test.ts`,
     `ai-ide-cli/codex/session_test.ts`,
-    `ai-ide-cli/e2e/` (real-binary matrix, FR-L25).
+    `ai-ide-cli/e2e/` (real-binary matrix, FR-L31).
 
 ### 3.20 FR-L20: Capability Inventory (LLM-probed)
 
@@ -936,7 +969,7 @@ stable — never renumber on move.
         `NormalizedContent[]` whose joined text/final entries contain
         the reply word, without ever throwing. Evidence:
         `ai-ide-cli/e2e/_matrix.ts:scenarioContentNormalization`
-        (FR-L25 matrix entry).
+        (FR-L31 matrix entry).
   - [x] `// FR-L23` traceability comment on the
         `extractSessionContent` dispatcher. Evidence:
         `ai-ide-cli/runtime/content.ts`.
@@ -1004,7 +1037,366 @@ stable — never renumber on move.
     sites. Evidence: `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
     `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`.
 
-### 3.25 FR-L25: Real-Binary E2E Suite
+### 3.25 FR-L25: Abstract Reasoning-Effort on Runtime Options
+
+- **Description:** `RuntimeInvokeOptions` and `RuntimeSessionOptions`
+  expose `reasoningEffort?: "minimal" | "low" | "medium" | "high"` as a
+  first-class typed field. The value is a runtime-neutral dial; each
+  adapter maps it to its closest native control (Claude `--effort`,
+  Codex `--config model_reasoning_effort=…`, OpenCode `--variant` /
+  `body.variant`). Cursor has no native control and accepts the field
+  with a one-time `console.warn`. Every adapter also emits a one-time
+  warn when the mapping is lossy (Claude's `"minimal"` degrades to
+  `"low"`; OpenCode's `--variant` is provider-specific and may or may
+  not honour the requested depth). `RuntimeCapabilities.reasoningEffort`
+  is a new boolean capability — Claude / Codex / OpenCode `true`,
+  Cursor `false`.
+- **Validation contract** (runs on every adapter via shared
+  `validateReasoningEffort` in `runtime/reasoning-effort.ts`):
+  - Value outside the 4-level enum → synchronous throw
+    (`reasoningEffort must be one of …`).
+  - Typed field set AND either `--effort` or `--variant` present in
+    `extraArgs` → synchronous throw (`extraArgs key "..." collides`).
+  - Legacy path preserved: `extraArgs: {"--effort": …}` or
+    `{"--variant": …}` without the typed field still works
+    (backwards-compatible — reserved flag lists are **not** extended).
+- **Scenario:** A consumer iterates the same config against all four
+  runtimes and wants the model to "think harder" for a hard task
+  without branching on runtime name. Setting
+  `reasoningEffort: "high"` produces `--effort high` on Claude,
+  `--config model_reasoning_effort="high"` on Codex, and
+  `--variant high` (plus `body.variant = "high"` on the session
+  transport) on OpenCode; Cursor logs one warning and runs unchanged.
+- **Acceptance:**
+  - [x] `RuntimeInvokeOptions.reasoningEffort` accepts the 4-level
+    enum. Evidence: `ai-ide-cli/runtime/types.ts`.
+  - [x] `RuntimeSessionOptions.reasoningEffort` accepts the 4-level
+    enum. Evidence: `ai-ide-cli/runtime/types.ts`.
+  - [x] `RuntimeCapabilities.reasoningEffort: boolean` — Claude /
+    Codex / OpenCode `true`, Cursor `false`. Evidence: all four
+    adapters in `ai-ide-cli/runtime/*-adapter.ts`.
+  - [x] Claude `invoke` and `openSession` emit `--effort <value>`
+    with `"minimal"` degraded to `"low"` plus a one-time console
+    warning. Evidence: `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
+    `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
+    `mapReasoningEffortToClaude`.
+  - [x] Codex `invoke` emits `--config model_reasoning_effort="<value>"`
+    and `openSession` prepends the same `--config` override to the
+    `codex app-server` argv. Evidence:
+    `ai-ide-cli/codex/process.ts:buildCodexArgs`,
+    `ai-ide-cli/codex/session.ts:openCodexSession`.
+  - [x] OpenCode `invoke` emits `--variant <value>` and `openSession`
+    sets `body.variant = <value>` on every `POST /session/:id/prompt_async`.
+    Evidence: `ai-ide-cli/opencode/process.ts:buildOpenCodeArgs`,
+    `ai-ide-cli/opencode/session.ts`.
+  - [x] Non-exact mappings trigger exactly one `console.warn` per
+    process (Claude `"minimal"` → `"low"`; OpenCode any value —
+    provider-specific). Cursor warns once on any value. Evidence:
+    `_resetClaudeReasoningEffortWarning` in
+    `ai-ide-cli/claude/process.ts`;
+    `_resetReasoningEffortWarning` in
+    `ai-ide-cli/runtime/{opencode,cursor}-adapter.ts`; tests in
+    `ai-ide-cli/runtime/cursor-adapter_test.ts`,
+    `ai-ide-cli/runtime/opencode-adapter_test.ts`,
+    `ai-ide-cli/claude/process_test.ts`.
+  - [x] Out-of-enum values and `--effort`/`--variant` collisions in
+    `extraArgs` throw synchronously through `validateReasoningEffort`.
+    Evidence: `ai-ide-cli/runtime/reasoning-effort.ts`,
+    `ai-ide-cli/runtime/reasoning-effort_test.ts`.
+  - [x] `// FR-L25` traceability comments at the argv / body
+    emission sites. Evidence:
+    `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
+    `ai-ide-cli/claude/session.ts:buildClaudeSessionArgs`,
+    `ai-ide-cli/codex/process.ts:buildCodexArgs`,
+    `ai-ide-cli/codex/session.ts:openCodexSession`,
+    `ai-ide-cli/opencode/process.ts:buildOpenCodeArgs`,
+    `ai-ide-cli/opencode/session.ts`.
+  - [x] `RuntimeConfigSource.effort?: ReasoningEffort` cascades through
+    `resolveRuntimeConfig` (`node` → `parent` → `defaults`) and is exposed
+    on `ResolvedRuntimeConfig.reasoningEffort`. Mirrors the `model`
+    precedence rule on `runtime/index.ts:97`. Evidence:
+    `ai-ide-cli/runtime/index.ts:resolveRuntimeConfig`,
+    `ai-ide-cli/runtime/types.ts:RuntimeConfigSource,ResolvedRuntimeConfig`,
+    `ai-ide-cli/runtime/index_test.ts` (4 tests under
+    "reasoning effort cascade").
+  - [x] Claude `buildClaudeArgs` suppresses `--effort` emission when
+    `resumeSessionId` is set, mirroring `--model` semantics on
+    `claude/process.ts:290`. The session inherits its original
+    reasoning-effort level on resume. Evidence:
+    `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
+    `ai-ide-cli/claude/process_test.ts`
+    ("buildClaudeArgs — resume path suppresses --effort").
+
+### 3.26 FR-L26: Typed Codex App-Server Notifications
+
+- **Description:** Library exposes a sharp discriminated union over the
+  Codex `app-server` JSON-RPC notification stream so consumers narrow
+  `note.params` to a typed payload instead of casting `Record<string,
+  unknown>`. Hand-mirrored from `codex app-server generate-ts
+  --experimental` output (variants the library actively narrows on);
+  unrecognized methods remain accessible through the raw
+  `CodexUntypedNotification` shape preserved by the transport client.
+- **Scenario:** Embedding application iterates
+  `CodexAppServerClient.notifications` to render a turn's lifecycle.
+  Without typed events, every consumer rewrites the same `(note.params as
+  any).turn.id` casts. With FR-L26, `isCodexNotification(note,
+  "turn/started")` narrows the variable to `CodexTurnStartedNotification`
+  and `note.params.turn` is typed as `CodexTurn`.
+- **Acceptance:**
+  - [x] `codex/events.ts` exposes the typed union `CodexNotification`
+    covering `thread/started`, `turn/started`, `turn/completed`,
+    `item/started`, `item/completed`, `item/agentMessage/delta`,
+    `item/reasoning/textDelta`, `item/reasoning/summaryTextDelta`,
+    `item/commandExecution/outputDelta`, `error`. Evidence:
+    `ai-ide-cli/codex/events.ts`.
+  - [x] `CodexThreadItem` discriminated union over `item.type` covers
+    `userMessage`, `agentMessage`, `reasoning`, `plan`,
+    `commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall`,
+    `webSearch`, `contextCompaction`. Evidence:
+    `ai-ide-cli/codex/events.ts`.
+  - [x] `isCodexNotification(note, method)` is a working type guard:
+    after the check, `note.params` narrows to the variant's typed shape
+    without explicit casts. Evidence:
+    `ai-ide-cli/codex/events_test.ts` (6 tests covering `turn/started`,
+    `turn/completed`, `item/agentMessage/delta`, `item/completed` →
+    `commandExecution`, `item/started` → `mcpToolCall`, unknown method
+    fallthrough).
+  - [x] `CodexAppServerNotification` continues to type the
+    `client.notifications` iterator as the runtime shape
+    (`CodexUntypedNotification`) — no breaking change at the transport
+    layer; consumers still iterate the raw form and apply the type
+    guard to narrow. Evidence:
+    `ai-ide-cli/codex/app-server.ts:CodexAppServerNotification`.
+  - [x] `updateActiveTurnId` uses `isCodexNotification` instead of
+    manual casts. Evidence:
+    `ai-ide-cli/codex/session.ts:updateActiveTurnId`.
+  - [x] All public types are barrel-exported from `mod.ts`. Evidence:
+    `ai-ide-cli/mod.ts` (codex events block).
+  - [x] `// FR-L26` traceability comments at the narrowing sites.
+    Evidence: `ai-ide-cli/codex/session.ts:updateActiveTurnId`,
+    `ai-ide-cli/codex/events.ts` (module JSDoc).
+
+### 3.27 FR-L27: Typed OpenCode SSE Session Events
+
+- **Description:** Library exposes a sharp discriminated union over the
+  OpenCode `/event` SSE stream consumed by `openOpenCodeSession`,
+  matching the `Event` and `Part` unions published by
+  `@opencode-ai/sdk`. The legacy `OpenCodeStreamEvent` (which currently
+  models the `opencode run --format json` schema, not the SSE schema)
+  is renamed to a more accurate name and kept as a deprecated alias for
+  one minor cycle to preserve JSR backward compatibility.
+- **Scenario:** Embedding application iterates
+  `OpenCodeSession.events` and wants to render `message.part.updated`
+  with typed `Part` payloads (`text`/`tool`/`reasoning`/`file`/
+  `step-start`/`step-finish`/`patch`/`agent`/`retry`/`compaction`/
+  `subtask`). Without typed events, every consumer rewrites
+  `(raw.properties.part as any).type` casts; with FR-L27,
+  `isOpenCodeEvent(note, "message.part.updated")` narrows the variant
+  and `event.properties.part` becomes `OpenCodePart` (a sharp
+  discriminated union over `part.type`).
+- **Acceptance:**
+  - [ ] `opencode/events.ts` exposes the typed union `OpenCodeEvent`
+    covering at minimum the SSE variants the library and downstream
+    consumers narrow on: `server.connected`, `session.created`,
+    `session.updated`, `session.idle`, `session.status`,
+    `session.error`, `message.updated`, `message.part.updated`,
+    `message.part.removed`, `permission.updated`, `permission.replied`,
+    `file.edited`. Forward-compat fallback is the runtime shape
+    `OpenCodeUntypedEvent` (mirrors the FR-L26 split between sharp
+    `CodexNotification` and runtime `CodexUntypedNotification`).
+    Evidence: `ai-ide-cli/opencode/events.ts`.
+  - [ ] `OpenCodePart` discriminated union over `part.type` covers
+    `text`, `reasoning`, `file`, `tool`, `step-start`, `step-finish`,
+    `snapshot`, `patch`, `agent`, `retry`, `compaction`, `subtask`.
+    `OpenCodeToolState` further narrows `ToolPart.state.status` to
+    `pending` / `running` / `completed` / `error`. Evidence:
+    `ai-ide-cli/opencode/events.ts`.
+  - [ ] `isOpenCodeEvent(event, type)` is a working type guard:
+    after the check, `event.properties` narrows to the variant's typed
+    shape without explicit casts. Evidence:
+    `ai-ide-cli/opencode/events_test.ts` (≥ 6 tests covering the
+    common narrowing paths and the unknown-event fallback).
+  - [ ] The legacy `OpenCodeStreamEvent` (modelling `opencode run
+    --format json` events `step_start` / `text` / `tool_use` /
+    `step_finish` / `error`) is renamed to `OpenCodeRunStreamEvent`
+    and re-exported under the legacy name as a deprecated type
+    alias (`@deprecated` JSDoc, alias kept for one minor cycle).
+    Evidence: `ai-ide-cli/opencode/process.ts`,
+    `ai-ide-cli/CHANGELOG.md`.
+  - [ ] `opencode/session.ts` dispatcher consumes the typed
+    `OpenCodeEvent` union (no `Record<string, unknown>` casts in the
+    busy/idle / `message.part.updated` branches). Evidence:
+    `ai-ide-cli/opencode/session.ts`.
+  - [ ] `runtime/content.ts` OpenCode branch consumes
+    `OpenCodePart` / `OpenCodeToolState` types instead of stringly-typed
+    field access (no behaviour change; types-only). Evidence:
+    `ai-ide-cli/runtime/content.ts:extractOpenCodeContent`.
+  - [ ] Public types are barrel-exported from `mod.ts`. Evidence:
+    `ai-ide-cli/mod.ts`.
+  - [ ] `// FR-L27` traceability comments at narrowing sites in
+    `opencode/session.ts` and `runtime/content.ts`.
+  - [ ] `deno publish --dry-run` continues to pass — no JSR slow-types
+    regression. Evidence: green CI run / local `deno task check`.
+
+### 3.28 FR-L28: `CODEX_HOME` Setting-Source Isolation
+
+- **Description:** Codex adapter honors `RuntimeInvokeOptions.settingSources` /
+  `RuntimeSessionOptions.settingSources` by populating a temp directory
+  with the listed sources and pointing the spawned `codex` subprocess at
+  it via the `CODEX_HOME` environment variable. Mirrors the Claude
+  adapter's FR-L18 behaviour for cleanroom / per-invocation config
+  isolation. `capabilities.settingSources` becomes runtime-aware (Claude
+  / Codex `true`; OpenCode / Cursor `false`).
+- **Scenario:** Pipeline runs three Codex turns with different effective
+  configs (different `~/.codex/config.toml`, different
+  `~/.codex/instructions.md`). Without isolation each run pollutes the
+  global home; with FR-L28 each run sees a fresh `CODEX_HOME` populated
+  from `settingSources`.
+- **Acceptance:**
+  - [ ] `runtime/setting-sources.ts` (or a new
+    `codex/setting-sources.ts`) exposes
+    `prepareCodexSettingSourcesDir(sources, opts)` that builds a temp
+    directory under `Deno.makeTempDir()` and returns the path. Evidence:
+    `ai-ide-cli/runtime/setting-sources.ts` /
+    `ai-ide-cli/codex/setting-sources.ts`.
+  - [ ] `codex/process.ts:invokeCodexCli` and
+    `codex/session.ts:openCodexSession` set `env.CODEX_HOME = <tempdir>`
+    on the spawned subprocess when `settingSources` is provided. Cleanup
+    runs in a `finally` block. Evidence:
+    `ai-ide-cli/codex/process.ts`, `ai-ide-cli/codex/session.ts`.
+  - [ ] New `RuntimeCapabilities.settingSources: boolean` capability
+    flag (Claude / Codex `true`; OpenCode / Cursor `false`). Existing
+    `settingSources` field stays on options (already there) — only the
+    capability metadata changes. Evidence:
+    `ai-ide-cli/runtime/types.ts:RuntimeCapabilities`,
+    `ai-ide-cli/runtime/{claude,codex,opencode,cursor}-adapter.ts`.
+  - [ ] Tests verify the populated `CODEX_HOME` directory contents
+    match the listed sources, env var lands on the subprocess, and
+    cleanup succeeds. Evidence:
+    `ai-ide-cli/codex/setting-sources_test.ts`,
+    `ai-ide-cli/codex/process_test.ts`,
+    `ai-ide-cli/codex/session_test.ts`.
+  - [ ] `// FR-L28` traceability comments at the env-emission sites.
+  - [ ] OpenCode / Cursor adapters with `capabilities.settingSources
+    === false` emit one `console.warn` on first set-value call per
+    process when `settingSources` is provided (mirrors the FR-L24 /
+    FR-L25 warn-once latch pattern). Evidence:
+    `ai-ide-cli/runtime/{cursor,opencode}-adapter.ts`.
+
+### 3.29 FR-L29: Codex Per-Turn Lifecycle Hook
+
+- **Description:** Codex session and one-shot invocation adapters fire a
+  per-turn lifecycle hook on the `turn/completed` JSON-RPC notification
+  (session) and the corresponding `turn.completed` NDJSON event
+  (one-shot). Surfaces a typed `CodexTurn` payload to consumers that
+  want a "one event per turn" handle without iterating the full event
+  stream. Mirrors the Claude `onAssistant` ergonomics on a per-turn
+  granularity instead of per-assistant-message — Codex emits multiple
+  agent-message items per turn so per-turn is the closer analogue.
+- **Scenario:** Embedding application wants to log turn cost / status /
+  error after each turn. Today consumers must filter
+  `RuntimeSessionEvent.type === "turn-end"` and read `raw.params.turn`.
+  With FR-L29 they pass `hooks.onCodexTurnCompleted: (turn: CodexTurn,
+  threadId: string) => void` and skip the filtering layer.
+- **Acceptance:**
+  - [ ] `codex/session.ts` and `codex/process.ts` fire
+    `hooks.onCodexTurnCompleted?(turn, threadId)` on the
+    `turn/completed` notification path; `turn` is typed as
+    {@link CodexTurn} (FR-L26). Evidence:
+    `ai-ide-cli/codex/session.ts`, `ai-ide-cli/codex/process.ts`.
+  - [ ] New optional Codex-specific hook field on
+    `CodexSessionOptions` and `RuntimeInvokeOptions` (or a Codex-only
+    options interface, mirroring `ClaudeLifecycleHooks`); does NOT
+    appear on the cross-runtime `RuntimeLifecycleHooks` (which stays
+    `onInit` / `onResult` only). Evidence:
+    `ai-ide-cli/codex/session.ts`, `ai-ide-cli/codex/process.ts`.
+  - [ ] Tests cover hook firing exactly once per `turn/completed`,
+    not on `turn/started`, and pass-through of `turn.error` /
+    `turn.durationMs`. Evidence: `ai-ide-cli/codex/session_test.ts`,
+    `ai-ide-cli/codex/process_test.ts`.
+  - [ ] `// FR-L29` traceability comments at the hook-fire sites.
+
+### 3.30 FR-L30: Typed Cursor Stream-JSON Event Union & Tool-Call Lifecycle
+
+- **Description:** Cursor adapter emits a discriminated union
+  `CursorStreamEvent` over `cursor agent -p --output-format stream-json`,
+  parses tool-call events as a separate event class (Cursor wraps tool
+  calls in `tool_call.<name>ToolCall.{args|result}`, distinct from
+  Claude's inline `tool_use` blocks), surfaces them through the
+  cross-runtime `onToolUseObserved` callback, exposes a typed
+  per-assistant-turn lifecycle hook, and forks the
+  `extractSessionContent` cursor branch from the shared Claude branch so
+  tool invocations stop being silently dropped.
+- **Scenario:** Empirical capture of `cursor agent -p` stream-json
+  output (`scripts/smoke.ts cursor-events`, dump
+  `/tmp/cursor-events-*.ndjson`) revealed six distinct event types
+  (`system/init`, `user`, `thinking/{delta,completed}`, `assistant`,
+  `tool_call/{started,completed}`, `result/success`). The previous
+  shared Claude/Cursor extractor in `runtime/content.ts` only handled
+  `assistant` and `result`, so every Cursor `tool_call/*` event
+  collapsed to `[]`, producing the false matrix entry "no
+  toolUseObservation" — the bug was on the consumer side, not Cursor.
+  Consumers using `extractSessionContent` saw zero tool blocks for
+  Cursor sessions while the runtime emitted them on every read / grep /
+  edit. After this FR, consumers receive
+  `NormalizedToolContent` for Cursor tool calls, and adapters hosting an
+  `onToolUseObserved` hook receive `RuntimeToolUseInfo` for each
+  Cursor tool dispatch.
+- **Acceptance:**
+  - [x] `cursor/stream.ts` exports a discriminated union
+    `CursorStreamEvent` covering `system`, `user`, `thinking`,
+    `assistant`, `tool_call`, `result`, and a forward-compat
+    `CursorUnknownEvent` fallback. Includes `parseCursorStreamEvent`
+    NDJSON parser (mirrors `parseClaudeStreamEvent`). Evidence:
+    `// FR-L30` comments at the union and parser definitions; tests
+    `ai-ide-cli/cursor/stream_test.ts`.
+  - [x] Tool-call events typed as
+    `CursorToolCallStartedEvent | CursorToolCallCompletedEvent` with
+    `subtype` discriminator, `call_id`, and a `tool_call` wrapper
+    payload. Helper `unwrapCursorToolCall(raw)` flattens the
+    `<name>ToolCall` wrapper into `{name, args, result?,
+    errorMessage?}` so consumers do not enumerate per-tool keys
+    themselves. Evidence: `// FR-L30` traceability at the helper.
+  - [x] `runtime/content.ts` forks the cursor extractor from the shared
+    Claude path: `extractCursorContent` handles `assistant` (text
+    blocks only — Cursor never inlines tool blocks), `tool_call` with
+    `subtype === "started"` → `NormalizedToolContent` (via
+    `unwrapCursorToolCall`), and `result` → `NormalizedFinalContent`.
+    Tests cover at least one `tool_call/started` event yielding a
+    tool entry. Evidence: `// FR-L30` comments at the cursor case;
+    tests in `ai-ide-cli/runtime/content_test.ts`.
+  - [x] `cursor/process.ts` fires `onToolUseObserved` on every
+    `tool_call/started` event with a flattened `RuntimeToolUseInfo`
+    (`runtime: "cursor"`, `id: call_id`, `name: <unwrapped>`,
+    `input: <args>`, `turn: <turn count>`). Returning `"abort"`
+    triggers SIGTERM and the adapter synthesizes a `CliRunOutput`
+    with `is_error: true` and a `permission_denials[]` entry
+    describing the observed tool — symmetric with Claude's behaviour.
+    Evidence: stub-based unit tests in
+    `ai-ide-cli/cursor/process_test.ts` plus `// FR-L30`
+    traceability.
+  - [x] `runtime/cursor-adapter.ts` flips
+    `capabilities.toolUseObservation` from `false` to `true` and
+    propagates `opts.onToolUseObserved` into the cursor invocation,
+    translating the Cursor-specific info shape into
+    `RuntimeToolUseInfo` (mirrors the Claude-adapter wiring).
+  - [x] `cursor/stream.ts` exports `CursorLifecycleHooks` with
+    `onInit` / `onAssistant` / `onResult`; `onAssistant` fires once
+    per `assistant` event with the typed `CursorAssistantEvent`.
+    Surfaced through `cursor/process.ts` to close the
+    "per-assistant-turn lifecycle hook: cursor: no" matrix row.
+  - [x] README feature matrix flips for Cursor: `toolUseObservation`,
+    `typed event union`, `typed assistant content blocks` (partial —
+    text-only blocks; tool calls are sibling events not inline
+    blocks), and `per-assistant-turn lifecycle hook`. Evidence:
+    `README.md` matrix section.
+  - [x] Real-binary smoke verification: `deno run -A scripts/smoke.ts
+    cursor-events` against installed `cursor agent -p` captures NDJSON
+    histogram (system/user/thinking/assistant/tool_call/result), confirms
+    typed parser handles the actual wire format. Evidence:
+    `scripts/smoke.ts:cursor-events` scenario.
+
+### 3.31 FR-L31: Real-Binary E2E Suite
 
 - **Description:** Opt-in `deno test`–based suite under `e2e/` that
   exercises the four runtime adapters against their real CLI binaries
@@ -1025,9 +1417,11 @@ stable — never renumber on move.
 - **Motivation:** Unit tests use PATH-stub binaries (e.g.
   `claude/session_test.ts`) which catch logic regressions but not
   upstream CLI drift (argv renames, event-shape changes, protocol bumps).
-  Before FR-L25 only Claude had real-binary coverage via the bespoke
-  `scripts/smoke.ts` runner. FR-L25 turns that coverage into a uniform,
+  Before FR-L31 only Claude had real-binary coverage via the bespoke
+  `scripts/smoke.ts` runner. FR-L31 turns that coverage into a uniform,
   Deno-native, opt-in suite with enforced per-runtime symmetry.
+  `scripts/smoke.ts` retains its role as an ad-hoc capture script for
+  typing new runtime stream events (FR-L30 cursor-events workflow).
 - **Acceptance:**
   - [x] `e2e/` directory with `_helpers.ts`, `_matrix.ts`,
         `session_matrix_e2e_test.ts`, `invoke_abort_e2e_test.ts`,
@@ -1059,7 +1453,7 @@ stable — never renumber on move.
   - [x] `MatrixScenario.ceilingMs` per-runtime override; Cursor
         receives 90 s, others 60 s. Evidence:
         `ai-ide-cli/e2e/_matrix.ts`.
-  - [x] `// FR-L25` traceability comment next to the matrix
+  - [x] `// FR-L31` traceability comment next to the matrix
         definition. Evidence: `ai-ide-cli/e2e/_matrix.ts`.
   - [x] `deno.json` tasks `e2e`, `e2e:claude`, `e2e:opencode`,
         `e2e:cursor`, `e2e:codex`. Evidence:
@@ -1071,8 +1465,6 @@ stable — never renumber on move.
         `deno test -A --no-check e2e/` with `E2E=1`. Cursor is
         Linux-headless-unsupported and is expected to skip. Evidence:
         `ai-ide-cli/.github/workflows/e2e.yml`.
-  - [x] `scripts/smoke.ts` reduced to a shim pointing at the Deno-test
-        suite. Evidence: `ai-ide-cli/scripts/smoke.ts`.
 
 ## 4. Non-Functional Requirements
 
@@ -1134,7 +1526,7 @@ the runtime-neutral primitives consumers actually program against:
 `NormalizedContent` (FR-L23). If any cell drifts from the code, the
 code is authoritative and the SRS row is a bug; the e2e scenarios
 `synthetic-turn-end-once-per-turn` and `content-normalization`
-(FR-L25) assert the invariants against the live binaries.
+(FR-L31) assert the invariants against the live binaries.
 
 #### Envelope: native event → `RuntimeSessionEvent`
 

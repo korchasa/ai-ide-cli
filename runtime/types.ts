@@ -10,6 +10,8 @@ import type {
   CapabilityInventory,
   FetchCapabilitiesOptions,
 } from "./capabilities.ts";
+import type { ReasoningEffort } from "./reasoning-effort.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
 
 /**
  * Map-shaped extra CLI arguments.
@@ -37,8 +39,9 @@ export interface RuntimeCapabilities {
   interactive: boolean;
   /**
    * Whether the runtime surfaces a per-tool-use observation hook
-   * (`onToolUseObserved`). Claude, Codex, and OpenCode expose it;
-   * Cursor does not (its CLI emits no tool events).
+   * (`onToolUseObserved`). All four adapters expose it: Claude, Codex,
+   * OpenCode emit tool events inline; Cursor surfaces them via separate
+   * `tool_call/started` events (FR-L30).
    */
   toolUseObservation: boolean;
   /**
@@ -63,6 +66,17 @@ export interface RuntimeCapabilities {
    * ignore it. See FR-L24.
    */
   toolFilter: boolean;
+  /**
+   * Whether the adapter translates
+   * {@link RuntimeInvokeOptions.reasoningEffort} /
+   * {@link RuntimeSessionOptions.reasoningEffort} into a runtime-native
+   * reasoning-effort control. Adapters with `false` silently accept the
+   * field, emit one `console.warn` on first use per process, and
+   * otherwise ignore it. Adapters with `true` may still warn on a lossy
+   * mapping (e.g. Claude has no `"minimal"` level and substitutes
+   * `"low"`). See FR-L25.
+   */
+  reasoningEffort: boolean;
 }
 
 /**
@@ -91,9 +105,9 @@ export interface RuntimeLifecycleHooks {
 
 /**
  * Info passed to the runtime-neutral observed-tool-use callback. Honored by
- * Claude, Codex, and OpenCode (each reports the tool invocation its CLI
- * surfaces); Cursor ignores the hook because its CLI does not emit tool
- * events.
+ * Claude, Codex, OpenCode, and Cursor — each reports the tool invocation
+ * its CLI surfaces. Cursor parses `tool_call/started` events from
+ * `cursor agent -p --output-format stream-json` (FR-L30).
  */
 export interface RuntimeToolUseInfo {
   /** Runtime that dispatched the tool. */
@@ -118,6 +132,16 @@ export type OnRuntimeToolUseObservedCallback = (
 
 /** Low-level options for a single runtime invocation (initial or resume). */
 export interface RuntimeInvokeOptions {
+  /**
+   * Optional process tracker scope. When provided, child processes spawned
+   * for this invocation are tracked in the supplied {@link ProcessRegistry}
+   * instance instead of the package-wide default singleton. Embedding
+   * applications that host multiple independent runtimes in one Deno
+   * process (e.g. an operator chat session plus an active workflow run)
+   * use this to scope `killAll()` and shutdown callbacks per logical run.
+   * Falls back to the default singleton when omitted.
+   */
+  processRegistry?: ProcessRegistry;
   /** Optional runtime-native agent selector. */
   agent?: string;
   /** Optional system prompt content for the invocation. */
@@ -207,8 +231,8 @@ export interface RuntimeInvokeOptions {
    * Observed-tool-use callback. Fires **post-dispatch but pre-next-turn**:
    * by the time the hook runs, the runtime has already invoked the tool.
    * Returning `"abort"` stops the run but cannot un-execute the tool.
-   * Honored by Claude, Codex, and OpenCode; Cursor silently ignores the
-   * callback (its CLI surfaces no tool events). Check
+   * Honored by Claude, Codex, OpenCode, and Cursor (FR-L30 — fires on
+   * `tool_call/started`). Check
    * {@link RuntimeCapabilities.toolUseObservation} before relying on it.
    */
   onToolUseObserved?: OnRuntimeToolUseObservedCallback;
@@ -236,6 +260,21 @@ export interface RuntimeInvokeOptions {
   allowedTools?: string[];
   /** Tool-name deny-list — counterpart to {@link allowedTools}. See FR-L24. */
   disallowedTools?: string[];
+  /**
+   * Abstract depth of model reasoning for this call. Runtime-neutral:
+   * every adapter maps it to its closest native control
+   * (`--effort` on Claude, `--config model_reasoning_effort=…` on Codex,
+   * `--variant` on OpenCode; ignored with a one-time warning on Cursor).
+   *
+   * Adapters with
+   * {@link RuntimeCapabilities.reasoningEffort} === `false` accept the
+   * field, warn once per process via `console.warn`, and ignore it
+   * otherwise. Adapters with `true` may still warn on a lossy mapping
+   * (Claude has no native `"minimal"` and substitutes `"low"`; OpenCode
+   * forwards the value verbatim to the active provider whose
+   * interpretation may differ). See FR-L25.
+   */
+  reasoningEffort?: ReasoningEffort;
 }
 
 /** Result returned by a runtime adapter invocation. */
@@ -289,6 +328,11 @@ export interface InteractiveResult {
  *   to preserve the conversation history.
  */
 export interface RuntimeSessionOptions {
+  /**
+   * Optional process tracker scope — see
+   * {@link RuntimeInvokeOptions.processRegistry}.
+   */
+  processRegistry?: ProcessRegistry;
   /** Optional runtime-native agent selector. */
   agent?: string;
   /** Optional system prompt content for the session. */
@@ -326,6 +370,11 @@ export interface RuntimeSessionOptions {
    * {@link RuntimeInvokeOptions.disallowedTools} — see that field's JSDoc.
    */
   disallowedTools?: string[];
+  /**
+   * Abstract reasoning-effort depth. Same contract as
+   * {@link RuntimeInvokeOptions.reasoningEffort} — see that field's JSDoc.
+   */
+  reasoningEffort?: ReasoningEffort;
   /** Fires for every parsed event from the runtime's event stream, in order. */
   onEvent?: (event: RuntimeSessionEvent) => void;
   /** Fires for every decoded stderr chunk (may be empty on a flush). */
@@ -642,6 +691,8 @@ export interface ResolvedRuntimeConfig {
   model?: string;
   /** Effective permission mode after precedence resolution. */
   permissionMode?: string;
+  /** Effective reasoning-effort after precedence resolution (FR-L25 cascade). */
+  reasoningEffort?: ReasoningEffort;
 }
 
 /**
@@ -664,4 +715,11 @@ export interface RuntimeConfigSource {
    * See {@link ExtraArgsMap} for value semantics.
    */
   runtime_args?: ExtraArgsMap;
+  /**
+   * Reasoning-effort dial applied at this cascade level (FR-L25). Resolved by
+   * {@link import("./index").resolveRuntimeConfig} into
+   * {@link ResolvedRuntimeConfig.reasoningEffort}; consumers feed that value
+   * into {@link RuntimeInvokeOptions.reasoningEffort} on the adapter call.
+   */
+  effort?: ReasoningEffort;
 }

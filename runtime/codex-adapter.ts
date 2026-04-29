@@ -15,6 +15,7 @@ import {
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
 import { validateToolFilter } from "./tool-filter.ts";
+import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -107,15 +108,18 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     session: true,
     capabilityInventory: true,
     toolFilter: false,
+    reasoningEffort: true,
   },
   invoke(opts) {
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
+    validateReasoningEffort("codex", opts);
     return invokeCodexCli(opts);
   },
   openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
+    validateReasoningEffort("codex", opts);
     return openCodexSession(opts);
   },
 

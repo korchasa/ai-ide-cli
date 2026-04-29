@@ -65,6 +65,15 @@ export type {
   NormalizedToolContent,
 } from "./runtime/content.ts";
 export {
+  REASONING_EFFORT_FLAGS,
+  REASONING_EFFORT_VALUES,
+  validateReasoningEffort,
+} from "./runtime/reasoning-effort.ts";
+export type {
+  ReasoningEffort,
+  ReasoningEffortInput,
+} from "./runtime/reasoning-effort.ts";
+export {
   CAPABILITY_INVENTORY_PROMPT,
   CAPABILITY_INVENTORY_SCHEMA,
   CAPABILITY_INVENTORY_SYSTEM_PROMPT,
@@ -117,6 +126,7 @@ export {
   formatCursorEventForOutput,
   invokeCursorCli,
 } from "./cursor/process.ts";
+export type { CursorInvokeOptions } from "./cursor/process.ts";
 export {
   buildCursorSendArgs,
   createCursorChat,
@@ -127,8 +137,35 @@ export type {
   CursorSession,
   CursorSessionOptions,
   CursorSessionStatus,
-  CursorStreamEvent,
 } from "./cursor/session.ts";
+// FR-L30: typed cursor stream-json events (canonical home is `cursor/stream`).
+export {
+  parseCursorStreamEvent,
+  unwrapCursorToolCall,
+} from "./cursor/stream.ts";
+export type {
+  CursorAssistantBlock,
+  CursorAssistantEvent,
+  CursorLifecycleHooks,
+  CursorResultEvent,
+  CursorStreamEvent,
+  CursorSystemInitEvent,
+  CursorTextBlock,
+  CursorThinkingCompletedEvent,
+  CursorThinkingDeltaEvent,
+  CursorThinkingEvent,
+  CursorToolCallCompletedEvent,
+  CursorToolCallEvent,
+  CursorToolCallStartedEvent,
+  CursorToolCallWrapper,
+  CursorToolUseInfo,
+  CursorToolUseObservedDecision,
+  CursorUnknownEvent,
+  CursorUsage,
+  CursorUserEvent,
+  OnCursorToolUseObservedCallback,
+  UnwrappedCursorToolCall,
+} from "./cursor/stream.ts";
 
 // --- Codex runner ---
 export {
@@ -160,6 +197,43 @@ export type {
   CodexAppServerRpcError,
   CodexAppServerStatus,
 } from "./codex/app-server.ts";
+export { isCodexNotification } from "./codex/events.ts";
+export type {
+  CodexAgentMessageDeltaNotification,
+  CodexAgentMessageDeltaParams,
+  CodexAgentMessageItem,
+  CodexCommandExecOutputDeltaNotification,
+  CodexCommandExecOutputDeltaParams,
+  CodexCommandExecutionItem,
+  CodexContextCompactionItem,
+  CodexDynamicToolCallItem,
+  CodexErrorNotification,
+  CodexErrorParams,
+  CodexFileChangeItem,
+  CodexItemCompletedNotification,
+  CodexItemCompletedParams,
+  CodexItemStartedNotification,
+  CodexItemStartedParams,
+  CodexMcpToolCallItem,
+  CodexNotification,
+  CodexPlanItem,
+  CodexReasoningDeltaParams,
+  CodexReasoningItem,
+  CodexReasoningSummaryTextDeltaNotification,
+  CodexReasoningTextDeltaNotification,
+  CodexThreadItem,
+  CodexThreadStartedNotification,
+  CodexThreadStartedParams,
+  CodexTurn,
+  CodexTurnCompletedNotification,
+  CodexTurnCompletedParams,
+  CodexTurnStartedNotification,
+  CodexTurnStartedParams,
+  CodexUntypedItem,
+  CodexUntypedNotification,
+  CodexUserMessageItem,
+  CodexWebSearchItem,
+} from "./codex/events.ts";
 export {
   CODEX_SESSION_CLIENT_VERSION,
   expandCodexSessionExtraArgs,
@@ -225,8 +299,10 @@ export { parseSkill } from "./skill/parser.ts";
 
 // --- Process registry (pure tracker) ---
 export {
+  defaultRegistry,
   killAll,
   onShutdown,
+  ProcessRegistry,
   register,
   unregister,
 } from "./process-registry.ts";

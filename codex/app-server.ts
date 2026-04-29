@@ -35,7 +35,8 @@
  * Entry point: {@link CodexAppServerClient}.
  */
 
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import type { CodexUntypedNotification } from "./events.ts";
 
 /**
  * Flags reserved by {@link CodexAppServerClient}. Keys in `extraArgs` that
@@ -46,13 +47,24 @@ export const CODEX_APP_SERVER_RESERVED_FLAGS: readonly string[] = [
   "--listen",
 ];
 
-/** Shape of a server-sent notification (no `id`, just `method` + `params`). */
-export interface CodexAppServerNotification {
-  /** Notification method name, e.g. `"turn/started"`, `"thread/started"`. */
-  method: string;
-  /** Notification payload; shape depends on the method. */
-  params: Record<string, unknown>;
-}
+/**
+ * Raw runtime shape of a server-sent notification (no `id`, just `method`
+ * + `params`). This is the on-the-wire shape; `method` is arbitrary string
+ * since the Codex CLI may emit notifications the library does not narrow
+ * yet (FR-L26).
+ *
+ * Consumers that want a sharp discriminated variant call
+ * {@link import("./events.ts").isCodexNotification} as a type guard:
+ *
+ * ```ts
+ * for await (const note of client.notifications) {
+ *   if (isCodexNotification(note, "turn/started")) {
+ *     // note.params.turn is now `CodexTurn`.
+ *   }
+ * }
+ * ```
+ */
+export type CodexAppServerNotification = CodexUntypedNotification;
 
 /**
  * Options for {@link CodexAppServerClient.spawn}.
@@ -80,6 +92,14 @@ export interface CodexAppServerClientOptions {
   signal?: AbortSignal;
   /** Fires for every decoded stderr chunk. */
   onStderr?: (chunk: string) => void;
+  /**
+   * Optional process registry that owns the spawned subprocess. When
+   * omitted, the module-level default registry is used, preserving
+   * backward compatibility. Embedders that host multiple independent
+   * runtimes in one process should pass an instance-scoped
+   * {@link ProcessRegistry} so `killAll` is scoped to the embedder.
+   */
+  processRegistry?: ProcessRegistry;
 }
 
 /**
@@ -152,6 +172,7 @@ export class CodexAppServerClient {
   private readonly stderrChunks: Uint8Array[] = [];
   private readonly externalSignal?: AbortSignal;
   private readonly onExternalAbort?: () => void;
+  private readonly registry: ProcessRegistry;
 
   private nextId = 1;
   private stdinClosed = false;
@@ -168,6 +189,7 @@ export class CodexAppServerClient {
     this.pid = process.pid;
     this.stdinWriter = process.stdin.getWriter();
     this.externalSignal = opts.signal;
+    this.registry = opts.processRegistry ?? defaultRegistry;
 
     // External abort → SIGTERM. Registered only when a signal is provided so
     // clients without a signal incur no listener overhead.
@@ -185,9 +207,11 @@ export class CodexAppServerClient {
     const stdoutPump = this.pumpStdout();
     const stderrPump = this.pumpStderr(opts.onStderr);
 
-    // Capture `process` locally — TypeScript's flow analysis doesn't trust
-    // `this.process` inside the async closure until construction completes.
+    // Capture `process` and `registry` locally — TypeScript's flow analysis
+    // doesn't trust `this.process` / `this.registry` inside the async closure
+    // until construction completes.
     const proc = process;
+    const registry = this.registry;
     this.done = (async (): Promise<CodexAppServerStatus> => {
       try {
         const [status] = await Promise.all([
@@ -218,7 +242,7 @@ export class CodexAppServerClient {
             this.onExternalAbort,
           );
         }
-        unregister(proc);
+        registry.unregister(proc);
       }
     })();
   }
@@ -251,7 +275,8 @@ export class CodexAppServerClient {
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
     });
     const process = cmd.spawn();
-    register(process);
+    const registry = opts.processRegistry ?? defaultRegistry;
+    registry.register(process);
     return new CodexAppServerClient(process, opts);
   }
 

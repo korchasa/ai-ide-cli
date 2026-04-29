@@ -100,6 +100,10 @@ export function resolveRuntimeConfig(
     opts.parent?.runtime_args,
     opts.node.runtime_args,
   );
+  // FR-L25 (cascade): reasoning-effort resolves node → parent → defaults,
+  // mirroring the model precedence above.
+  const reasoningEffort = opts.node.effort ?? opts.parent?.effort ??
+    opts.defaults?.effort;
 
   return {
     runtime,
@@ -107,5 +111,6 @@ export function resolveRuntimeConfig(
     model: model || undefined,
     permissionMode: opts.node.permission_mode ?? opts.parent?.permission_mode ??
       opts.defaults?.permission_mode,
+    reasoningEffort,
   };
 }

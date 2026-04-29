@@ -501,3 +501,14 @@ Deno.test(
     );
   },
 );
+
+// FR-L25: reasoning effort → --variant pass-through.
+
+Deno.test("buildOpenCodeArgs — reasoningEffort emits --variant with the abstract value", () => {
+  for (const value of ["minimal", "low", "medium", "high"] as const) {
+    const args = buildOpenCodeArgs(makeInvokeOpts({ reasoningEffort: value }));
+    const idx = args.indexOf("--variant");
+    assert(idx >= 0, `missing --variant for ${value}`);
+    assertEquals(args[idx + 1], value);
+  }
+});

@@ -1,10 +1,14 @@
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
   buildCursorArgs,
   extractCursorOutput,
   formatCursorEventForOutput,
+  invokeCursorCli,
 } from "./process.ts";
-import type { RuntimeInvokeOptions } from "../runtime/types.ts";
+import type {
+  RuntimeInvokeOptions,
+  RuntimeToolUseInfo,
+} from "../runtime/types.ts";
 
 function makeInvokeOpts(
   overrides?: Partial<RuntimeInvokeOptions>,
@@ -195,4 +199,173 @@ Deno.test("formatCursorEventForOutput — long text is truncated at 120 chars", 
     message: { content: [{ type: "text", text: longText }] },
   });
   assertEquals(line, `[stream] text: ${"A".repeat(120)}…`);
+});
+
+// --- FR-L30: onToolUseObserved + cursorHooks via PATH-stubbed cursor ---
+
+const STUB_NDJSON = [
+  {
+    type: "system",
+    subtype: "init",
+    session_id: "sess-1",
+    cwd: "/tmp",
+    model: "Auto",
+    permissionMode: "default",
+  },
+  {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+    session_id: "sess-1",
+    model_call_id: "mc-1",
+  },
+  {
+    type: "tool_call",
+    subtype: "started",
+    call_id: "call-a",
+    tool_call: { readToolCall: { args: { path: "/tmp/foo.txt" } } },
+    session_id: "sess-1",
+  },
+  {
+    type: "tool_call",
+    subtype: "completed",
+    call_id: "call-a",
+    tool_call: { readToolCall: { result: { content: "hi" } } },
+    session_id: "sess-1",
+  },
+  {
+    type: "result",
+    subtype: "success",
+    result: "done",
+    session_id: "sess-1",
+    duration_ms: 100,
+    is_error: false,
+  },
+]
+  .map((e) => JSON.stringify(e))
+  .join("\n");
+
+async function withStubCursorEmittingNdjson<T>(
+  ndjson: string,
+  fn: (dir: string) => Promise<T>,
+): Promise<T> {
+  const dir = await Deno.makeTempDir({ prefix: "cursor-process-stub-" });
+  const stubPath = `${dir}/cursor`;
+  // Write the NDJSON to a file, then have the stub `cat` it on every
+  // `cursor agent -p ...` invocation so the test can spec the events
+  // independently of the bash heredoc.
+  const ndjsonPath = `${dir}/events.ndjson`;
+  await Deno.writeTextFile(ndjsonPath, ndjson + "\n");
+  await Deno.writeTextFile(
+    stubPath,
+    `#!/usr/bin/env bash
+cat ${ndjsonPath}
+exit 0
+`,
+  );
+  await Deno.chmod(stubPath, 0o755);
+  const prevPath = Deno.env.get("PATH") ?? "";
+  Deno.env.set("PATH", `${dir}:${prevPath}`);
+  try {
+    return await fn(dir);
+  } finally {
+    Deno.env.set("PATH", prevPath);
+    try {
+      await Deno.remove(dir, { recursive: true });
+    } catch { /* best effort */ }
+  }
+}
+
+Deno.test("invokeCursorCli — onToolUseObserved fires once per tool_call/started (FR-L30)", async () => {
+  await withStubCursorEmittingNdjson(STUB_NDJSON, async () => {
+    const observed: RuntimeToolUseInfo[] = [];
+    const { output, error } = await invokeCursorCli({
+      taskPrompt: "do something",
+      timeoutSeconds: 30,
+      maxRetries: 1,
+      retryDelaySeconds: 1,
+      onToolUseObserved: (info) => {
+        observed.push(info);
+        return "allow";
+      },
+    });
+    assertEquals(error, undefined);
+    assertEquals(output?.is_error, false);
+    assertEquals(observed.length, 1);
+    assertEquals(observed[0].runtime, "cursor");
+    assertEquals(observed[0].id, "call-a");
+    assertEquals(observed[0].name, "read");
+    assertEquals(observed[0].input, { path: "/tmp/foo.txt" });
+    assertEquals(observed[0].turn, 1);
+  });
+});
+
+Deno.test("invokeCursorCli — onToolUseObserved 'abort' synthesizes permission_denials (FR-L30)", async () => {
+  await withStubCursorEmittingNdjson(STUB_NDJSON, async () => {
+    const { output, error } = await invokeCursorCli({
+      taskPrompt: "do something",
+      timeoutSeconds: 30,
+      maxRetries: 1,
+      retryDelaySeconds: 1,
+      onToolUseObserved: () => "abort",
+    });
+    // Denial path returns a synthesized output, not an error string.
+    assertEquals(
+      error,
+      "Cursor CLI returned error: Aborted by onToolUseObserved callback",
+    );
+    assertEquals(output?.is_error, true);
+    assertEquals(output?.runtime, "cursor");
+    assertEquals(output?.permission_denials?.length, 1);
+    assertEquals(output?.permission_denials?.[0].tool_name, "read");
+    assertEquals(
+      (output?.permission_denials?.[0].tool_input as { id: string }).id,
+      "call-a",
+    );
+  });
+});
+
+Deno.test("invokeCursorCli — cursorHooks.onAssistant fires per assistant event (FR-L30)", async () => {
+  await withStubCursorEmittingNdjson(STUB_NDJSON, async () => {
+    let assistantHits = 0;
+    let initHit = false;
+    let resultHit = false;
+    const { output, error } = await invokeCursorCli({
+      taskPrompt: "do something",
+      timeoutSeconds: 30,
+      maxRetries: 1,
+      retryDelaySeconds: 1,
+      cursorHooks: {
+        onInit: () => {
+          initHit = true;
+        },
+        onAssistant: (ev) => {
+          assistantHits += 1;
+          assert(Array.isArray(ev.message?.content));
+        },
+        onResult: () => {
+          resultHit = true;
+        },
+      },
+    });
+    assertEquals(error, undefined);
+    assertEquals(output?.is_error, false);
+    assertEquals(initHit, true);
+    assertEquals(assistantHits, 1);
+    assertEquals(resultHit, true);
+  });
+});
+
+Deno.test("invokeCursorCli — onToolUseObserved is not called when capability not used", async () => {
+  // Sanity check: no callback → no error path.
+  await withStubCursorEmittingNdjson(STUB_NDJSON, async () => {
+    const { output, error } = await invokeCursorCli({
+      taskPrompt: "do something",
+      timeoutSeconds: 30,
+      maxRetries: 1,
+      retryDelaySeconds: 1,
+    });
+    assertEquals(error, undefined);
+    assertEquals(output?.is_error, false);
+    assertEquals(output?.session_id, "sess-1");
+  });
 });

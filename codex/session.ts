@@ -78,6 +78,7 @@ import {
   CodexAppServerError,
   type CodexAppServerNotification,
 } from "./app-server.ts";
+import { isCodexNotification } from "./events.ts";
 
 /**
  * Permission-mode mapping for the app-server transport.
@@ -178,6 +179,14 @@ export async function openCodexSession(
   } = {},
 ): Promise<CodexSession> {
   const extraArgv = expandCodexSessionExtraArgs(opts.extraArgs);
+  // FR-L25: abstract reasoning effort → Codex app-server --config override,
+  // inserted before the caller's extraArgs so they can still override.
+  if (opts.reasoningEffort) {
+    extraArgv.unshift(
+      "--config",
+      `model_reasoning_effort="${opts.reasoningEffort}"`,
+    );
+  }
 
   const client = CodexAppServerClient.spawn({
     binary: opts.binary,
@@ -186,6 +195,7 @@ export async function openCodexSession(
     env: opts.env,
     signal: opts.signal,
     onStderr: opts.onStderr,
+    processRegistry: opts.processRegistry,
   });
 
   // Deliberately do not await the subprocess exit here — the client's
@@ -259,7 +269,8 @@ export async function openCodexSession(
     const send = async (content: string): Promise<void> => {
       if (sessionAborted) throw new SessionAbortedError("codex");
       if (ended) throw new SessionInputClosedError("codex");
-      const params = activeTurnId === null
+      const isFirstTurn = activeTurnId === null;
+      const params = isFirstTurn
         ? {
           threadId,
           input: [{ type: "text", text: content, text_elements: [] }],
@@ -269,9 +280,30 @@ export async function openCodexSession(
           input: [{ type: "text", text: content, text_elements: [] }],
           expectedTurnId: activeTurnId,
         };
-      const method = activeTurnId === null ? "turn/start" : "turn/steer";
+      const method = isFirstTurn ? "turn/start" : "turn/steer";
       try {
-        await client.request(method, params);
+        // `turn/start` returns `TurnStartResponse = { turn: Turn }` —
+        // promote `turn.id` to `activeTurnId` synchronously to close the
+        // race where a follow-up `send()` arrives before the asynchronous
+        // `turn/started` notification. `turn/steer` returns
+        // `TurnSteerResponse = { turnId }` — keep `activeTurnId` aligned.
+        if (isFirstTurn) {
+          const result = await client.request<
+            { turn?: { id?: unknown } } | undefined
+          >(method, params);
+          const turnIdFromResponse = result?.turn?.id;
+          if (typeof turnIdFromResponse === "string" && activeTurnId === null) {
+            activeTurnId = turnIdFromResponse;
+          }
+        } else {
+          const result = await client.request<
+            { turnId?: unknown } | undefined
+          >(method, params);
+          const turnIdFromResponse = result?.turnId;
+          if (typeof turnIdFromResponse === "string") {
+            activeTurnId = turnIdFromResponse;
+          }
+        }
       } catch (err) {
         // JSON-RPC error, broken stdin pipe, or subprocess exit before
         // response all mean "the message did not reach Codex". Surface them
@@ -356,10 +388,7 @@ async function startThread(
   const { approvalPolicy, sandbox } = permissionModeToThreadStartFields(
     opts.permissionMode,
   );
-  const params: Record<string, unknown> = {
-    experimentalRawEvents: false,
-    persistExtendedHistory: false,
-  };
+  const params: Record<string, unknown> = {};
   if (opts.model) params.model = opts.model;
   if (opts.cwd) params.cwd = opts.cwd;
   if (approvalPolicy) params.approvalPolicy = approvalPolicy;
@@ -382,7 +411,6 @@ async function resumeThread(
   );
   const params: Record<string, unknown> = {
     threadId: opts.resumeSessionId,
-    persistExtendedHistory: false,
   };
   if (opts.model) params.model = opts.model;
   if (opts.cwd) params.cwd = opts.cwd;
@@ -412,12 +440,14 @@ export function updateActiveTurnId(
   current: string | null,
   note: CodexAppServerNotification,
 ): string | null {
-  if (note.method === "turn/started") {
-    const turn = note.params.turn as Record<string, unknown> | undefined;
-    if (turn && typeof turn.id === "string") return turn.id;
-    return current;
+  // FR-L26: `isCodexNotification` promotes the raw notification to a sharp
+  // discriminated variant — `note.params.turn` is `CodexTurn` after narrow.
+  if (isCodexNotification(note, "turn/started")) {
+    return typeof note.params.turn.id === "string"
+      ? note.params.turn.id
+      : current;
   }
-  if (note.method === "turn/completed") {
+  if (isCodexNotification(note, "turn/completed")) {
     return null;
   }
   return current;

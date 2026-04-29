@@ -24,18 +24,28 @@ import {
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
+import {
+  type ReasoningEffort,
+  validateReasoningEffort,
+} from "../runtime/reasoning-effort.ts";
+import { mapReasoningEffortToClaude } from "./process.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   defaultClaudeConfigDir,
   prepareSettingSourcesDir,
   type SettingSource,
 } from "../runtime/setting-sources.ts";
-import { register, unregister } from "../process-registry.ts";
+import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import { CLAUDE_RESERVED_FLAGS } from "./process.ts";
 import { type ClaudeStreamEvent, parseClaudeStreamEvent } from "./stream.ts";
 
 /** Options for {@link openClaudeSession}. */
 export interface ClaudeSessionOptions {
+  /**
+   * Optional process tracker scope. Falls back to the default singleton when
+   * omitted. See {@link import("../runtime/types.ts").RuntimeSessionOptions.processRegistry}.
+   */
+  processRegistry?: ProcessRegistry;
   /** Agent name passed via --agent. */
   agent?: string;
   /** System prompt appended via --append-system-prompt. */
@@ -69,6 +79,11 @@ export interface ClaudeSessionOptions {
    * Mutually exclusive with {@link allowedTools}. See FR-L24.
    */
   disallowedTools?: string[];
+  /**
+   * Abstract reasoning-effort depth — mapped to Claude's `--effort`.
+   * See FR-L25 and {@link mapReasoningEffortToClaude}.
+   */
+  reasoningEffort?: ReasoningEffort;
   /** Fires for every parsed stream-json event in stdout order. */
   onEvent?: (event: ClaudeStreamEvent) => void;
   /** Fires for every decoded stderr line (trimmed, may be empty). */
@@ -184,6 +199,15 @@ export function buildClaudeSessionArgs(opts: ClaudeSessionOptions): string[] {
     args.push("--disallowedTools", opts.disallowedTools!.join(","));
   }
 
+  // FR-L25: abstract reasoning effort → Claude's `--effort`.
+  const effort = validateReasoningEffort("claude", {
+    reasoningEffort: opts.reasoningEffort,
+    extraArgs: opts.claudeArgs,
+  });
+  if (effort !== undefined) {
+    args.push("--effort", mapReasoningEffortToClaude(effort));
+  }
+
   args.push(...expandExtraArgs(opts.claudeArgs, CLAUDE_RESERVED_FLAGS));
 
   if (opts.resumeSessionId) {
@@ -246,7 +270,8 @@ export async function openClaudeSession(
   });
 
   const process = cmd.spawn();
-  register(process);
+  const registry = opts.processRegistry ?? defaultRegistry;
+  registry.register(process);
 
   const encoder = new TextEncoder();
   const stdinWriter = process.stdin.getWriter();
@@ -390,7 +415,7 @@ export async function openClaudeSession(
       if (opts.signal) {
         opts.signal.removeEventListener("abort", onExternalAbort);
       }
-      unregister(process);
+      registry.unregister(process);
       if (settingCleanup) {
         await settingCleanup();
       }

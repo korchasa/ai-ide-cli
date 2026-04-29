@@ -2,6 +2,75 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.8](https://github.com/korchasa/ai-ide-cli/compare/v0.5.7...v0.5.8) (2026-04-27)
+
+
+### Features
+
+* **codex:** typed app-server notification events (FR-L26) ([b41e8f4](https://github.com/korchasa/ai-ide-cli/commit/b41e8f49b9d1b1da94ae0673c9413eacaee41aed))
+
+
+### Documentation
+
+* **agents:** update capabilities and content extraction details in AGENTS.md ([ed95b8e](https://github.com/korchasa/ai-ide-cli/commit/ed95b8e7d18a6c201abab0abb377e1206f0bb129))
+* **readme:** expand typed-API asymmetry rows in feature matrix ([d9c3df1](https://github.com/korchasa/ai-ide-cli/commit/d9c3df1db5d663aa78abd03426eeedad379bbeb1))
+* **readme:** surface typed-event-union and settingSources asymmetry ([90fff94](https://github.com/korchasa/ai-ide-cli/commit/90fff948b31a3a91ec7b700454b7e8287f665ac7))
+
+### [0.5.7](https://github.com/korchasa/ai-ide-cli/compare/v0.5.6...v0.5.7) (2026-04-26)
+
+
+### Features
+
+* **process-registry:** expose `ProcessRegistry` class for instance-scoped
+  child-process tracking. The module continues to export
+  `register`/`unregister`/`onShutdown`/`killAll` as free-function wrappers
+  over a default singleton, so existing call sites are unchanged.
+* **runtime:** add optional `processRegistry?: ProcessRegistry` to
+  `RuntimeInvokeOptions` and `RuntimeSessionOptions`. Adapters route
+  spawned subprocesses through the supplied registry, falling back to
+  the module default when omitted. Lets embedders host multiple
+  independent runtimes in one Deno process and reap each one's
+  subprocesses via `killAll` without affecting siblings.
+* **codex:** typed Codex app-server notification events (FR-L26).
+  New `codex/events.ts` exposes the discriminated union
+  `CodexNotification` covering `thread/started`, `turn/started`,
+  `turn/completed`, `item/started`, `item/completed`,
+  `item/agentMessage/delta`, `item/reasoning/textDelta`,
+  `item/reasoning/summaryTextDelta`,
+  `item/commandExecution/outputDelta`, `error`, plus the
+  `CodexThreadItem` sub-union (`userMessage` / `agentMessage` /
+  `reasoning` / `plan` / `commandExecution` / `fileChange` /
+  `mcpToolCall` / `dynamicToolCall` / `webSearch` / `contextCompaction`).
+  Sharp narrowing through the `isCodexNotification(note, method)`
+  type guard. The `CodexAppServerNotification` transport shape is
+  unchanged (still `{method: string, params: Record<string, unknown>}`)
+  for forward-compat with new CLI methods.
+
+### [0.5.6](https://github.com/korchasa/ai-ide-cli/compare/v0.5.5...v0.5.6) (2026-04-26)
+
+
+### Features
+
+* **runtime:** cascade reasoningEffort + suppress --effort on Claude resume (FR-L25) ([c258188](https://github.com/korchasa/ai-ide-cli/commit/c258188945d2f583095d6ebb31465fc3919dfa2e))
+
+
+### Documentation
+
+* fix codex coverage gaps and expose validator sub-paths ([21375fb](https://github.com/korchasa/ai-ide-cli/commit/21375fb3254e40f85785af6c76107792ac91a1cc))
+* **readme:** list toolFilter and reasoningEffort in feature matrix ([e3ac545](https://github.com/korchasa/ai-ide-cli/commit/e3ac545dfbc1344e6eebe7206a03eca5e0cae208))
+
+
+### Chores
+
+* **jsr:** expose runtime/capabilities sub-path ([1d01456](https://github.com/korchasa/ai-ide-cli/commit/1d0145694c4c2bd7576036122cde4258388df558))
+
+### [0.5.5](https://github.com/korchasa/ai-ide-cli/compare/v0.5.4...v0.5.5) (2026-04-24)
+
+
+### Features
+
+* **runtime:** abstract reasoningEffort on call options (FR-L25) ([382ecb5](https://github.com/korchasa/ai-ide-cli/commit/382ecb57864d5cfeba71c3ca2e20ca61e9c38ec4))
+
 ### [0.5.4](https://github.com/korchasa/ai-ide-cli/compare/v0.5.3...v0.5.4) (2026-04-19)
 
 

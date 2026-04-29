@@ -374,6 +374,50 @@ Deno.test({
 });
 
 Deno.test({
+  name:
+    "openCodexSession — send back-to-back uses turn/steer for the second call without waiting on turn/started",
+  sanitizeResources: false,
+  fn: async () => {
+    // Race regression: prior implementation only set `activeTurnId` from
+    // the asynchronous `turn/started` notification. Two `send()` calls
+    // back-to-back (before the notification was drained from the queue)
+    // both issued `turn/start` and the second one was rejected by Codex.
+    // With the fix, the first `send` promotes `turn.id` from the
+    // `turn/start` response synchronously, so the second `send` sees a
+    // populated `activeTurnId` and routes through `turn/steer`.
+    await withStubCodex(async ({ captureFile }) => {
+      const session = await openCodexSession({});
+      await session.send("first");
+      await session.send("second");
+      await session.endInput();
+      await session.done;
+
+      const raw = await Deno.readTextFile(captureFile);
+      const methods = raw.trim().split("\n").map((line) => {
+        const obj = JSON.parse(line) as { method?: string };
+        return obj.method;
+      });
+      const turnStarts = methods.filter((m) => m === "turn/start").length;
+      const turnSteers = methods.filter((m) => m === "turn/steer").length;
+      assertEquals(
+        turnStarts,
+        1,
+        `expected exactly one turn/start, got ${turnStarts} (${
+          methods.join(",")
+        })`,
+      );
+      assertEquals(
+        turnSteers,
+        1,
+        `expected exactly one turn/steer, got ${turnSteers} (${
+          methods.join(",")
+        })`,
+      );
+    });
+  },
+});
+
+Deno.test({
   name: "openCodexSession — endInput closes stdin and resolves done",
   sanitizeResources: false,
   fn: async () => {

@@ -78,3 +78,44 @@ Deno.test("resolveRuntimeConfig — default runtime remains claude when unspecif
   const resolved = resolveRuntimeConfig({ node: {} });
   assertEquals(resolved.runtime, "claude");
 });
+
+// --- resolveRuntimeConfig: reasoning effort cascade (FR-L25 cascade) ---
+
+Deno.test("resolveRuntimeConfig — reasoningEffort: defaults applied when node omits", () => {
+  const resolved = resolveRuntimeConfig({
+    defaults: { effort: "medium" },
+    node: {},
+  });
+  assertEquals(resolved.reasoningEffort, "medium");
+});
+
+Deno.test("resolveRuntimeConfig — reasoningEffort: node overrides defaults", () => {
+  const resolved = resolveRuntimeConfig({
+    defaults: { effort: "low" },
+    node: { effort: "high" },
+  });
+  assertEquals(resolved.reasoningEffort, "high");
+});
+
+Deno.test("resolveRuntimeConfig — reasoningEffort: parent overrides defaults, node overrides parent", () => {
+  // parent set, node omits → parent wins over defaults
+  const inheritFromParent = resolveRuntimeConfig({
+    defaults: { effort: "low" },
+    parent: { effort: "high" },
+    node: {},
+  });
+  assertEquals(inheritFromParent.reasoningEffort, "high");
+
+  // node set → wins over parent and defaults
+  const nodeOverride = resolveRuntimeConfig({
+    defaults: { effort: "low" },
+    parent: { effort: "medium" },
+    node: { effort: "minimal" },
+  });
+  assertEquals(nodeOverride.reasoningEffort, "minimal");
+});
+
+Deno.test("resolveRuntimeConfig — reasoningEffort: undefined when nowhere set", () => {
+  const resolved = resolveRuntimeConfig({ node: {} });
+  assertEquals(resolved.reasoningEffort, undefined);
+});

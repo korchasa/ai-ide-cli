@@ -41,6 +41,17 @@ import this package to invoke IDE CLIs uniformly.
   - `runtime/session_contract_test.ts` — backend-agnostic contract tests +
     compile-time negative-type assertion that `pid` is absent from
     `RuntimeSession`.
+  - `runtime/capabilities.ts` — `CapabilityInventory` types + shared
+    LLM-probe driver behind `fetchCapabilitiesSlow` (FR-L20).
+  - `runtime/content.ts` — `extractSessionContent(event)` →
+    `NormalizedContent[]` (text / tool / final), runtime-neutral content
+    extraction (FR-L23).
+  - `runtime/tool-filter.ts` — shared typed `allowedTools` /
+    `disallowedTools` validation used by every adapter (FR-L24).
+  - `runtime/setting-sources.ts` — Claude `settingSources` cleanroom
+    isolation (FR-L18).
+  - `runtime/reasoning-effort.ts` — abstract `reasoningEffort` enum +
+    `validateReasoningEffort` mapped per-runtime (FR-L25).
 - `claude/process.ts`, `claude/stream.ts`, `claude/session.ts` — Claude CLI
   invocation, streaming output parser, and streaming-input session.
 - `opencode/process.ts`, `opencode/session.ts`, `opencode/hitl-mcp.ts` —
@@ -55,21 +66,28 @@ import this package to invoke IDE CLIs uniformly.
   plus streaming-input session backed by the experimental
   `codex app-server --listen stdio://` JSON-RPC transport (`openCodexSession`).
 - `skill/` — SKILL.md parser and typed skill model.
-- `process-registry.ts` — cross-runtime child process registry with graceful
-  shutdown hooks.
+- `hitl-mcp.ts` — top-level shared HITL MCP request/response NDJSON runner
+  reused by Codex and OpenCode adapters.
+- `process-registry.ts` — cross-runtime child-process registry with graceful
+  shutdown hooks. Exports the `ProcessRegistry` class for instance-scoped
+  use plus a module-level default singleton with backward-compatible free
+  functions (`register`/`unregister`/`onShutdown`/`killAll`).
 - `documents/` — SRS (`requirements.md`) and SDS (`design.md`).
   FR numbering: `FR-L<N>`.
 - `scripts/check.ts` — self-contained verification (fmt, lint, type check,
   tests, doc-lint, publish dry-run).
-- `e2e/` — opt-in real-binary test suite (FR-L25). `_helpers.ts`
+- `e2e/` — opt-in real-binary test suite (FR-L31). `_helpers.ts`
   (probe + gate), `_matrix.ts` (shared session-contract catalog),
   `session_matrix_e2e_test.ts` (generator), plus standalone
   `invoke_abort_e2e_test.ts` and `claude_settings_e2e_test.ts`.
   Driven by `deno task e2e` / `deno task e2e:<runtime>`. Gated by
   `E2E=1` + `E2E_RUNTIMES` + per-runtime binary probe.
-- `scripts/smoke.ts` — legacy shim (prints a pointer to
-  `deno task e2e`). Kept so existing muscle memory lands on the new
-  suite.
+- `scripts/smoke.ts` — ad-hoc real-binary capture script for adding
+  typed stream-event unions to a new runtime (e.g. `cursor-events`).
+  Not a regression suite — that role moved to `e2e/`. Manual,
+  invoke via `deno run -A scripts/smoke.ts <scenario>`.
+- `scripts/generate-release-notes.ts` — release-notes generator invoked
+  from CI.
 
 ## Deno Tasks
 
@@ -85,6 +103,12 @@ import this package to invoke IDE CLIs uniformly.
 - JSR slow-types lints (`no-slow-types`, `missing-jsdoc`, `private-type-ref`)
   fire only on `deno publish --dry-run` — `deno task check` runs the dry-run
   last to catch these locally.
+- `private-type-ref` checklist: when adding a parameter or return type to an
+  exported function, every type referenced in its public signature must
+  itself be re-exported from `mod.ts` (and any sub-path entry declared in
+  `deno.json` `exports`). Symptom: `error[private-type-ref]: public type
+  '<fn>' references private type '<T>'` on `deno publish --dry-run`. Fix:
+  add `export type { T } from "./<module>.ts"` to the same entry-point.
 - `deno doc --lint <entry>` validates only symbols reachable from `<entry>`.
   Public symbols reachable via other barrels stay invisible without a
   publish dry-run — `scripts/check.ts` runs both.
@@ -130,7 +154,11 @@ Runtime-neutral adapter pattern:
 - Per-runtime directories (`claude/`, `opencode/`, `cursor/`, `codex/`) own
   process invocation, event streaming, session resume, and HITL MCP wiring.
 - `process-registry.ts` tracks spawned children for graceful shutdown on
-  SIGINT/SIGTERM.
+  SIGINT/SIGTERM. Embedders that host multiple independent runtimes in
+  one process can pass a private `ProcessRegistry` via
+  `RuntimeInvokeOptions.processRegistry` /
+  `RuntimeSessionOptions.processRegistry` to scope `killAll()` per
+  subsystem. Standalone use keeps the module-level default singleton.
 - `skill/` parses SKILL.md files into a typed skill model.
 - HITL MCP servers (`opencode/hitl-mcp.ts`, `codex/hitl-mcp.ts`,
   `hitl-mcp.ts`) are exposed as handlers; consumers supply a
@@ -313,13 +341,34 @@ implements:
 3. **REFACTOR**: Improve code and tests without changing behavior. Re-run the failing test.
 4. **CHECK**: Run `deno task check` (fmt, lint, type check, tests, publish --dry-run). You are NOT done after GREEN — skipping CHECK leaves formatting errors, slow-type lints, and regressions undetected. This step is mandatory.
 
+### Adding Typed Stream Events for a Runtime
+
+Before declaring a `<Runtime>StreamEvent` discriminated union, capture real
+NDJSON from the binary — never type by analogy with another runtime or upstream
+docs alone (binaries diverge from documentation).
+
+1. Add a smoke scenario in `scripts/smoke.ts` that runs the real binary with a
+   prompt exercising the events you want to type (text + tool + thinking).
+2. Run `deno run -A scripts/smoke.ts <runtime>-events`; dump events to
+   `/tmp/<runtime>-events-*.ndjson` and print a `type` histogram.
+3. Inspect distinct shapes in the dump. Note wrapper conventions, sibling vs.
+   inline placement, completion-vs-decision-time emission.
+4. Write the union from captured shapes. Place it in `<runtime>/stream.ts` (or
+   `<runtime>/events.ts` for codex-style). Re-export from companion modules,
+   never redeclare.
+
+Rationale: cursor's `tool_call/{started,completed}` are sibling top-level
+events with a `tool_call.<name>ToolCall.{args|result}` wrapper, not inline
+`tool_use` blocks like Claude. The divergence was invisible until empirical
+capture (FR-L30).
+
 ### Test Rules
 
 - Test logic and behavior only — do not test constants or templates, they change without breaking anything.
 - Tests live in the same package, co-located next to the code (`*_test.ts`). Testing private methods is acceptable when it improves coverage of complex internals.
 - Write code only to fix failing tests or reported issues — no speculative implementations.
 - No stubs or mocks for internal code. Use real implementations — stubs hide integration bugs.
-- Real-binary behavioural checks live in `e2e/` (FR-L25) and are invoked manually via `deno task e2e` / `deno task e2e:<runtime>`; `deno task test` only runs unit tests.
+- Real-binary behavioural checks live in `e2e/` (FR-L31) and are invoked manually via `deno task e2e` / `deno task e2e:<runtime>`; `deno task test` only runs unit tests.
 - Run all tests before finishing, not just the ones you changed.
 - When a test fails, fix the source code — not the test. Do not modify a failing test to make it pass, do not add error swallowing or skip logic.
 - Do not create source files with guessed or fabricated data to satisfy imports — if the data source is missing, that is a blocker (see Diagnosing Failures).
@@ -379,8 +428,8 @@ When the root cause is outside your control (missing API keys/URLs, missing gene
 - `deno task test` — unit tests only (`deno test -A --no-check .`). Use during TDD RED/GREEN iterations on specific files; `check` subsumes it for final verification.
 - `deno task fmt` — format in place.
 - `deno task release` — `standard-version` version bump (CI-invoked).
-- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L25). Narrow with `deno task e2e:<claude|opencode|cursor|codex>`. Manual; not part of `deno task check`. Gated by `E2E=1` + per-runtime `$PATH` probe; missing binaries surface as ignored tests.
-- `deno run -A scripts/smoke.ts` — legacy shim that prints a pointer to `deno task e2e`.
+- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L31). Narrow with `deno task e2e:<claude|opencode|cursor|codex>`. Manual; not part of `deno task check`. Gated by `E2E=1` + per-runtime `$PATH` probe; missing binaries surface as ignored tests.
+- `deno run -A scripts/smoke.ts <scenario>` — ad-hoc capture script for typing new runtime stream events (e.g. `cursor-events`, see FR-L30 workflow).
 
 **Iteration tip — avoid the big-bang pipeline loop.** `deno task check` takes ~40s because it runs the full suite. For fast fmt/lint/JSDoc iteration, run the cheap sub-steps individually first:
 
@@ -404,7 +453,7 @@ constructor(foo: string) { ... }
 ### Command Scripts
 
 - `scripts/check.ts` — drives `deno task check`. Runs fmt, lint, type check, tests, `deno doc --lint`, and `deno publish --dry-run` last.
-- `scripts/smoke.ts` — legacy shim. Real-binary checks moved to `e2e/` (run via `deno task e2e`, FR-L25).
+- `scripts/smoke.ts` — ad-hoc real-binary capture script for typing new runtime stream events (e.g. `cursor-events`). Regression suite lives in `e2e/` (run via `deno task e2e`, FR-L31).
 - `scripts/generate-release-notes.ts` — release-notes generator invoked from CI.
 
 ## Code Documentation
