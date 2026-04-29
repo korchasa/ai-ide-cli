@@ -91,13 +91,12 @@ export interface CursorSessionOptions {
   processRegistry?: ProcessRegistry;
 }
 
-/**
- * Raw Cursor stream-json event. Shape mirrors Claude Code's stream-json:
- * `{type: "system" | "assistant" | "user" | "result", ...}`. Kept as a
- * loose record so new event types pass through unchanged.
- */
-// deno-lint-ignore no-explicit-any
-export type CursorStreamEvent = Record<string, any>;
+// FR-L30: re-export the typed discriminated union from cursor/stream.ts as
+// the canonical session-event shape. JSON.parse returns `any` so the cast
+// in `safeParse` still compiles, and downstream consumers gain narrowing
+// on `event.type` / `event.subtype` without changing the call shape.
+export type { CursorStreamEvent } from "./stream.ts";
+import type { CursorStreamEvent } from "./stream.ts";
 
 /** Terminal state of a Cursor session after all sends have drained. */
 export interface CursorSessionStatus {

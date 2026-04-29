@@ -58,7 +58,7 @@ adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
 | hitl                 | yes (denials)  | yes (MCP)      | no                | yes (MCP)      |
 | transcript path      | yes            | yes (via `opencode export`) | no  | yes            |
 | interactive TUI      | yes            | yes            | no                | yes            |
-| toolUseObservation   | yes            | yes            | no                | yes            |
+| toolUseObservation   | yes            | yes            | yes (FR-L30, fires on `tool_call/started`) | yes |
 | `openSession`        | yes (real)     | yes (`opencode serve`) | faux (per-send subprocess) | yes (app-server) |
 | capabilityInventory  | yes            | yes            | yes               | yes            |
 | skill loading        | yes (`~/.claude/skills/`) | yes (`.claude/skills/`) | no | yes (`~/.agents/skills/`) |
@@ -66,10 +66,10 @@ adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
 | session resume by id | `--resume`     | `--session`    | `--resume`        | `resume <id>`  |
 | toolFilter (FR-L24)  | yes (`--allowedTools` / `--disallowedTools`) | warn-only | warn-only | warn-only |
 | reasoningEffort (FR-L25) | yes (`--effort`, `minimal` warn-mapped to `low`) | yes (`--variant` / `body.variant`, provider-specific warn) | warn-only | yes (`--config model_reasoning_effort`) |
-| typed event union    | yes (`ClaudeStreamEvent` over stream-json) | partial (`OpenCodeStreamEvent` for `run --format json` only; SSE session events are untyped — FR-L27 pending) | no (raw `Record<string, unknown>`) | yes (`CodexNotification` + `isCodexNotification` type guard, FR-L26) |
-| typed assistant content blocks | yes (`ClaudeAssistantBlock`: `text` / `tool_use` / `thinking` discriminator) | partial (`OpenCodeToolUseEvent` from `run --format json`; `Part` union from `@opencode-ai/sdk` not re-exported yet — FR-L27 pending) | no (text blocks only; tool calls are emitted as separate sibling `tool_call` events with their own discriminator) | yes (`CodexThreadItem` 10-variant union: `agentMessage` / `reasoning` / `plan` / `commandExecution` / `fileChange` / `mcpToolCall` / `dynamicToolCall` / `webSearch` / …, FR-L26) |
+| typed event union    | yes (`ClaudeStreamEvent` over stream-json) | partial (`OpenCodeStreamEvent` for `run --format json` only; SSE session events are untyped — FR-L27 pending) | yes (`CursorStreamEvent` over stream-json: system / user / thinking / assistant / tool_call / result, FR-L30) | yes (`CodexNotification` + `isCodexNotification` type guard, FR-L26) |
+| typed assistant content blocks | yes (`ClaudeAssistantBlock`: `text` / `tool_use` / `thinking` discriminator) | partial (`OpenCodeToolUseEvent` from `run --format json`; `Part` union from `@opencode-ai/sdk` not re-exported yet — FR-L27 pending) | partial (`CursorAssistantBlock`: text-only — Cursor does NOT inline tool blocks; tool calls are sibling `tool_call/{started,completed}` events with a `tool_call.<name>ToolCall.{args\|result}` wrapper unflattened by `unwrapCursorToolCall`, FR-L30) | yes (`CodexThreadItem` 10-variant union: `agentMessage` / `reasoning` / `plan` / `commandExecution` / `fileChange` / `mcpToolCall` / `dynamicToolCall` / `webSearch` / …, FR-L26) |
 | structured init w/ capabilities | yes (`ClaudeSystemEvent` carries `tools[]` / `skills[]` / `agents[]` / `mcp_servers[]` / `slash_commands[]` / `plugins[]`) | no in event stream (capability inventory available out-of-band via the `/agent` and `/config` server endpoints) | no (init only carries `model` / `cwd` / `permissionMode` / `apiKeySource`) | no in event stream (`thread/start` response carries `instructionSources[]` only — no tool enum) |
-| per-assistant-turn lifecycle hook | yes (`ClaudeLifecycleHooks.onAssistant` fires once per assistant turn with the typed `ClaudeAssistantEvent`) | no (cross-runtime `RuntimeLifecycleHooks.onInit` / `onResult` only) | no (cross-runtime hooks only) | no (cross-runtime hooks only — FR-L29 pending: `onCodexTurnCompleted` bound to `turn/completed`) |
+| per-assistant-turn lifecycle hook | yes (`ClaudeLifecycleHooks.onAssistant` fires once per assistant turn with the typed `ClaudeAssistantEvent`) | no (cross-runtime `RuntimeLifecycleHooks.onInit` / `onResult` only) | yes (`CursorLifecycleHooks.onAssistant` fires once per assistant turn with the typed `CursorAssistantEvent`, FR-L30) | no (cross-runtime hooks only — FR-L29 pending: `onCodexTurnCompleted` bound to `turn/completed`) |
 | settingSources cleanroom | yes (`CLAUDE_CONFIG_DIR` redirect, FR-L18) | silent ignore | silent ignore | silent ignore (FR-L28 pending — `CODEX_HOME` redirect) |
 
 Universal across all four runtimes: NDJSON event streaming, `AbortSignal`
@@ -175,9 +175,10 @@ hatch), `hooks` (typed lifecycle).
 
 Runtime-scoped (check `capabilities` before using):
 
-- `onToolUseObserved` — Claude, Codex, and OpenCode
-  (`capabilities.toolUseObservation`). Cursor silently ignores the
-  callback (no tool events surfaced by the CLI).
+- `onToolUseObserved` — Claude, Codex, OpenCode, and Cursor (FR-L30)
+  (`capabilities.toolUseObservation`). Cursor fires the callback on
+  every `tool_call/started` event with the flattened tool name from
+  `unwrapCursorToolCall`.
 - `settingSources` — Claude only (cleanroom `CLAUDE_CONFIG_DIR` setup).
   Other runtimes have no equivalent; the option is ignored.
 
@@ -343,7 +344,7 @@ This package is deliberately minimal:
 - No domain-specific logic
 
 Runtime-specific stream parsers, session openers, and HITL MCP handlers
-are available via sub-path exports (`./claude/stream`, `./opencode/session`,
-`./cursor/session`, `./codex/app-server`, etc.) for callers that need
-typed access beyond the neutral `RuntimeAdapter` / `RuntimeSession`
-interfaces.
+are available via sub-path exports (`./claude/stream`, `./cursor/stream`,
+`./opencode/session`, `./cursor/session`, `./codex/app-server`, etc.)
+for callers that need typed access beyond the neutral
+`RuntimeAdapter` / `RuntimeSession` interfaces.

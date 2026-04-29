@@ -159,9 +159,9 @@ Deno.test("extractSessionContent — claude tool_use missing name → skipped", 
   ]);
 });
 
-// ───────────── Cursor (same extractor as Claude) ─────────────
+// ───────────── Cursor (forked from Claude — FR-L30) ─────────────
 
-Deno.test("extractSessionContent — cursor assistant text → cumulative (same shape as claude)", () => {
+Deno.test("extractSessionContent — cursor assistant text → cumulative", () => {
   const ev = event("cursor", "assistant", {
     type: "assistant",
     message: {
@@ -200,6 +200,87 @@ Deno.test("extractSessionContent — cursor result → final text", () => {
   });
   assertEquals(extractSessionContent(ev), [
     { kind: "final", text: "cursor reply" },
+  ]);
+});
+
+Deno.test("extractSessionContent — cursor tool_call/started → tool entry (FR-L30)", () => {
+  const ev = event("cursor", "tool_call", {
+    type: "tool_call",
+    subtype: "started",
+    call_id: "call-1",
+    tool_call: {
+      readToolCall: { args: { path: "/tmp/foo.txt" } },
+    },
+  });
+  assertEquals(extractSessionContent(ev), [
+    {
+      kind: "tool",
+      id: "call-1",
+      name: "read",
+      input: { path: "/tmp/foo.txt" },
+    },
+  ]);
+});
+
+Deno.test("extractSessionContent — cursor tool_call/completed → [] (no double-emit)", () => {
+  const ev = event("cursor", "tool_call", {
+    type: "tool_call",
+    subtype: "completed",
+    call_id: "call-1",
+    tool_call: {
+      readToolCall: { result: { content: "hello" } },
+    },
+  });
+  assertEquals(extractSessionContent(ev), []);
+});
+
+Deno.test("extractSessionContent — cursor tool_call/started without call_id → []", () => {
+  const ev = event("cursor", "tool_call", {
+    type: "tool_call",
+    subtype: "started",
+    tool_call: { readToolCall: { args: {} } },
+  });
+  assertEquals(extractSessionContent(ev), []);
+});
+
+Deno.test("extractSessionContent — cursor thinking events → []", () => {
+  const delta = event("cursor", "thinking", {
+    type: "thinking",
+    subtype: "delta",
+    text: "Let me think...",
+  });
+  const completed = event("cursor", "thinking", {
+    type: "thinking",
+    subtype: "completed",
+  });
+  assertEquals(extractSessionContent(delta), []);
+  assertEquals(extractSessionContent(completed), []);
+});
+
+Deno.test("extractSessionContent — cursor user event → []", () => {
+  const ev = event("cursor", "user", {
+    type: "user",
+    message: { role: "user", content: "hi" },
+  });
+  assertEquals(extractSessionContent(ev), []);
+});
+
+Deno.test("extractSessionContent — cursor assistant ignores legacy claude tool_use blocks", () => {
+  // Claude inlines tool_use blocks inside assistant.message.content[];
+  // Cursor never does this. If a stray block somehow appears, the
+  // forked extractor should drop it (Claude tool_use is not part of
+  // the cursor wire format).
+  const ev = event("cursor", "assistant", {
+    type: "assistant",
+    message: {
+      content: [
+        { type: "text", text: "ok" },
+        { type: "tool_use", id: "x", name: "Read" },
+      ],
+    },
+  });
+  assertEquals(extractSessionContent(ev), [
+    { kind: "text", text: "ok", cumulative: true },
   ]);
 });
 

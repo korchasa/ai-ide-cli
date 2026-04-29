@@ -96,7 +96,9 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     hitl: false,
     transcript: false,
     interactive: false,
-    toolUseObservation: false,
+    // FR-L30: Cursor's stream-json emits `tool_call/started` events,
+    // surfaced via `onToolUseObserved` in `cursor/process.ts`.
+    toolUseObservation: true,
     session: true,
     capabilityInventory: true,
     toolFilter: false,

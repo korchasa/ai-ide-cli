@@ -470,19 +470,68 @@ Constants: `OPENCODE_HITL_MCP_SERVER_NAME = "hitl"`,
 prompt. Resume skips `--model`.
 
 `extractCursorOutput(event)`: maps result event to `CliRunOutput` with
-`runtime: "cursor"`. Same stream-json format as Claude.
+`runtime: "cursor"`. Cursor's stream-json shape is **NOT** identical to
+Claude — see `cursor/stream.ts` (FR-L30) for the empirically captured
+taxonomy.
 
 `formatCursorEventForOutput(event, verbosity?)`: one-line summaries.
-Same event shape as Claude stream-json. Semi-verbose filtering supported.
+Handles `system/init`, `assistant` (text blocks only — Cursor does not
+inline tool blocks; tool calls are sibling `tool_call/*` events) and
+`result/success`.
 
 `invokeCursorCli(opts)`: prepends system prompt to task prompt (no
 dedicated flag). Retry loop with exponential backoff. Real-time NDJSON
-processing with log file + terminal output forwarding.
+processing with log file + terminal output forwarding. Fires
+`onToolUseObserved` (FR-L30) on every `tool_call/started` event;
+`"abort"` decision triggers SIGTERM and synthesizes a `CliRunOutput`
+with `is_error: true` plus a single `permission_denials[]` entry —
+symmetric with Claude. Cursor-specific lifecycle hooks (`cursorHooks`)
+expose typed `onInit` / `onAssistant` / `onResult` callbacks.
 
 Tool filter (FR-L24): `capabilities.toolFilter === false`.
 `allowedTools` / `disallowedTools` are validated (same rules as Claude
 via `validateToolFilter`) and ignored in argv; first set-value call
 emits one `console.warn` per process.
+
+### 3.10.0 `cursor/stream.ts` — Typed Stream-JSON Events (FR-L30)
+
+Discriminated union `CursorStreamEvent` mirroring the empirically
+captured taxonomy of `cursor agent -p --output-format stream-json`:
+
+- `CursorSystemInitEvent` (`type: "system", subtype: "init"`) — carries
+  `apiKeySource`, `cwd`, `session_id`, `model`, `permissionMode`.
+- `CursorUserEvent` (`type: "user"`) — echoed user message.
+- `CursorThinkingDeltaEvent` (`type: "thinking", subtype: "delta"`) —
+  streaming reasoning chunk with `text`. **Very high volume** (~90% of
+  events for a typical prompt).
+- `CursorThinkingCompletedEvent` (`type: "thinking", subtype:
+  "completed"`) — end-of-reasoning marker.
+- `CursorAssistantEvent` (`type: "assistant"`) — `message.content[]` of
+  `{type:"text", text}` blocks **only**. Cursor does NOT inline tool
+  blocks (unlike Claude's `tool_use` blocks).
+- `CursorToolCallStartedEvent` / `CursorToolCallCompletedEvent` (`type:
+  "tool_call"`, `subtype: "started" | "completed"`) — separate top-level
+  events with `call_id`, `model_call_id`, and a wrapper payload
+  `tool_call: {<name>ToolCall: {args | result}}` (e.g. `readToolCall`,
+  `grepToolCall`). The single key encodes the tool name; `args` on
+  `started`, `result` (or `result.error.errorMessage` on failure) on
+  `completed`.
+- `CursorResultEvent` (`type: "result", subtype: "success"`) — terminal
+  event with `result`, `duration_ms`, `duration_api_ms`, `is_error`,
+  `request_id`, and `usage: {inputTokens, outputTokens, cacheReadTokens,
+  cacheWriteTokens}`. Note: cursor does **not** emit `total_cost_usd`.
+- `CursorUnknownEvent` — forward-compat fallback.
+
+`parseCursorStreamEvent(line)`: NDJSON → typed event or `null` (mirrors
+`parseClaudeStreamEvent`). `unwrapCursorToolCall(toolCall)`: flattens
+the `<name>ToolCall` wrapper into `{name, args?, result?,
+errorMessage?}` (strips trailing `ToolCall` suffix from the wrapper key).
+
+`CursorLifecycleHooks`: `onInit(event)` / `onAssistant(event)` /
+`onResult(event)` typed counterparts to `RuntimeLifecycleHooks` for
+consumers that import the cursor sub-path directly. `onAssistant`
+fires once per `assistant` event, closing the matrix row
+"per-assistant-turn lifecycle hook: cursor: no".
 
 ### 3.10.1 `cursor/session.ts` — Cursor Faux Session
 

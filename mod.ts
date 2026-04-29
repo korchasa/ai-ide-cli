@@ -126,6 +126,7 @@ export {
   formatCursorEventForOutput,
   invokeCursorCli,
 } from "./cursor/process.ts";
+export type { CursorInvokeOptions } from "./cursor/process.ts";
 export {
   buildCursorSendArgs,
   createCursorChat,
@@ -136,8 +137,35 @@ export type {
   CursorSession,
   CursorSessionOptions,
   CursorSessionStatus,
-  CursorStreamEvent,
 } from "./cursor/session.ts";
+// FR-L30: typed cursor stream-json events (canonical home is `cursor/stream`).
+export {
+  parseCursorStreamEvent,
+  unwrapCursorToolCall,
+} from "./cursor/stream.ts";
+export type {
+  CursorAssistantBlock,
+  CursorAssistantEvent,
+  CursorLifecycleHooks,
+  CursorResultEvent,
+  CursorStreamEvent,
+  CursorSystemInitEvent,
+  CursorTextBlock,
+  CursorThinkingCompletedEvent,
+  CursorThinkingDeltaEvent,
+  CursorThinkingEvent,
+  CursorToolCallCompletedEvent,
+  CursorToolCallEvent,
+  CursorToolCallStartedEvent,
+  CursorToolCallWrapper,
+  CursorToolUseInfo,
+  CursorToolUseObservedDecision,
+  CursorUnknownEvent,
+  CursorUsage,
+  CursorUserEvent,
+  OnCursorToolUseObservedCallback,
+  UnwrappedCursorToolCall,
+} from "./cursor/stream.ts";
 
 // --- Codex runner ---
 export {

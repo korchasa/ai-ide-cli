@@ -39,8 +39,9 @@ export interface RuntimeCapabilities {
   interactive: boolean;
   /**
    * Whether the runtime surfaces a per-tool-use observation hook
-   * (`onToolUseObserved`). Claude, Codex, and OpenCode expose it;
-   * Cursor does not (its CLI emits no tool events).
+   * (`onToolUseObserved`). All four adapters expose it: Claude, Codex,
+   * OpenCode emit tool events inline; Cursor surfaces them via separate
+   * `tool_call/started` events (FR-L30).
    */
   toolUseObservation: boolean;
   /**
@@ -104,9 +105,9 @@ export interface RuntimeLifecycleHooks {
 
 /**
  * Info passed to the runtime-neutral observed-tool-use callback. Honored by
- * Claude, Codex, and OpenCode (each reports the tool invocation its CLI
- * surfaces); Cursor ignores the hook because its CLI does not emit tool
- * events.
+ * Claude, Codex, OpenCode, and Cursor — each reports the tool invocation
+ * its CLI surfaces. Cursor parses `tool_call/started` events from
+ * `cursor agent -p --output-format stream-json` (FR-L30).
  */
 export interface RuntimeToolUseInfo {
   /** Runtime that dispatched the tool. */
@@ -230,8 +231,8 @@ export interface RuntimeInvokeOptions {
    * Observed-tool-use callback. Fires **post-dispatch but pre-next-turn**:
    * by the time the hook runs, the runtime has already invoked the tool.
    * Returning `"abort"` stops the run but cannot un-execute the tool.
-   * Honored by Claude, Codex, and OpenCode; Cursor silently ignores the
-   * callback (its CLI surfaces no tool events). Check
+   * Honored by Claude, Codex, OpenCode, and Cursor (FR-L30 — fires on
+   * `tool_call/started`). Check
    * {@link RuntimeCapabilities.toolUseObservation} before relying on it.
    */
   onToolUseObserved?: OnRuntimeToolUseObservedCallback;

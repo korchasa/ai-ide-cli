@@ -9,12 +9,36 @@
 
 import type { CliRunOutput, Verbosity } from "../types.ts";
 import type {
+  OnRuntimeToolUseObservedCallback,
   RuntimeInvokeOptions,
   RuntimeInvokeResult,
   RuntimeLifecycleHooks,
+  RuntimeToolUseDecision,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/index.ts";
 import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import {
+  type CursorAssistantEvent,
+  type CursorLifecycleHooks,
+  type CursorResultEvent,
+  type CursorStreamEvent,
+  type CursorSystemInitEvent,
+  parseCursorStreamEvent,
+  unwrapCursorToolCall,
+  type UnwrappedCursorToolCall,
+} from "./stream.ts";
+
+/** Cursor-specific superset of {@link RuntimeInvokeOptions}. */
+export interface CursorInvokeOptions extends RuntimeInvokeOptions {
+  /**
+   * Typed cursor-specific lifecycle hooks (`onInit`, `onAssistant`,
+   * `onResult`). Each hook fires once per matching event with the
+   * narrowed {@link CursorStreamEvent} variant. The runtime-neutral
+   * `hooks` field on {@link RuntimeInvokeOptions} keeps working in
+   * parallel — both can be set. See FR-L30.
+   */
+  cursorHooks?: CursorLifecycleHooks;
+}
 
 /**
  * Flags reserved by {@link buildCursorArgs}. Keys in `extraArgs` that
@@ -128,7 +152,7 @@ export function formatCursorEventForOutput(
 
 /** Invoke cursor CLI with retry logic. */
 export async function invokeCursorCli(
-  opts: RuntimeInvokeOptions,
+  opts: CursorInvokeOptions,
 ): Promise<RuntimeInvokeResult> {
   if (opts.signal?.aborted) {
     return { error: "Aborted before start" };
@@ -153,6 +177,8 @@ export async function invokeCursorCli(
         opts.signal,
         opts.hooks,
         opts.processRegistry,
+        opts.onToolUseObserved,
+        opts.cursorHooks,
       );
       if (output.is_error) {
         lastError = `Cursor CLI returned error: ${output.result}`;
@@ -215,6 +241,8 @@ async function executeCursorProcess(
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
   processRegistry?: ProcessRegistry,
+  onToolUseObserved?: OnRuntimeToolUseObservedCallback,
+  cursorHooks?: CursorLifecycleHooks,
 ): Promise<CliRunOutput> {
   const cmd = new Deno.Command("cursor", {
     args,
@@ -259,6 +287,100 @@ async function executeCursorProcess(
     let resultEvent: CliRunOutput | undefined;
     let buffer = "";
     let initEmitted = false;
+    let turnCount = 0;
+    let denied:
+      | { tool: string; id: string; reason: string }
+      | undefined;
+    let lastSessionId: string | undefined;
+    let denialAbort = false;
+
+    const handleEvent = async (
+      // deno-lint-ignore no-explicit-any
+      event: Record<string, any>,
+    ): Promise<void> => {
+      onEvent?.(event);
+      const sessionField = event.session_id;
+      if (typeof sessionField === "string" && sessionField) {
+        lastSessionId = sessionField;
+      }
+      if (
+        !initEmitted && event.type === "system" &&
+        event.subtype === "init"
+      ) {
+        initEmitted = true;
+        hooks?.onInit?.({
+          runtime: "cursor",
+          model: typeof event.model === "string" ? event.model : undefined,
+          sessionId: typeof event.session_id === "string"
+            ? event.session_id
+            : undefined,
+        });
+        // FR-L30: typed cursor-specific init hook.
+        cursorHooks?.onInit?.(
+          event as CursorStreamEvent as CursorSystemInitEvent,
+        );
+      }
+      if (event.type === "assistant") {
+        turnCount += 1;
+        // FR-L30: per-assistant-turn typed lifecycle hook.
+        cursorHooks?.onAssistant?.(
+          event as CursorStreamEvent as CursorAssistantEvent,
+        );
+      }
+      if (
+        // FR-L30: fire onToolUseObserved on every tool_call/started.
+        onToolUseObserved && !denied &&
+        event.type === "tool_call" && event.subtype === "started"
+      ) {
+        const callId = typeof event.call_id === "string" ? event.call_id : "";
+        const wrapper = event.tool_call;
+        const unwrapped: UnwrappedCursorToolCall | null = unwrapCursorToolCall(
+          wrapper,
+        );
+        if (callId && unwrapped) {
+          let decision: RuntimeToolUseDecision = "allow";
+          try {
+            decision = await onToolUseObserved({
+              runtime: "cursor",
+              id: callId,
+              name: unwrapped.name,
+              input: unwrapped.args,
+              turn: Math.max(1, turnCount),
+            });
+          } catch {
+            decision = "abort";
+          }
+          if (decision === "abort") {
+            denied = {
+              tool: unwrapped.name,
+              id: callId,
+              reason: "Aborted by onToolUseObserved callback",
+            };
+            denialAbort = true;
+            try {
+              process.kill("SIGTERM");
+            } catch {
+              // Process may have already exited.
+            }
+          }
+        }
+      }
+      if (event.type === "result") {
+        resultEvent = extractCursorOutput(event);
+        // FR-L30: typed cursor-specific result hook.
+        cursorHooks?.onResult?.(
+          event as CursorStreamEvent as CursorResultEvent,
+        );
+      }
+      const logSummary = formatCursorEventForOutput(event);
+      if (logFile && logSummary) {
+        await logFile.write(encoder.encode(logSummary + "\n"));
+      }
+      if (onOutput) {
+        const termSummary = formatCursorEventForOutput(event, verbosity);
+        if (termSummary) onOutput(termSummary);
+      }
+    };
 
     const stdoutReader = process.stdout.getReader();
     const stdoutDone = (async () => {
@@ -271,53 +393,18 @@ async function executeCursorProcess(
           buffer = lines.pop()!;
           for (const line of lines) {
             if (!line.trim()) continue;
-            try {
-              // deno-lint-ignore no-explicit-any
-              const event = JSON.parse(line) as Record<string, any>;
-              onEvent?.(event);
-              if (
-                !initEmitted && event.type === "system" &&
-                event.subtype === "init"
-              ) {
-                initEmitted = true;
-                hooks?.onInit?.({
-                  runtime: "cursor",
-                  model: typeof event.model === "string"
-                    ? event.model
-                    : undefined,
-                  sessionId: typeof event.session_id === "string"
-                    ? event.session_id
-                    : undefined,
-                });
-              }
-              if (event.type === "result") {
-                resultEvent = extractCursorOutput(event);
-              }
-              const logSummary = formatCursorEventForOutput(event);
-              if (logFile && logSummary) {
-                await logFile.write(encoder.encode(logSummary + "\n"));
-              }
-              if (onOutput) {
-                const termSummary = formatCursorEventForOutput(
-                  event,
-                  verbosity,
-                );
-                if (termSummary) onOutput(termSummary);
-              }
-            } catch {
-              // Skip malformed JSON lines
-            }
+            const parsed = parseCursorStreamEvent(line);
+            if (!parsed) continue;
+            // deno-lint-ignore no-explicit-any
+            await handleEvent(parsed as Record<string, any>);
           }
         }
         if (buffer.trim()) {
-          try {
+          const parsed = parseCursorStreamEvent(buffer);
+          if (parsed) {
             // deno-lint-ignore no-explicit-any
-            const event = JSON.parse(buffer) as Record<string, any>;
-            onEvent?.(event);
-            if (event.type === "result") {
-              resultEvent = extractCursorOutput(event);
-            }
-          } catch { /* skip */ }
+            await handleEvent(parsed as Record<string, any>);
+          }
         }
       } catch { /* stream closed */ }
     })();
@@ -340,6 +427,26 @@ async function executeCursorProcess(
 
     logFile?.close();
 
+    // FR-L30: tool-use abort takes precedence over signal/exit-code paths.
+    if (denied) {
+      return {
+        runtime: "cursor",
+        result: denied.reason,
+        session_id: lastSessionId ?? "",
+        total_cost_usd: 0,
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: turnCount,
+        is_error: true,
+        permission_denials: [
+          {
+            tool_name: denied.tool,
+            tool_input: { id: denied.id, reason: denied.reason },
+          },
+        ],
+      };
+    }
+
     if (userSignal?.aborted) {
       const err = new Error(`Aborted: ${abortReason(userSignal)}`);
       (err as Error & { name: string }).name = "AbortError";
@@ -352,7 +459,8 @@ async function executeCursorProcess(
       return resultEvent;
     }
 
-    if (!status.success) {
+    // SIGTERM caused by denial is expected — but `denied` already returned above.
+    if (!status.success && !denialAbort) {
       throw new Error(
         `Cursor CLI exited with code ${status.code}${
           stderr ? `: ${stderr}` : ""

@@ -1310,6 +1310,86 @@ stable — never renumber on move.
     `ai-ide-cli/codex/process_test.ts`.
   - [ ] `// FR-L29` traceability comments at the hook-fire sites.
 
+### 3.30 FR-L30: Typed Cursor Stream-JSON Event Union & Tool-Call Lifecycle
+
+- **Description:** Cursor adapter emits a discriminated union
+  `CursorStreamEvent` over `cursor agent -p --output-format stream-json`,
+  parses tool-call events as a separate event class (Cursor wraps tool
+  calls in `tool_call.<name>ToolCall.{args|result}`, distinct from
+  Claude's inline `tool_use` blocks), surfaces them through the
+  cross-runtime `onToolUseObserved` callback, exposes a typed
+  per-assistant-turn lifecycle hook, and forks the
+  `extractSessionContent` cursor branch from the shared Claude branch so
+  tool invocations stop being silently dropped.
+- **Scenario:** Empirical capture of `cursor agent -p` stream-json
+  output (`scripts/smoke.ts cursor-events`, dump
+  `/tmp/cursor-events-*.ndjson`) revealed six distinct event types
+  (`system/init`, `user`, `thinking/{delta,completed}`, `assistant`,
+  `tool_call/{started,completed}`, `result/success`). The previous
+  shared Claude/Cursor extractor in `runtime/content.ts` only handled
+  `assistant` and `result`, so every Cursor `tool_call/*` event
+  collapsed to `[]`, producing the false matrix entry "no
+  toolUseObservation" — the bug was on the consumer side, not Cursor.
+  Consumers using `extractSessionContent` saw zero tool blocks for
+  Cursor sessions while the runtime emitted them on every read / grep /
+  edit. After this FR, consumers receive
+  `NormalizedToolContent` for Cursor tool calls, and adapters hosting an
+  `onToolUseObserved` hook receive `RuntimeToolUseInfo` for each
+  Cursor tool dispatch.
+- **Acceptance:**
+  - [x] `cursor/stream.ts` exports a discriminated union
+    `CursorStreamEvent` covering `system`, `user`, `thinking`,
+    `assistant`, `tool_call`, `result`, and a forward-compat
+    `CursorUnknownEvent` fallback. Includes `parseCursorStreamEvent`
+    NDJSON parser (mirrors `parseClaudeStreamEvent`). Evidence:
+    `// FR-L30` comments at the union and parser definitions; tests
+    `ai-ide-cli/cursor/stream_test.ts`.
+  - [x] Tool-call events typed as
+    `CursorToolCallStartedEvent | CursorToolCallCompletedEvent` with
+    `subtype` discriminator, `call_id`, and a `tool_call` wrapper
+    payload. Helper `unwrapCursorToolCall(raw)` flattens the
+    `<name>ToolCall` wrapper into `{name, args, result?,
+    errorMessage?}` so consumers do not enumerate per-tool keys
+    themselves. Evidence: `// FR-L30` traceability at the helper.
+  - [x] `runtime/content.ts` forks the cursor extractor from the shared
+    Claude path: `extractCursorContent` handles `assistant` (text
+    blocks only — Cursor never inlines tool blocks), `tool_call` with
+    `subtype === "started"` → `NormalizedToolContent` (via
+    `unwrapCursorToolCall`), and `result` → `NormalizedFinalContent`.
+    Tests cover at least one `tool_call/started` event yielding a
+    tool entry. Evidence: `// FR-L30` comments at the cursor case;
+    tests in `ai-ide-cli/runtime/content_test.ts`.
+  - [x] `cursor/process.ts` fires `onToolUseObserved` on every
+    `tool_call/started` event with a flattened `RuntimeToolUseInfo`
+    (`runtime: "cursor"`, `id: call_id`, `name: <unwrapped>`,
+    `input: <args>`, `turn: <turn count>`). Returning `"abort"`
+    triggers SIGTERM and the adapter synthesizes a `CliRunOutput`
+    with `is_error: true` and a `permission_denials[]` entry
+    describing the observed tool — symmetric with Claude's behaviour.
+    Evidence: stub-based unit tests in
+    `ai-ide-cli/cursor/process_test.ts` plus `// FR-L30`
+    traceability.
+  - [x] `runtime/cursor-adapter.ts` flips
+    `capabilities.toolUseObservation` from `false` to `true` and
+    propagates `opts.onToolUseObserved` into the cursor invocation,
+    translating the Cursor-specific info shape into
+    `RuntimeToolUseInfo` (mirrors the Claude-adapter wiring).
+  - [x] `cursor/stream.ts` exports `CursorLifecycleHooks` with
+    `onInit` / `onAssistant` / `onResult`; `onAssistant` fires once
+    per `assistant` event with the typed `CursorAssistantEvent`.
+    Surfaced through `cursor/process.ts` to close the
+    "per-assistant-turn lifecycle hook: cursor: no" matrix row.
+  - [x] README feature matrix flips for Cursor: `toolUseObservation`,
+    `typed event union`, `typed assistant content blocks` (partial —
+    text-only blocks; tool calls are sibling events not inline
+    blocks), and `per-assistant-turn lifecycle hook`. Evidence:
+    `README.md` matrix section.
+  - [x] Real-binary smoke verification: `deno run -A scripts/smoke.ts
+    cursor-events` against installed `cursor agent -p` captures NDJSON
+    histogram (system/user/thinking/assistant/tool_call/result), confirms
+    typed parser handles the actual wire format. Evidence:
+    `scripts/smoke.ts:cursor-events` scenario.
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

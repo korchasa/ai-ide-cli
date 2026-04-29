@@ -18,6 +18,7 @@
     "./claude/session": "./claude/session.ts",
     "./cursor/process": "./cursor/process.ts",
     "./cursor/session": "./cursor/session.ts",
+    "./cursor/stream": "./cursor/stream.ts",
     "./codex/process": "./codex/process.ts",
     "./codex/hitl-mcp": "./codex/hitl-mcp.ts",
     "./codex/app-server": "./codex/app-server.ts",

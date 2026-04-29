@@ -5,9 +5,11 @@
  *
  * Not part of `deno task check`. Invoked manually:
  *
- *   deno run -A scripts/smoke.ts            # run everything
- *   deno run -A scripts/smoke.ts abort      # only AbortSignal cases
- *   deno run -A scripts/smoke.ts settings   # only settingSources case
+ *   deno run -A scripts/smoke.ts                # run everything
+ *   deno run -A scripts/smoke.ts abort          # only AbortSignal cases
+ *   deno run -A scripts/smoke.ts settings       # only settingSources case
+ *   deno run -A scripts/smoke.ts cursor-events  # capture cursor stream-json
+ *                                                 taxonomy for typing
  *
  * Each scenario spends real tokens — gate with env flag or a real API key
  * in the environment. Failing scenarios exit with non-zero.
@@ -15,6 +17,7 @@
 
 import { invokeClaudeCli } from "../claude/process.ts";
 import { openClaudeSession } from "../claude/session.ts";
+import { invokeCursorCli } from "../cursor/process.ts";
 import { getRuntimeAdapter } from "../runtime/index.ts";
 import {
   SessionAbortedError,
@@ -524,6 +527,87 @@ for (const spec of nonClaudeMatrix) {
     },
   );
 }
+
+// --- cursor-events: empirical stream-json taxonomy capture ---
+//
+// Runs `cursor agent -p --output-format stream-json` against a fixed prompt
+// that exercises read + grep, captures every NDJSON event via `onEvent`,
+// then prints a type histogram and dumps the raw NDJSON for offline study.
+// Use this to decide what `CursorStreamEvent` discriminated union should
+// cover (currently `Record<string, unknown>` — see README feature matrix).
+
+scenario(
+  "cursor-events",
+  "capture stream-json taxonomy for read+grep prompt",
+  async () => {
+    const events: Record<string, unknown>[] = [];
+    const controller = new AbortController();
+    const ceiling = setTimeout(() => controller.abort("smoke-ceiling"), 90_000);
+
+    try {
+      const res = await invokeCursorCli({
+        taskPrompt:
+          "Read package.json from the current directory, then grep the codebase for the word 'TODO'. Reply with a one-sentence summary of what you found. Do not modify any files.",
+        timeoutSeconds: 90,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+        signal: controller.signal,
+        verbosity: "quiet",
+        onEvent: (event) => {
+          events.push(event);
+        },
+      });
+      assert(
+        res.error === undefined,
+        `cursor returned error: ${res.error}`,
+      );
+    } finally {
+      clearTimeout(ceiling);
+    }
+
+    // Histogram by `type` field (and `subtype` when present).
+    const histogram = new Map<string, number>();
+    const samples = new Map<string, Record<string, unknown>>();
+    for (const event of events) {
+      const type = String(event["type"] ?? "<no-type>");
+      const subtype = event["subtype"];
+      const key = subtype !== undefined ? `${type}/${String(subtype)}` : type;
+      histogram.set(key, (histogram.get(key) ?? 0) + 1);
+      if (!samples.has(key)) samples.set(key, event);
+    }
+
+    // Persist raw NDJSON for offline diff against SDKMessage taxonomy.
+    const dumpPath = `/tmp/cursor-events-${Date.now()}.ndjson`;
+    await Deno.writeTextFile(
+      dumpPath,
+      events.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    );
+
+    console.log(`\nTotal events: ${events.length}`);
+    console.log(`Raw dump: ${dumpPath}`);
+    console.log(`\nType histogram:`);
+    const sorted = [...histogram.entries()].sort((a, b) => b[1] - a[1]);
+    for (const [key, count] of sorted) {
+      console.log(`  ${key.padEnd(40)} ${count}`);
+    }
+
+    console.log(`\nSample event per type (top-level keys only):`);
+    for (const [key, sample] of samples) {
+      const keys = Object.keys(sample).sort();
+      console.log(`  ${key.padEnd(40)} keys=[${keys.join(", ")}]`);
+    }
+
+    assert(events.length > 0, "no events captured — cursor produced nothing");
+    assert(
+      histogram.has("system") || histogram.has("system/init"),
+      "expected at least one system/init event",
+    );
+    assert(
+      histogram.has("result") || sorted.some(([k]) => k.startsWith("result")),
+      "expected a terminal result event",
+    );
+  },
+);
 
 // --- Runner ---
 
