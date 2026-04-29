@@ -218,7 +218,11 @@ export function buildOpenCodeArgs(opts: RuntimeInvokeOptions): string[] {
   args.push(...expandExtraArgs(opts.extraArgs, OPENCODE_RESERVED_FLAGS));
 
   args.push("--format", "json");
-  args.push(opts.taskPrompt);
+  // `--` separator: taskPrompt is a positional argument and may begin with
+  // `-` (e.g. when systemPrompt content starts with YAML frontmatter `---`).
+  // Without this separator yargs treats the prompt as an unknown long flag,
+  // opencode prints its usage and exits with code 1.
+  args.push("--", opts.taskPrompt);
 
   return args;
 }

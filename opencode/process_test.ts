@@ -68,6 +68,20 @@ Deno.test("buildOpenCodeArgs — resume with bypassPermissions still includes --
   assertEquals(args.includes("--session"), true);
 });
 
+Deno.test("buildOpenCodeArgs — emits `--` separator before the positional prompt so leading `-`/`---` is not parsed as a flag", () => {
+  // Regression: when the task prompt begins with `-` (typical when an agent
+  // markdown file with YAML frontmatter `---` is concatenated as a system
+  // prompt), opencode's yargs parser interprets the prompt as an unknown
+  // long flag, prints usage, and exits with code 1. The `--` separator
+  // forces yargs to treat everything after it as positional.
+  const prompt = "---\nname: agent\n---\nbody";
+  const args = buildOpenCodeArgs(makeInvokeOpts({ taskPrompt: prompt }));
+  const sep = args.indexOf("--");
+  assert(sep >= 0, "expected `--` separator before the positional prompt");
+  assertEquals(args[sep + 1], prompt);
+  assertEquals(args.at(-1), prompt);
+});
+
 Deno.test("buildOpenCodeArgs — resume uses --session and omits model and agent", () => {
   const args = buildOpenCodeArgs(
     makeInvokeOpts({
