@@ -97,6 +97,12 @@ import this package to invoke IDE CLIs uniformly.
 - JSR slow-types lints (`no-slow-types`, `missing-jsdoc`, `private-type-ref`)
   fire only on `deno publish --dry-run` — `deno task check` runs the dry-run
   last to catch these locally.
+- `private-type-ref` checklist: when adding a parameter or return type to an
+  exported function, every type referenced in its public signature must
+  itself be re-exported from `mod.ts` (and any sub-path entry declared in
+  `deno.json` `exports`). Symptom: `error[private-type-ref]: public type
+  '<fn>' references private type '<T>'` on `deno publish --dry-run`. Fix:
+  add `export type { T } from "./<module>.ts"` to the same entry-point.
 - `deno doc --lint <entry>` validates only symbols reachable from `<entry>`.
   Public symbols reachable via other barrels stay invisible without a
   publish dry-run — `scripts/check.ts` runs both.
@@ -328,6 +334,27 @@ implements:
 2. **GREEN**: Write minimal code to pass the test.
 3. **REFACTOR**: Improve code and tests without changing behavior. Re-run the failing test.
 4. **CHECK**: Run `deno task check` (fmt, lint, type check, tests, publish --dry-run). You are NOT done after GREEN — skipping CHECK leaves formatting errors, slow-type lints, and regressions undetected. This step is mandatory.
+
+### Adding Typed Stream Events for a Runtime
+
+Before declaring a `<Runtime>StreamEvent` discriminated union, capture real
+NDJSON from the binary — never type by analogy with another runtime or upstream
+docs alone (binaries diverge from documentation).
+
+1. Add a smoke scenario in `scripts/smoke.ts` that runs the real binary with a
+   prompt exercising the events you want to type (text + tool + thinking).
+2. Run `deno run -A scripts/smoke.ts <runtime>-events`; dump events to
+   `/tmp/<runtime>-events-*.ndjson` and print a `type` histogram.
+3. Inspect distinct shapes in the dump. Note wrapper conventions, sibling vs.
+   inline placement, completion-vs-decision-time emission.
+4. Write the union from captured shapes. Place it in `<runtime>/stream.ts` (or
+   `<runtime>/events.ts` for codex-style). Re-export from companion modules,
+   never redeclare.
+
+Rationale: cursor's `tool_call/{started,completed}` are sibling top-level
+events with a `tool_call.<name>ToolCall.{args|result}` wrapper, not inline
+`tool_use` blocks like Claude. The divergence was invisible until empirical
+capture (FR-L30).
 
 ### Test Rules
 
