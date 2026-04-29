@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.9](https://github.com/korchasa/ai-ide-cli/compare/v0.5.8...v0.5.9) (2026-04-29)
+
+
+### Features
+
+* **cursor:** type stream-json events and surface tool-call observation (FR-L30) ([9cd3ee0](https://github.com/korchasa/ai-ide-cli/commit/9cd3ee04e20d97f0c844d4f8e0f4bf2341cd78d8))
+
+
+### Bug Fixes
+
+* **codex:** close session turn-id race and align app-server payload with upstream schema ([3943c89](https://github.com/korchasa/ai-ide-cli/commit/3943c89cbeadb0b87ed3095c1240b128da7f10a0))
+
+
+### Documentation
+
+* **agents:** enhance documentation on stream-event types and runtime integration guidelines ([e1a1c14](https://github.com/korchasa/ai-ide-cli/commit/e1a1c14d884329994a5b5e7c229e1f4108eabdcd))
+* **cursor:** codify HITL=false rationale and ban ~/-mutation workarounds ([99b8cf2](https://github.com/korchasa/ai-ide-cli/commit/99b8cf2baa1e3d7996c57623a57ad140d76f6444))
+
 ### [0.5.8](https://github.com/korchasa/ai-ide-cli/compare/v0.5.7...v0.5.8) (2026-04-27)
 
 
