@@ -170,7 +170,10 @@ stable — never renumber on move.
   written to a temp file, path returned as `CliRunOutput.transcript_path`.
 - **Acceptance:**
   - [x] `buildOpenCodeArgs()` emits `run`, `--format json`, `--session`,
-        `--model`, `--agent`, `--dangerously-skip-permissions`.
+        `--model`, `--agent`, `--dangerously-skip-permissions`, and a `--`
+        separator immediately before the positional prompt so yargs does
+        not misinterpret a `-`-prefixed prompt (typical when a system
+        prompt begins with YAML frontmatter `---`) as an unknown flag.
         Evidence: `ai-ide-cli/opencode/process.ts:buildOpenCodeArgs`.
   - [x] `buildOpenCodeConfigContent()` injects MCP server when HITL configured;
         throws when `hitlMcpCommandBuilder` missing.

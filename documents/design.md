@@ -405,7 +405,11 @@ External `AbortSignal` composed via listener; process-registry
 ### 3.7 `opencode/process.ts` — OpenCode Runner
 
 `buildOpenCodeArgs(opts)`: `run` → `--session` → `--model` → `--agent` →
-`--dangerously-skip-permissions` → `extraArgs` → `--format json` → prompt.
+`--dangerously-skip-permissions` → `extraArgs` → `--format json` → `--` →
+prompt. The `--` separator forces yargs to treat the merged
+`systemPrompt + taskPrompt` as positional even when it begins with `-`
+(e.g. YAML frontmatter `---` from an agent markdown file); without it
+opencode prints usage and exits with code 1.
 
 `extractOpenCodeOutput(lines)`: parses collected NDJSON lines. Event types:
 `step_start` (increment steps), `text` (accumulate result), `tool_use`

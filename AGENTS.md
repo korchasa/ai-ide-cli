@@ -12,6 +12,7 @@
 - Use standard tools (jq, yq, jc) to process and manage structured output — they are portable and well-understood.
 - Do not add fallbacks, default behaviors, or error recovery silently — if the user didn't ask for it, it's an assumption. If you believe a fallback is genuinely needed, ask the user first.
 - Do not use tables in chat output — use two-level lists instead. Tables render poorly in terminal and are harder to scan.
+- Solutions must not rely on mutating files under the user's home (`~/`) or on staging temporary workspace sandboxes (copies, symlink farms, rewrite-and-restore of user config) to work around missing runtime flags. If a feature would require either at runtime, keep it unsupported and document the reason — short-term capability is not worth the concurrency, crash-recovery, and auth-drift cost. Research and experiments are exempt (temp dirs are fine); touching `~/` for experiments is allowed only with an explicit backup-and-restore of anything you change, so a crash cannot corrupt user state.
 
 ---
 
