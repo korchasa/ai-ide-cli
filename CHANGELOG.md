@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.11](https://github.com/korchasa/ai-ide-cli/compare/v0.5.10...v0.5.11) (2026-04-30)
+
+
+### Features
+
+* **e2e:** add real-binary test suite across four adapters (FR-L24) ([73f8d86](https://github.com/korchasa/ai-ide-cli/commit/73f8d86513935e11c109156be819e36cde544441))
+
+
+### Documentation
+
+* capture e2e gotchas + tighten traceability rule ([d06378c](https://github.com/korchasa/ai-ide-cli/commit/d06378c5ec09fd38abcf1594296e3b4ff9e22203))
+* **srs:** add Event Mapping Contracts section to §5 ([af26a2a](https://github.com/korchasa/ai-ide-cli/commit/af26a2a74db98031e9c863727af1e90a5a165b64))
+
+
+### Code Refactoring
+
+* **docs:** renumber e2e suite FR-L24 → FR-L25 ([6978f96](https://github.com/korchasa/ai-ide-cli/commit/6978f965c272828852a68828d8c2046982f333bc))
+
+
+### Chores
+
+* merge main into worktree-e2e-real-ide-tests; renumber e2e suite FR-L25 → FR-L31 ([e31144a](https://github.com/korchasa/ai-ide-cli/commit/e31144a666c03ac1275e08c96fae7c3f410cbaf0))
+* **release:** 0.5.10 ([7aa2941](https://github.com/korchasa/ai-ide-cli/commit/7aa294103dec27e394f60776c22bd0672647471c))
+
+
+### Tests
+
+* **e2e:** add content-normalization scenario across four adapters ([fa88a3c](https://github.com/korchasa/ai-ide-cli/commit/fa88a3cc661e93f8550f4070587ac5fb40937364))
+* **e2e:** real-binary coverage for FR-L26 + FR-L30 ([6620ff5](https://github.com/korchasa/ai-ide-cli/commit/6620ff52f1801d6d3a0758c515bfc868e38f9bbd))
+
 ### [0.5.10](https://github.com/korchasa/ai-ide-cli/compare/v0.5.9...v0.5.10) (2026-04-30)
 
 
