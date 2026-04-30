@@ -82,12 +82,16 @@ ai-ide-cli/
   e2e/                  — opt-in real-binary test suite (FR-L31)
     _helpers.ts         — detectBinary, e2eEnabled, resolveEnabledMap, ceiling,
                           ONE_WORD_OK/DONE, LONG_COUNT_PROMPT
-    _matrix.ts          — SESSION_CONTRACT_MATRIX (7 scenarios), RUNTIME_SPECS
-                          (per-runtime turn-end predicates), DEFAULT_CEILING_MS,
-                          CURSOR_CEILING_MS
+    _matrix.ts          — SESSION_CONTRACT_MATRIX (9 scenarios incl.
+                          codex-typed-notification-narrowing FR-L26),
+                          RUNTIME_SPECS (per-runtime turn-end predicates),
+                          DEFAULT_CEILING_MS, CURSOR_CEILING_MS
     session_matrix_e2e_test.ts — Deno.test generator: RuntimeId × matrix
     invoke_abort_e2e_test.ts   — Claude one-shot AbortSignal scenarios
     claude_settings_e2e_test.ts — Claude settingSources: [] cleanroom
+    cursor_typed_stream_e2e_test.ts — Cursor --yolo + Read tool, asserts
+                          parseCursorStreamEvent / unwrapCursorToolCall /
+                          onToolUseObserved against live binary (FR-L30)
 ```
 
 **Dependency rule:** All arrows point inward. Runtime-specific modules import
@@ -823,6 +827,12 @@ Opt-in Deno-native suite; does not run under `deno task check`. Layered:
      contains the reply word on every adapter. Closes the loop
      between the stub-based contract test in
      `runtime/session_contract_test.ts` and real CLI behaviour.
+  9. `codex-typed-notification-narrowing` (codex-only) — FR-L26
+     check: live `codex app-server` notification stream surfaces
+     `turn/started` and `turn/completed` notifications that narrow
+     via `isCodexNotification` to typed payloads; field access uses
+     `note.params.turn.id` / `.status` directly without casts so an
+     upstream schema rename breaks the access site.
 
 **`e2e/session_matrix_e2e_test.ts`:** iterates `RuntimeId ×
 SESSION_CONTRACT_MATRIX`, filters via `only`/`skip`, and registers one
@@ -836,6 +846,17 @@ scenarios — pre-start abort (`"Aborted before start"`), mid-run abort
 
 **`e2e/claude_settings_e2e_test.ts`:** Claude-only `settingSources: []`
 cleanroom scenario.
+
+**`e2e/cursor_typed_stream_e2e_test.ts`:** Cursor-only FR-L30 check.
+One-shot `invokeCursorCli` with `permissionMode: "bypassPermissions"`
+(maps to `--yolo`) in a `Deno.makeTempDir()` scratch dir holding a
+single `hello.txt` file; prompts Cursor to read it. Asserts the
+captured raw NDJSON re-parses through `parseCursorStreamEvent` into a
+typed `CursorToolCallStartedEvent`, that `unwrapCursorToolCall`
+flattens the `<name>ToolCall` wrapper into a non-empty `{name, args?}`,
+and that `onToolUseObserved` fires with `runtime: "cursor"` plus
+non-empty `id`/`name`. Stays out of the matrix because the matrix is
+session-only and does not surface `permissionMode`.
 
 Finalizer discipline: every session scenario wraps the body in
 `try/finally` that calls `session.abort("e2e-cleanup")` and

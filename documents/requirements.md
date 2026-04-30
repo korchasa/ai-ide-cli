@@ -1175,6 +1175,14 @@ stable — never renumber on move.
   - [x] `// FR-L26` traceability comments at the narrowing sites.
     Evidence: `ai-ide-cli/codex/session.ts:updateActiveTurnId`,
     `ai-ide-cli/codex/events.ts` (module JSDoc).
+  - [x] Real-binary verification: live `codex app-server` notification
+    stream surfaces `turn/started` and `turn/completed` notifications
+    that narrow via `isCodexNotification` to `CodexTurnStartedNotification`
+    / `CodexTurnCompletedNotification`; field access uses
+    `note.params.turn.id` / `note.params.turn.status` directly without
+    casts (a schema rename breaks the access). Evidence:
+    `ai-ide-cli/e2e/_matrix.ts:scenarioCodexTypedNotifications`
+    (FR-L31 matrix entry `codex-typed-notification-narrowing`).
 
 ### 3.27 FR-L27: Typed OpenCode SSE Session Events
 
@@ -1395,6 +1403,13 @@ stable — never renumber on move.
     histogram (system/user/thinking/assistant/tool_call/result), confirms
     typed parser handles the actual wire format. Evidence:
     `scripts/smoke.ts:cursor-events` scenario.
+  - [x] Real-binary e2e regression: `invokeCursorCli` against installed
+    `cursor agent -p --yolo` with a Read-tool prompt surfaces a typed
+    `tool_call/started` event via `parseCursorStreamEvent`, that
+    `unwrapCursorToolCall` flattens into a non-empty `{name, args?}`,
+    and that `onToolUseObserved` fires with `runtime: "cursor"` plus
+    non-empty `id`/`name`. Evidence:
+    `ai-ide-cli/e2e/cursor_typed_stream_e2e_test.ts` (FR-L31 standalone).
 
 ### 3.31 FR-L31: Real-Binary E2E Suite
 
@@ -1405,10 +1420,12 @@ stable — never renumber on move.
   so every session-capable adapter is asserted against the same
   invariants (`sessionId` population, `SYNTHETIC_TURN_END` cardinality,
   `SessionInputClosedError` / `SessionAbortedError` typing, mid-turn
-  `abort()`, two-turn flow). Adapter-specific non-matrix scenarios
-  (Claude `invokeClaudeCli` AbortSignal, Claude `settingSources: []`
-  cleanroom) live next to the matrix generator as standalone
-  `*_e2e_test.ts` files. All tests guard with `ignore: !enabled[runtime]`
+  `abort()`, two-turn flow, content normalization across all four
+  runtimes, codex-typed JSON-RPC notification narrowing). Adapter-specific
+  non-matrix scenarios (Claude `invokeClaudeCli` AbortSignal, Claude
+  `settingSources: []` cleanroom, Cursor typed stream-json + tool-call
+  observation under `--yolo`) live next to the matrix generator as
+  standalone `*_e2e_test.ts` files. All tests guard with `ignore: !enabled[runtime]`
   where `enabled` is pre-resolved at test-file load time via
   `e2eEnabled(runtime)` — gate requires `E2E=1` and (optionally) a
   comma-separated `E2E_RUNTIMES` allow-list, plus the runtime's CLI
@@ -1425,7 +1442,8 @@ stable — never renumber on move.
 - **Acceptance:**
   - [x] `e2e/` directory with `_helpers.ts`, `_matrix.ts`,
         `session_matrix_e2e_test.ts`, `invoke_abort_e2e_test.ts`,
-        `claude_settings_e2e_test.ts`. Evidence:
+        `claude_settings_e2e_test.ts`,
+        `cursor_typed_stream_e2e_test.ts`. Evidence:
         `ai-ide-cli/e2e/`.
   - [x] `e2eEnabled(runtime)` gate combines `E2E=1`, optional
         `E2E_RUNTIMES` allow-list, and `detectBinary(runtime)` probe
@@ -1436,14 +1454,15 @@ stable — never renumber on move.
         Evidence: `ai-ide-cli/e2e/session_matrix_e2e_test.ts`,
         `ai-ide-cli/e2e/invoke_abort_e2e_test.ts`,
         `ai-ide-cli/e2e/claude_settings_e2e_test.ts`.
-  - [x] Session-contract matrix covers 8 scenarios: `sessionId-sync`
+  - [x] Session-contract matrix covers 9 scenarios: `sessionId-sync`
         (opencode/cursor/codex), `sessionId-after-first-event`
         (claude), `synthetic-turn-end-once-per-turn`,
         `send-after-endInput-throws-SessionInputClosedError`,
         `send-after-abort-throws-SessionAbortedError`,
         `abort-mid-turn-terminates`, `two-turns`,
-        `content-normalization` (FR-L23 cross-runtime). Evidence:
-        `ai-ide-cli/e2e/_matrix.ts:SESSION_CONTRACT_MATRIX`.
+        `content-normalization` (FR-L23 cross-runtime),
+        `codex-typed-notification-narrowing` (FR-L26 codex-only).
+        Evidence: `ai-ide-cli/e2e/_matrix.ts:SESSION_CONTRACT_MATRIX`.
   - [x] `content-normalization` scenario — `extractSessionContent`
         applied to every event in a live single-word-reply turn:
         never throws, synthetic events return `[]`, non-synthetic

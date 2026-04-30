@@ -23,6 +23,8 @@ import {
 import type { RuntimeSession, RuntimeSessionEvent } from "../runtime/types.ts";
 import { extractSessionContent } from "../runtime/content.ts";
 import type { NormalizedContent } from "../runtime/content.ts";
+import { isCodexNotification } from "../codex/events.ts";
+import type { CodexUntypedNotification } from "../codex/events.ts";
 import {
   ceiling,
   LONG_COUNT_PROMPT,
@@ -491,6 +493,75 @@ export async function scenarioContentNormalization(
   }
 }
 
+/**
+ * Scenario 9 (codex-only) — typed JSON-RPC notification narrowing (FR-L26).
+ *
+ * Asserts the live `codex app-server` notification stream surfaces
+ * `turn/started` and `turn/completed` notifications whose `params` narrow
+ * to typed payloads via {@link isCodexNotification}. Field access uses
+ * `note.params.turn.id` directly — no `as any` casts. If the upstream
+ * `app-server` v2 schema renames `turn.id` / `turn.status` the test
+ * breaks at the access site, surfacing protocol drift.
+ */
+// FR-L26
+export async function scenarioCodexTypedNotifications(
+  runtime: RuntimeId,
+): Promise<void> {
+  if (runtime !== "codex") {
+    throw new Error("scenarioCodexTypedNotifications is codex-only");
+  }
+  const adapter = sessionAdapter(runtime);
+  const session = await adapter.openSession!({});
+  const cancel = ceiling(
+    DEFAULT_CEILING_MS,
+    () => session.abort("e2e-ceiling"),
+  );
+  try {
+    const startedTurnIds: string[] = [];
+    const completedTurns: Array<{ id: string; status: string }> = [];
+    const { drainer } = startDrain(session, async (ev) => {
+      const note = ev.raw as unknown as CodexUntypedNotification;
+      if (isCodexNotification(note, "turn/started")) {
+        startedTurnIds.push(note.params.turn.id);
+      }
+      if (isCodexNotification(note, "turn/completed")) {
+        const t = note.params.turn;
+        completedTurns.push({ id: t.id, status: String(t.status) });
+      }
+      if (ev.type === SYNTHETIC_TURN_END) {
+        await session.endInput();
+      }
+    });
+
+    await session.send(ONE_WORD_OK);
+    await session.done;
+    await drainer;
+
+    assert(
+      startedTurnIds.length >= 1,
+      `expected ≥1 turn/started typed notification; got ${startedTurnIds.length}`,
+    );
+    assert(
+      completedTurns.length >= 1,
+      `expected ≥1 turn/completed typed notification; got ${completedTurns.length}`,
+    );
+    assert(
+      startedTurnIds.includes(completedTurns[0].id),
+      `turn/completed id ${completedTurns[0].id} not in started ids ${
+        startedTurnIds.join(",")
+      }`,
+    );
+    assertEquals(
+      completedTurns[0].status,
+      "completed",
+      "turn/completed: expected status=completed",
+    );
+  } finally {
+    cancel();
+    await finalizeSession(session);
+  }
+}
+
 /** Session-contract matrix — driven by the generator in the test file. */
 // FR-L31
 export const SESSION_CONTRACT_MATRIX: MatrixScenario[] = [
@@ -531,5 +602,10 @@ export const SESSION_CONTRACT_MATRIX: MatrixScenario[] = [
     id: "content-normalization",
     ceilingMs: { cursor: CURSOR_CEILING_MS },
     run: scenarioContentNormalization,
+  },
+  {
+    id: "codex-typed-notification-narrowing",
+    only: ["codex"],
+    run: scenarioCodexTypedNotifications,
   },
 ];
