@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.5.10](https://github.com/korchasa/ai-ide-cli/compare/v0.5.9...v0.5.10) (2026-04-30)
+
+
+### Bug Fixes
+
+* **opencode:** emit -- separator before positional prompt ([eb857a7](https://github.com/korchasa/ai-ide-cli/commit/eb857a70029a8fc56d7baa80be209ad3a6e17ae5))
+
 ### [0.5.9](https://github.com/korchasa/ai-ide-cli/compare/v0.5.8...v0.5.9) (2026-04-29)
 
 
