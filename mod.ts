@@ -199,6 +199,25 @@ export {
 } from "./codex/process.ts";
 export type { CodexRunState } from "./codex/process.ts";
 
+// --- Codex permission-mode decision (shared by both transports) ---
+export {
+  CODEX_APPROVAL_MODES,
+  CODEX_SANDBOX_MODES,
+  decidePermissionMode,
+} from "./codex/permission-mode.ts";
+export type {
+  ApprovalPolicy,
+  CodexPermissionDecision,
+  SandboxMode,
+} from "./codex/permission-mode.ts";
+
+// --- Codex conceptual tool-item layer (shared by both transports) ---
+export { parseAppServerItem, parseExecItem } from "./codex/items.ts";
+export type {
+  CodexConceptualItem,
+  CodexConceptualKind,
+} from "./codex/items.ts";
+
 // --- Codex exec NDJSON event types (snake_case `codex exec --experimental-json` protocol) ---
 export { parseCodexExecEvent } from "./codex/exec-events.ts";
 export type {

@@ -7,13 +7,14 @@
  * `AgentMessageDeltaNotification`, `ItemCompletedNotification`) — NOT to
  * the snake_case NDJSON literals used by `codex exec`
  * (`codex/process.ts:codexItemToToolUseInfo`). The two wire formats are
- * parallel and must be kept independently in sync with their own
- * upstream. Generate locally via `codex app-server generate-ts --out <dir>`
- * and inspect `v2/ThreadItem.ts`, `v2/ItemCompletedNotification.ts`,
- * `v2/AgentMessageDeltaNotification.ts`.
+ * parallel; both lift their tool items into the shared
+ * {@link CodexConceptualItem} via {@link parseAppServerItem} /
+ * {@link parseExecItem}, so this extractor stays a thin renderer over
+ * the conceptual layer.
  */
 
 import type { NormalizedContent } from "../runtime/content.ts";
+import { parseAppServerItem } from "./items.ts";
 
 /**
  * Codex app-server extractor.
@@ -23,11 +24,10 @@ import type { NormalizedContent } from "../runtime/content.ts";
  *   cumulative:false}`.
  * - `item/completed`:
  *   - `item.type === "agentMessage"` → `{kind:"final", text:item.text}`.
- *   - `item.type === "commandExecution" | "fileChange" | "webSearch"` →
- *     `{kind:"tool", id:item.id, name:item.type, input:<rest>}`.
- *   - `item.type === "mcpToolCall"` → `name = "<server>.<tool>"`.
- *   - `item.type === "dynamicToolCall"` → `name = item.tool` (or the
- *     discriminator if the tool field is missing).
+ *   - tool items (`commandExecution`, `fileChange`, `mcpToolCall`,
+ *     `webSearch`, `dynamicToolCall`) are lifted via
+ *     {@link parseAppServerItem} and rendered as
+ *     `{kind:"tool", id, name, input}`.
  *
  * @param raw Native Codex JSON-RPC notification payload.
  * @returns Ordered list of normalized content entries for rendering.
@@ -50,72 +50,19 @@ export function extractCodexContent(
   if (method === "item/completed") {
     const item = params["item"];
     if (!isObject(item)) return [];
-    const iType = item["type"];
-    const id = typeof item["id"] === "string" ? item["id"] : "";
 
-    if (iType === "agentMessage") {
+    if (item["type"] === "agentMessage") {
       const text = item["text"];
-      if (typeof text === "string") {
-        return [{ kind: "final", text }];
-      }
+      if (typeof text === "string") return [{ kind: "final", text }];
       return [];
     }
 
-    if (!id) return [];
-
-    switch (iType) {
-      case "commandExecution":
-      case "fileChange":
-      case "webSearch":
-        return [{
-          kind: "tool",
-          id,
-          name: iType,
-          input: pickItemInput(item),
-        }];
-      case "mcpToolCall": {
-        const server = typeof item["server"] === "string"
-          ? item["server"]
-          : "?";
-        const tool = typeof item["tool"] === "string" ? item["tool"] : "?";
-        return [{
-          kind: "tool",
-          id,
-          name: `${server}.${tool}`,
-          input: pickItemInput(item),
-        }];
-      }
-      case "dynamicToolCall": {
-        const tool = typeof item["tool"] === "string"
-          ? item["tool"]
-          : "dynamicToolCall";
-        return [{
-          kind: "tool",
-          id,
-          name: tool,
-          input: pickItemInput(item),
-        }];
-      }
-      default:
-        return [];
-    }
+    const conc = parseAppServerItem(item);
+    if (!conc) return [];
+    return [{ kind: "tool", id: conc.id, name: conc.name, input: conc.input }];
   }
 
   return [];
-}
-
-/**
- * Copy the item payload verbatim minus `id` and `type` so consumers
- * get the full argument map without the extractor having to enumerate
- * every field (which would drift the moment upstream adds one).
- */
-function pickItemInput(item: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(item)) {
-    if (key === "id" || key === "type") continue;
-    out[key] = value;
-  }
-  return out;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {

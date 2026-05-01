@@ -290,15 +290,14 @@ embedder.
   - **Codex** (app-server v2 JSON-RPC, **camelCase**):
     `item/agentMessage/delta` → delta text;
     `item/completed` with `item.type === "agentMessage"` → final
-    text (from `item.text` — direct, not `content[]`);
-    `commandExecution` / `fileChange` / `webSearch` → tool with
-    `name = item.type`; `mcpToolCall` →
-    `name = "<server>.<tool>"`; `dynamicToolCall` →
-    `name = item.tool`. Input map is `item` minus `id` / `type`
-    (preserved verbatim to survive upstream field additions).
-    Bound to the v2 bindings from `codex app-server generate-ts`,
-    NOT to `codex/process.ts:codexItemToToolUseInfo` (which parses
-    the parallel snake_case NDJSON protocol used by `codex exec`).
+    text (from `item.text` — direct, not `content[]`); tool items
+    (`commandExecution` / `fileChange` / `webSearch` /
+    `mcpToolCall` / `dynamicToolCall`) lift via
+    `codex/items.ts:parseAppServerItem` (see §3.10.2) and render as
+    `{kind:"tool", id, name, input}`. The parallel snake_case NDJSON
+    parser `parseExecItem` is the exec-side counterpart (also in
+    `codex/items.ts`); both lift into the shared `CodexConceptualItem`
+    so adding a kind only touches the two parsers.
   - **OpenCode** (SSE): `message.part.updated` with text part → text
     content; with tool part at terminal state (`completed`/`failed`),
     non-HITL, with resolvable id → tool content. Mirrors
@@ -676,7 +675,69 @@ Model selection is ignored (Cursor's `--resume` rejects `--model`).
   unterminated frontmatter, missing required fields.
 
 
-### 3.10.2 `codex/exec-events.ts` — Typed `codex exec` NDJSON Events
+### 3.10.1 `codex/permission-mode.ts` — Shared Permission-Mode Decision
+
+Single source of truth for the runtime-neutral `permissionMode` →
+`{sandbox?, approvalPolicy?}` decision shared by both Codex transports.
+
+- `SandboxMode` literal union
+  (`"read-only" | "workspace-write" | "danger-full-access"`).
+- `ApprovalPolicy` literal union
+  (`"never" | "on-request" | "on-failure" | "untrusted"`).
+- `CODEX_SANDBOX_MODES`, `CODEX_APPROVAL_MODES` typed sets used for
+  pass-through detection.
+- `decidePermissionMode(mode?: string): CodexPermissionDecision` —
+  pure mapping; normalizes `plan`/`acceptEdits`/`bypassPermissions`
+  into `{sandbox, approvalPolicy}` pairs, passes through native
+  Codex-specific modes verbatim, returns `{}` for `default` /
+  `undefined` / unknown.
+
+Consumers are thin serializers:
+
+- `permissionModeToCodexArgs(mode)` in `codex/process.ts` →
+  `--sandbox <mode>` + `--config approval_policy="<mode>"` argv
+  (one-shot exec transport).
+- `permissionModeToThreadStartFields(mode)` in `codex/session.ts` →
+  `{approvalPolicy?, sandbox?}` fields for `thread/start` /
+  `thread/resume` (app-server transport).
+
+Cross-serializer-equivalence is enforced by
+`codex/permission-mode_test.ts`.
+
+### 3.10.2 `codex/items.ts` — Conceptual Tool-Item Layer
+
+Runtime-neutral, wire-format-agnostic view of Codex tool items shared
+between the snake_case NDJSON exec protocol and the camelCase
+app-server JSON-RPC protocol.
+
+- `CodexConceptualKind` union: `command_execution | file_change |
+  mcp_tool_call | web_search | dynamic_tool_call`.
+- `CodexConceptualItem`: `{id, kind, name, input, status?}`. `name`
+  is wire-specific (`<server>.<tool>` for `mcpToolCall`/`mcp_tool_call`,
+  `item.tool` for `dynamicToolCall`, the discriminator verbatim
+  otherwise).
+- `parseExecItem(snake)` lifts a snake_case `CodexExecItem` (returns
+  `undefined` for `agent_message` / `reasoning` / `error` /
+  `todo_list`).
+- `parseAppServerItem(camel)` lifts a camelCase JSON-RPC item; drops
+  `id` / `type` and preserves every other field under `input` so the
+  parser survives upstream field additions. Items without a stable
+  `id` are rejected (mirrors the historical `extractCodexContent`
+  invariant).
+
+Consumers are thin wrappers:
+
+- `codexItemToToolUseInfo` in `codex/process.ts` → discards `kind` /
+  `status`, returns `{id, name, input}` for the tool-observation hook.
+- `extractCodexContent` in `codex/content.ts` → wraps each conceptual
+  item in `{kind:"tool", id, name, input}`. The `agentMessage` final
+  branch and the `agentMessage/delta` text branch stay inline because
+  they are not tool items.
+
+Cross-parser equivalence (id / kind / status) is enforced by
+`codex/items_test.ts`.
+
+### 3.10.3 `codex/exec-events.ts` — Typed `codex exec` NDJSON Events
 
 Discriminated union `CodexExecEvent` over the snake_case NDJSON
 protocol consumed by `codex/process.ts` (entirely separate from the
@@ -708,9 +769,10 @@ CodexExecEvent | null` mirrors `parseClaudeStreamEvent` /
 `parseCursorStreamEvent` — pure NDJSON-line → typed event, returns
 `null` on invalid JSON, missing/non-string `type`, or JSON arrays.
 Consumers in `codex/process.ts` (`applyCodexEvent`,
-`codexItemToToolUseInfo`, `formatCodexEventForOutput`) cast inside
-narrowed switch branches to the precise variant, mirroring the
-`claude/stream.ts:processStreamEvent` pattern.
+`formatCodexEventForOutput`) cast inside narrowed switch branches to
+the precise variant, mirroring the `claude/stream.ts:processStreamEvent`
+pattern. The tool-item lifting (`codexItemToToolUseInfo`) is delegated
+to `parseExecItem` in `codex/items.ts` (§3.10.2).
 
 ### 3.11 `codex/app-server.ts` — JSON-RPC Transport
 
@@ -842,17 +904,13 @@ generated schemas (`v2/ThreadStartParams.ts`,
   `{type:"text", text, text_elements: []}` from `v2/UserInput.ts`),
   plus `expectedTurnId` for the `turn/steer` precondition.
 
-Permission-mode mapping mirrors `permissionModeToCodexArgs` in
-`codex/process.ts` but emits structured `{approvalPolicy?, sandbox?}`
-params for `thread/start`/`thread/resume`:
-
-- `plan` → `approvalPolicy: "never"`, `sandbox: "read-only"`.
-- `acceptEdits` → `approvalPolicy: "never"`, `sandbox: "workspace-write"`.
-- `bypassPermissions` → `approvalPolicy: "never"`,
-  `sandbox: "danger-full-access"`.
-- Native pass-through modes (`read-only`/`workspace-write`/
-  `danger-full-access`/`never`/`on-request`/`on-failure`/`untrusted`) emit
-  a single matching field.
+Permission-mode mapping is a thin serializer over the shared
+`decidePermissionMode` (see §3.10.1). `permissionModeToThreadStartFields`
+returns `{approvalPolicy?, sandbox?}` for `thread/start` /
+`thread/resume`; the one-shot exec transport renders the same decision
+as argv via `permissionModeToCodexArgs`. Same conceptual decision in
+both places — drift between the two is prevented by the
+cross-serializer-equivalence test in `codex/permission-mode_test.ts`.
 
 `expandCodexSessionExtraArgs(map)` converts an `ExtraArgsMap` to the
 `--config key=value` argv list the app-server subprocess accepts;

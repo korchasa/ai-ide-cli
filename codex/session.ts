@@ -79,46 +79,31 @@ import {
   type CodexAppServerNotification,
 } from "./app-server.ts";
 import { isCodexNotification } from "./events.ts";
+import {
+  type ApprovalPolicy,
+  decidePermissionMode,
+  type SandboxMode,
+} from "./permission-mode.ts";
 
 /**
  * Permission-mode mapping for the app-server transport.
  *
- * Returns the `approvalPolicy` / `sandbox` fields to pass into
- * `thread/start` params. `undefined` fields are omitted from the request so
- * Codex falls back to its own config defaults.
+ * Thin serializer over
+ * {@link import("./permission-mode.ts").decidePermissionMode} — the
+ * conceptual decision lives there, this function only emits the
+ * `thread/start` `approvalPolicy` / `sandbox` fields. `undefined`
+ * fields stay omitted from the request so Codex falls back to its
+ * own config defaults.
  *
- * Mirrors {@link import("./process.ts").permissionModeToCodexArgs} but emits
- * structured params instead of argv fragments.
+ * Companion serializer for the one-shot transport is
+ * {@link import("./process.ts").permissionModeToCodexArgs}.
  *
  * Exported for testing.
  */
 export function permissionModeToThreadStartFields(
   mode?: string,
-): { approvalPolicy?: string; sandbox?: string } {
-  if (!mode || mode === "default") return {};
-  switch (mode) {
-    case "plan":
-      return { approvalPolicy: "never", sandbox: "read-only" };
-    case "acceptEdits":
-      return { approvalPolicy: "never", sandbox: "workspace-write" };
-    case "bypassPermissions":
-      return { approvalPolicy: "never", sandbox: "danger-full-access" };
-  }
-  // Native pass-through modes (see CODEX_SANDBOX_MODES / CODEX_APPROVAL_MODES
-  // in codex/process.ts for the full list).
-  if (
-    mode === "read-only" || mode === "workspace-write" ||
-    mode === "danger-full-access"
-  ) {
-    return { sandbox: mode };
-  }
-  if (
-    mode === "never" || mode === "on-request" || mode === "on-failure" ||
-    mode === "untrusted"
-  ) {
-    return { approvalPolicy: mode };
-  }
-  return {};
+): { approvalPolicy?: ApprovalPolicy; sandbox?: SandboxMode } {
+  return decidePermissionMode(mode);
 }
 
 /**

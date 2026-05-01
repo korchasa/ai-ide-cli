@@ -84,6 +84,8 @@ import {
   CODEX_HITL_MCP_SERVER_NAME,
   CODEX_HITL_MCP_TOOL_NAME,
 } from "./hitl-mcp.ts";
+import { decidePermissionMode } from "./permission-mode.ts";
+import { parseExecItem } from "./items.ts";
 import {
   type CodexExecAgentMessageItem,
   type CodexExecCommandExecutionItem,
@@ -118,79 +120,28 @@ export const CODEX_RESERVED_FLAGS: readonly string[] = [
 ];
 
 /**
- * Codex sandbox modes accepted as a `permissionMode` pass-through. When the
- * caller passes one of these directly, the adapter emits `--sandbox <mode>`
- * with no `approval_policy` override.
- */
-const CODEX_SANDBOX_MODES: ReadonlySet<string> = new Set([
-  "read-only",
-  "workspace-write",
-  "danger-full-access",
-]);
-
-/**
- * Codex approval-policy modes accepted as a `permissionMode` pass-through.
- * When the caller passes one of these directly, the adapter emits
- * `--config approval_policy="<mode>"` with no `--sandbox` flag.
- */
-const CODEX_APPROVAL_MODES: ReadonlySet<string> = new Set([
-  "never",
-  "on-request",
-  "on-failure",
-  "untrusted",
-]);
-
-/**
- * Map a runtime-neutral permission mode to Codex sandbox + approval-policy
- * flags. Returns the argv fragments to push, or `[]` for `default` /
- * unrecognized values (Codex falls back to its own config defaults).
+ * Map a runtime-neutral permission mode to Codex argv fragments.
  *
- * Recognized normalized modes:
- * - `default`           — no overrides.
- * - `plan`              — `--sandbox read-only` + `approval_policy="never"`.
- * - `acceptEdits`       — `--sandbox workspace-write` + `approval_policy="never"`.
- * - `bypassPermissions` — `--sandbox danger-full-access` + `approval_policy="never"`.
+ * Thin serializer over
+ * {@link import("./permission-mode.ts").decidePermissionMode} — the
+ * conceptual decision lives there, this function only renders it as
+ * `--sandbox` / `--config approval_policy="…"` argv. The companion
+ * mapper for the app-server transport is
+ * {@link import("./session.ts").permissionModeToThreadStartFields}.
  *
- * Native pass-through modes (Codex-specific):
- * - `read-only` / `workspace-write` / `danger-full-access` — bare `--sandbox`.
- * - `never` / `on-request` / `on-failure` / `untrusted` — bare approval-policy.
+ * Returns `[]` for `default` / unrecognized values so Codex falls back
+ * to its own config defaults.
  *
  * Exported for testing.
  */
 export function permissionModeToCodexArgs(mode?: string): string[] {
-  if (!mode || mode === "default") return [];
-
-  switch (mode) {
-    case "plan":
-      return [
-        "--sandbox",
-        "read-only",
-        "--config",
-        `approval_policy="never"`,
-      ];
-    case "acceptEdits":
-      return [
-        "--sandbox",
-        "workspace-write",
-        "--config",
-        `approval_policy="never"`,
-      ];
-    case "bypassPermissions":
-      return [
-        "--sandbox",
-        "danger-full-access",
-        "--config",
-        `approval_policy="never"`,
-      ];
+  const { sandbox, approvalPolicy } = decidePermissionMode(mode);
+  const out: string[] = [];
+  if (sandbox) out.push("--sandbox", sandbox);
+  if (approvalPolicy) {
+    out.push("--config", `approval_policy="${approvalPolicy}"`);
   }
-
-  if (CODEX_SANDBOX_MODES.has(mode)) {
-    return ["--sandbox", mode];
-  }
-  if (CODEX_APPROVAL_MODES.has(mode)) {
-    return ["--config", `approval_policy="${mode}"`];
-  }
-  return [];
+  return out;
 }
 
 /**
@@ -519,49 +470,17 @@ export function extractCodexOutput(state: CodexRunState): CliRunOutput {
  * `reasoning`, `error`, `todo_list` — the latter is a planning artefact,
  * not a tool invocation).
  *
+ * Thin wrapper over {@link parseExecItem} — the conceptual lift lives
+ * there alongside the app-server twin {@link parseAppServerItem}.
+ *
  * Exported for testing.
  */
 export function codexItemToToolUseInfo(
   item: CodexExecItem | undefined | null,
 ): { id: string; name: string; input: Record<string, unknown> } | undefined {
-  if (!item || typeof item !== "object") return undefined;
-  const id = typeof item.id === "string" ? item.id : "";
-  switch (item.type) {
-    case "command_execution": {
-      const c = item as CodexExecCommandExecutionItem;
-      return {
-        id,
-        name: "command_execution",
-        input: {
-          command: c.command,
-          status: c.status,
-          exit_code: c.exit_code,
-        },
-      };
-    }
-    case "file_change": {
-      const f = item as CodexExecFileChangeItem;
-      return {
-        id,
-        name: "file_change",
-        input: { changes: f.changes, status: f.status },
-      };
-    }
-    case "mcp_tool_call": {
-      const m = item as CodexExecMcpToolCallItem;
-      return {
-        id,
-        name: `${m.server ?? "?"}.${m.tool ?? "?"}`,
-        input: { arguments: m.arguments, status: m.status },
-      };
-    }
-    case "web_search": {
-      const w = item as CodexExecWebSearchItem;
-      return { id, name: "web_search", input: { query: w.query } };
-    }
-    default:
-      return undefined;
-  }
+  const conc = parseExecItem(item);
+  if (!conc) return undefined;
+  return { id: conc.id, name: conc.name, input: conc.input };
 }
 
 /**
