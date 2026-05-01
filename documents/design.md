@@ -72,6 +72,9 @@ ai-ide-cli/
     process.ts          — buildCodexArgs, invokeCodexCli, applyCodexEvent,
                           extractCodexOutput, findCodexSessionFile,
                           permissionModeToCodexArgs, formatCodexEventForOutput
+    exec-events.ts      — CodexExecEvent / CodexExecItem typed unions +
+                          parseCodexExecEvent (snake_case NDJSON protocol
+                          for `codex exec --experimental-json`)
     hitl-mcp.ts         — runCodexHitlMcpServer (stdio MCP for HITL tool)
     app-server.ts       — CodexAppServerClient, CodexAppServerError,
                           CodexAppServerNotification (JSON-RPC transport for
@@ -668,6 +671,42 @@ Model selection is ignored (Cursor's `--resume` rejects `--model`).
   directory for additional files. Error on: missing SKILL.md, invalid YAML,
   unterminated frontmatter, missing required fields.
 
+
+### 3.10.2 `codex/exec-events.ts` — Typed `codex exec` NDJSON Events
+
+Discriminated union `CodexExecEvent` over the snake_case NDJSON
+protocol consumed by `codex/process.ts` (entirely separate from the
+camelCase JSON-RPC `CodexNotification` union in `codex/events.ts`):
+
+- `CodexExecThreadStartedEvent` (`type: "thread.started"`) — `thread_id`.
+- `CodexExecTurnCompletedEvent` (`type: "turn.completed"`) — `usage`
+  (`CodexExecUsage`: `input_tokens`, `cached_input_tokens`,
+  `output_tokens`).
+- `CodexExecTurnFailedEvent` (`type: "turn.failed"`) — `error`
+  (`CodexExecErrorPayload`: `message`).
+- `CodexExecErrorEvent` (`type: "error"`) — top-level transport
+  error with `message`.
+- `CodexExecItemCompletedEvent` (`type: "item.completed"`) — wraps
+  `item: CodexExecItem`.
+- `CodexExecUnknownEvent` — forward-compat fallback.
+
+`CodexExecItem` covers eight item kinds plus an unknown fallback:
+`agent_message` (`text`), `command_execution` (`command`, `status`,
+`exit_code`, `aggregated_output`), `file_change` (`status`,
+`changes: CodexExecFileChange[]`), `mcp_tool_call` (`server`, `tool`,
+`status`, `arguments`), `web_search` (`query`), `reasoning` (`text`),
+`todo_list` (`items: CodexExecTodoEntry[]`), `error` (`message`),
+`CodexExecUnknownItem`.
+
+Every interface carries `[key: string]: unknown` for forward-compat
+with `codex-cli >= 0.121.0` minor bumps. `parseCodexExecEvent(line):
+CodexExecEvent | null` mirrors `parseClaudeStreamEvent` /
+`parseCursorStreamEvent` — pure NDJSON-line → typed event, returns
+`null` on invalid JSON, missing/non-string `type`, or JSON arrays.
+Consumers in `codex/process.ts` (`applyCodexEvent`,
+`codexItemToToolUseInfo`, `formatCodexEventForOutput`) cast inside
+narrowed switch branches to the precise variant, mirroring the
+`claude/stream.ts:processStreamEvent` pattern.
 
 ### 3.11 `codex/app-server.ts` — JSON-RPC Transport
 

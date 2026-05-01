@@ -12,6 +12,7 @@ import {
   formatCodexEventForOutput,
   permissionModeToCodexArgs,
 } from "./process.ts";
+import type { CodexExecEvent } from "./exec-events.ts";
 import {
   CODEX_HITL_MCP_SERVER_NAME,
   CODEX_HITL_MCP_TOOL_NAME,
@@ -136,10 +137,10 @@ Deno.test("buildCodexArgs — extraArgs are passed through in order", () => {
 // --- applyCodexEvent + extractCodexOutput ---
 
 function replay(
-  events: Array<Record<string, unknown>>,
+  events: Array<CodexExecEvent | Record<string, unknown>>,
 ): { state: CodexRunState; output: ReturnType<typeof extractCodexOutput> } {
   const state = createCodexRunState();
-  for (const event of events) applyCodexEvent(event, state);
+  for (const event of events) applyCodexEvent(event as CodexExecEvent, state);
   return { state, output: extractCodexOutput(state) };
 }
 

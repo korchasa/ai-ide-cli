@@ -199,6 +199,32 @@ export {
 } from "./codex/process.ts";
 export type { CodexRunState } from "./codex/process.ts";
 
+// --- Codex exec NDJSON event types (snake_case `codex exec --experimental-json` protocol) ---
+export { parseCodexExecEvent } from "./codex/exec-events.ts";
+export type {
+  CodexExecAgentMessageItem,
+  CodexExecCommandExecutionItem,
+  CodexExecErrorEvent,
+  CodexExecErrorItem,
+  CodexExecErrorPayload,
+  CodexExecEvent,
+  CodexExecFileChange,
+  CodexExecFileChangeItem,
+  CodexExecItem,
+  CodexExecItemCompletedEvent,
+  CodexExecMcpToolCallItem,
+  CodexExecReasoningItem,
+  CodexExecThreadStartedEvent,
+  CodexExecTodoEntry,
+  CodexExecTodoListItem,
+  CodexExecTurnCompletedEvent,
+  CodexExecTurnFailedEvent,
+  CodexExecUnknownEvent,
+  CodexExecUnknownItem,
+  CodexExecUsage,
+  CodexExecWebSearchItem,
+} from "./codex/exec-events.ts";
+
 // --- Codex app-server transport + streaming session ---
 export {
   CODEX_APP_SERVER_RESERVED_FLAGS,

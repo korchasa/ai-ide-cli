@@ -84,6 +84,24 @@ import {
   CODEX_HITL_MCP_SERVER_NAME,
   CODEX_HITL_MCP_TOOL_NAME,
 } from "./hitl-mcp.ts";
+import {
+  type CodexExecAgentMessageItem,
+  type CodexExecCommandExecutionItem,
+  type CodexExecErrorEvent,
+  type CodexExecErrorItem,
+  type CodexExecEvent,
+  type CodexExecFileChangeItem,
+  type CodexExecItem,
+  type CodexExecItemCompletedEvent,
+  type CodexExecMcpToolCallItem,
+  type CodexExecReasoningItem,
+  type CodexExecThreadStartedEvent,
+  type CodexExecTodoListItem,
+  type CodexExecTurnCompletedEvent,
+  type CodexExecTurnFailedEvent,
+  type CodexExecWebSearchItem,
+  parseCodexExecEvent,
+} from "./exec-events.ts";
 import { join } from "@std/path";
 
 /**
@@ -303,18 +321,20 @@ export function createCodexRunState(): CodexRunState {
  * Exported for testing.
  */
 export function applyCodexEvent(
-  // deno-lint-ignore no-explicit-any
-  event: Record<string, any>,
+  event: CodexExecEvent,
   state: CodexRunState,
 ): void {
   switch (event.type) {
-    case "thread.started":
-      if (typeof event.thread_id === "string") state.threadId = event.thread_id;
+    case "thread.started": {
+      const e = event as CodexExecThreadStartedEvent;
+      if (typeof e.thread_id === "string") state.threadId = e.thread_id;
       return;
+    }
     case "turn.completed": {
+      const e = event as CodexExecTurnCompletedEvent;
       state.turnCount += 1;
-      const usage = event.usage;
-      if (usage && typeof usage === "object") {
+      const usage = e.usage;
+      if (usage) {
         state.inputTokens += Number(usage.input_tokens ?? 0);
         state.cachedInputTokens += Number(usage.cached_input_tokens ?? 0);
         state.outputTokens += Number(usage.output_tokens ?? 0);
@@ -322,7 +342,8 @@ export function applyCodexEvent(
       return;
     }
     case "turn.failed": {
-      const message = event.error?.message;
+      const e = event as CodexExecTurnFailedEvent;
+      const message = e.error?.message;
       state.errorMessage = typeof message === "string"
         ? message
         : "Codex turn failed";
@@ -330,29 +351,31 @@ export function applyCodexEvent(
     }
     case "error": {
       if (!state.errorMessage) {
-        state.errorMessage = typeof event.message === "string"
-          ? event.message
+        const e = event as CodexExecErrorEvent;
+        state.errorMessage = typeof e.message === "string"
+          ? e.message
           : "Codex reported an error";
       }
       return;
     }
     case "item.completed": {
-      const item = event.item;
+      const item = (event as CodexExecItemCompletedEvent).item;
       if (!item || typeof item !== "object") return;
-      if (item.type === "agent_message" && typeof item.text === "string") {
-        state.finalResponse = item.text;
+      if (item.type === "agent_message") {
+        const m = item as CodexExecAgentMessageItem;
+        if (typeof m.text === "string") state.finalResponse = m.text;
         return;
       }
-      if (
-        !state.hitlRequest && item.type === "mcp_tool_call" &&
-        item.status === "completed" &&
-        item.server === CODEX_HITL_MCP_SERVER_NAME &&
-        item.tool === CODEX_HITL_MCP_TOOL_NAME
-      ) {
-        const extracted = extractCodexHitlRequest(
-          item.arguments as Record<string, unknown> | undefined,
-        );
-        if (extracted) state.hitlRequest = extracted;
+      if (item.type === "mcp_tool_call" && !state.hitlRequest) {
+        const m = item as CodexExecMcpToolCallItem;
+        if (
+          m.status === "completed" &&
+          m.server === CODEX_HITL_MCP_SERVER_NAME &&
+          m.tool === CODEX_HITL_MCP_TOOL_NAME
+        ) {
+          const extracted = extractCodexHitlRequest(m.arguments);
+          if (extracted) state.hitlRequest = extracted;
+        }
       }
       return;
     }
@@ -499,36 +522,43 @@ export function extractCodexOutput(state: CodexRunState): CliRunOutput {
  * Exported for testing.
  */
 export function codexItemToToolUseInfo(
-  // deno-lint-ignore no-explicit-any
-  item: Record<string, any>,
+  item: CodexExecItem | undefined | null,
 ): { id: string; name: string; input: Record<string, unknown> } | undefined {
   if (!item || typeof item !== "object") return undefined;
   const id = typeof item.id === "string" ? item.id : "";
   switch (item.type) {
-    case "command_execution":
+    case "command_execution": {
+      const c = item as CodexExecCommandExecutionItem;
       return {
         id,
         name: "command_execution",
         input: {
-          command: item.command,
-          status: item.status,
-          exit_code: item.exit_code,
+          command: c.command,
+          status: c.status,
+          exit_code: c.exit_code,
         },
       };
-    case "file_change":
+    }
+    case "file_change": {
+      const f = item as CodexExecFileChangeItem;
       return {
         id,
         name: "file_change",
-        input: { changes: item.changes, status: item.status },
+        input: { changes: f.changes, status: f.status },
       };
-    case "mcp_tool_call":
+    }
+    case "mcp_tool_call": {
+      const m = item as CodexExecMcpToolCallItem;
       return {
         id,
-        name: `${item.server ?? "?"}.${item.tool ?? "?"}`,
-        input: { arguments: item.arguments, status: item.status },
+        name: `${m.server ?? "?"}.${m.tool ?? "?"}`,
+        input: { arguments: m.arguments, status: m.status },
       };
-    case "web_search":
-      return { id, name: "web_search", input: { query: item.query } };
+    }
+    case "web_search": {
+      const w = item as CodexExecWebSearchItem;
+      return { id, name: "web_search", input: { query: w.query } };
+    }
     default:
       return undefined;
   }
@@ -540,69 +570,84 @@ export function codexItemToToolUseInfo(
  * items are suppressed so only assistant text and lifecycle events remain.
  */
 export function formatCodexEventForOutput(
-  // deno-lint-ignore no-explicit-any
-  event: Record<string, any>,
+  event: CodexExecEvent,
   verbosity?: Verbosity,
 ): string {
   switch (event.type) {
     case "thread.started":
-      return `[stream] init thread=${event.thread_id ?? "?"}`;
+      return `[stream] init thread=${
+        (event as CodexExecThreadStartedEvent).thread_id ?? "?"
+      }`;
     case "turn.completed": {
-      const usage = event.usage ?? {};
+      const usage = (event as CodexExecTurnCompletedEvent).usage ?? {};
       return `[stream] turn.completed in=${usage.input_tokens ?? 0} out=${
         usage.output_tokens ?? 0
       } cached=${usage.cached_input_tokens ?? 0}`;
     }
     case "turn.failed":
-      return `[stream] turn.failed: ${event.error?.message ?? "unknown"}`;
+      return `[stream] turn.failed: ${
+        (event as CodexExecTurnFailedEvent).error?.message ?? "unknown"
+      }`;
     case "error":
-      return `[stream] error: ${event.message ?? "unknown"}`;
+      return `[stream] error: ${
+        (event as CodexExecErrorEvent).message ?? "unknown"
+      }`;
     case "item.completed": {
-      const item = event.item;
+      const item = (event as CodexExecItemCompletedEvent).item;
       if (!item || typeof item !== "object") return "";
       switch (item.type) {
         case "agent_message": {
-          const text = typeof item.text === "string" ? item.text : "";
+          const text = (item as CodexExecAgentMessageItem).text ?? "";
           const preview = text.length > 120 ? text.slice(0, 120) + "…" : text;
           return `[stream] text: ${preview.replaceAll("\n", "↵")}`;
         }
         case "reasoning":
           if (verbosity === "semi-verbose") return "";
+          // Reasoning text is forward-compat-only; the summary line stays terse.
+          void (item as CodexExecReasoningItem);
           return "[stream] reasoning";
-        case "command_execution":
+        case "command_execution": {
           if (verbosity === "semi-verbose") return "";
-          return `[stream] exec: ${item.command ?? "?"} (${
-            item.status ?? "?"
-          })`;
-        case "file_change":
+          const c = item as CodexExecCommandExecutionItem;
+          return `[stream] exec: ${c.command ?? "?"} (${c.status ?? "?"})`;
+        }
+        case "file_change": {
           if (verbosity === "semi-verbose") return "";
+          const f = item as CodexExecFileChangeItem;
           return `[stream] patch: ${
-            Array.isArray(item.changes) ? item.changes.length : 0
-          } file(s) ${item.status ?? "?"}`;
+            Array.isArray(f.changes) ? f.changes.length : 0
+          } file(s) ${f.status ?? "?"}`;
+        }
         case "mcp_tool_call": {
           if (verbosity === "semi-verbose") return "";
+          const m = item as CodexExecMcpToolCallItem;
           if (
-            item.server === CODEX_HITL_MCP_SERVER_NAME &&
-            item.tool === CODEX_HITL_MCP_TOOL_NAME
+            m.server === CODEX_HITL_MCP_SERVER_NAME &&
+            m.tool === CODEX_HITL_MCP_TOOL_NAME
           ) {
-            const q = (item.arguments as Record<string, unknown> | undefined)
-              ?.question;
+            const q = m.arguments?.question;
             return `[stream] hitl_request: ${typeof q === "string" ? q : "?"}`;
           }
-          return `[stream] mcp: ${item.server ?? "?"}.${item.tool ?? "?"} (${
-            item.status ?? "?"
+          return `[stream] mcp: ${m.server ?? "?"}.${m.tool ?? "?"} (${
+            m.status ?? "?"
           })`;
         }
-        case "web_search":
+        case "web_search": {
           if (verbosity === "semi-verbose") return "";
-          return `[stream] web_search: ${item.query ?? "?"}`;
-        case "todo_list":
+          const w = item as CodexExecWebSearchItem;
+          return `[stream] web_search: ${w.query ?? "?"}`;
+        }
+        case "todo_list": {
           if (verbosity === "semi-verbose") return "";
+          const t = item as CodexExecTodoListItem;
           return `[stream] todo_list: ${
-            Array.isArray(item.items) ? item.items.length : 0
+            Array.isArray(t.items) ? t.items.length : 0
           } item(s)`;
-        case "error":
-          return `[stream] item.error: ${item.message ?? "unknown"}`;
+        }
+        case "error": {
+          const e = item as CodexExecErrorItem;
+          return `[stream] item.error: ${e.message ?? "unknown"}`;
+        }
         default:
           return "";
       }
@@ -766,16 +811,16 @@ async function executeCodexProcess(
     const seenObservedIds = new Set<string>();
 
     const handleEvent = async (
-      // deno-lint-ignore no-explicit-any
-      event: Record<string, any>,
+      event: CodexExecEvent,
     ): Promise<void> => {
       onEvent?.(event);
       if (!initEmitted && event.type === "thread.started") {
         initEmitted = true;
+        const started = event as CodexExecThreadStartedEvent;
         hooks?.onInit?.({
           runtime: "codex",
-          sessionId: typeof event.thread_id === "string"
-            ? event.thread_id
+          sessionId: typeof started.thread_id === "string"
+            ? started.thread_id
             : undefined,
         });
       }
@@ -784,10 +829,9 @@ async function executeCodexProcess(
       // Tool-use observation hook — fires for `command_execution`,
       // `file_change`, `mcp_tool_call`, `web_search` once each (status
       // intermediate events are skipped via seenObservedIds).
-      if (
-        onToolUseObserved && event.type === "item.completed" && event.item
-      ) {
-        const info = codexItemToToolUseInfo(event.item);
+      if (onToolUseObserved && event.type === "item.completed") {
+        const item = (event as CodexExecItemCompletedEvent).item;
+        const info = codexItemToToolUseInfo(item);
         if (info && info.id && !seenObservedIds.has(info.id)) {
           seenObservedIds.add(info.id);
           let decision: RuntimeToolUseDecision = "allow";
@@ -849,22 +893,13 @@ async function executeCodexProcess(
           const lines = buffer.split("\n");
           buffer = lines.pop()!;
           for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              // deno-lint-ignore no-explicit-any
-              const event = JSON.parse(line) as Record<string, any>;
-              await handleEvent(event);
-            } catch {
-              // Skip malformed JSON lines
-            }
+            const event = parseCodexExecEvent(line);
+            if (event) await handleEvent(event);
           }
         }
         if (buffer.trim()) {
-          try {
-            // deno-lint-ignore no-explicit-any
-            const event = JSON.parse(buffer) as Record<string, any>;
-            await handleEvent(event);
-          } catch { /* skip */ }
+          const event = parseCodexExecEvent(buffer);
+          if (event) await handleEvent(event);
         }
       } catch { /* stream closed */ }
     })();
