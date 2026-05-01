@@ -1,12 +1,11 @@
 /**
  * @module
- * Codex CLI process management: builds CLI arguments for `codex exec
- * --experimental-json`, spawns the subprocess with the user prompt piped on
- * stdin, processes NDJSON events in real-time, and returns normalized
- * {@link CliRunOutput}. Includes retry logic with exponential backoff,
- * AbortSignal cancellation, runtime-neutral lifecycle hooks, observed
- * tool-use callback, HITL interception via local stdio MCP, and persisted
- * transcript discovery.
+ * Codex CLI process runner: spawns `codex exec --experimental-json` with
+ * the user prompt piped on stdin, processes NDJSON events in real-time,
+ * and returns normalized {@link CliRunOutput}. Includes retry logic with
+ * exponential backoff, AbortSignal cancellation, runtime-neutral lifecycle
+ * hooks, observed tool-use callback, HITL interception via local stdio
+ * MCP, and persisted transcript discovery.
  *
  * **Parallel protocol warning.** This file parses the `codex exec
  * --experimental-json` NDJSON stream — item types are **snake_case**
@@ -21,20 +20,18 @@
  * helpers between the two files without re-verifying against
  * `codex app-server generate-ts --out <dir>` (`v2/ThreadItem.ts`).
  *
- * Mirrors the patterns used by the Claude / OpenCode adapters but
- * accommodates Codex-specific quirks:
+ * Module split:
  *
- * - Prompt travels on **stdin**, not argv.
- * - Session resume is a positional subcommand: `resume <threadId>`.
- * - There is no single terminal `result` event — the final response comes
- *   from the last `item.completed` of type `agent_message`, and token usage
- *   from `turn.completed`.
- * - Approval policy / sandbox mode are expressed as TOML config overrides
- *   (`--config key=value`) rather than dedicated flags.
- * - Local MCP servers (used for HITL) are registered via `--config
- *   mcp_servers.<name>.command=...` overrides.
- * - The conversation transcript is persisted at
- *   `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`.
+ * - `codex/argv.ts` — argv builder, reserved-flag set, permission-mode
+ *   serializer, HITL config-override builder.
+ * - `codex/run-state.ts` — `CodexRunState`, NDJSON event aggregator,
+ *   output projector, formatter, tool-use info extractor, HITL request
+ *   parser.
+ * - `codex/transcript.ts` — persisted-rollout path discovery.
+ * - `codex/process.ts` (this file) — `invokeCodexCli` retry/abort loop +
+ *   `executeCodexProcess` subprocess driver. Re-exports the helpers from
+ *   the three modules above so existing imports
+ *   (`from "./codex/process.ts"`) keep working.
  *
  * Upstream reference — keep this list in sync when porting more features.
  * This adapter intentionally does NOT depend on `@openai/codex-sdk`, but
@@ -44,34 +41,20 @@
  *
  * - SDK repo:     https://github.com/openai/codex/tree/main/sdk/typescript
  * - `exec.ts`:    https://github.com/openai/codex/blob/main/sdk/typescript/src/exec.ts
- *   (argv construction, config-override serialization, stdin/stdout wiring,
- *   env vars `CODEX_API_KEY`, `CODEX_INTERNAL_ORIGINATOR_OVERRIDE`)
  * - `thread.ts`:  https://github.com/openai/codex/blob/main/sdk/typescript/src/thread.ts
- *   (event aggregation, `Turn`/`StreamedTurn`, `normalizeInput` for images)
  * - `events.ts`:  https://github.com/openai/codex/blob/main/sdk/typescript/src/events.ts
- *   (`ThreadEvent` union, `Usage`, `ThreadError`)
  * - `items.ts`:   https://github.com/openai/codex/blob/main/sdk/typescript/src/items.ts
- *   (`ThreadItem` variants: command_execution, file_change, mcp_tool_call,
- *   agent_message, reasoning, web_search, todo_list, error)
  *
  * Not yet wired here — pick up from the SDK when needed:
  * - `--image <path>` (repeatable) for local-image user inputs
  * - `--output-schema <file>` for JSON-schema-constrained responses
  * - `--add-dir <dir>` (repeatable) for additional workspace directories
  * - `--skip-git-repo-check`
- * - `--config model_reasoning_effort=…`, `web_search=…`,
- *   `sandbox_workspace_write.network_access=…`, `openai_base_url=…`
  *
  * Entry point: {@link invokeCodexCli}.
  */
 
-import type {
-  CliRunOutput,
-  CliRunUsage,
-  HitlConfig,
-  HumanInputRequest,
-  Verbosity,
-} from "../types.ts";
+import type { CliRunOutput, Verbosity } from "../types.ts";
 import type {
   OnRuntimeToolUseObservedCallback,
   RuntimeInvokeOptions,
@@ -79,556 +62,49 @@ import type {
   RuntimeLifecycleHooks,
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
-import { expandExtraArgs } from "../runtime/argv.ts";
 import {
   type OnCallbackError,
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
 import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import {
-  CODEX_HITL_MCP_SERVER_NAME,
-  CODEX_HITL_MCP_TOOL_NAME,
-} from "./hitl-mcp.ts";
-import { decidePermissionMode } from "./permission-mode.ts";
-import { parseExecItem } from "./items.ts";
-import {
-  type CodexExecAgentMessageItem,
-  type CodexExecCommandExecutionItem,
-  type CodexExecErrorEvent,
-  type CodexExecErrorItem,
   type CodexExecEvent,
-  type CodexExecFileChangeItem,
-  type CodexExecItem,
   type CodexExecItemCompletedEvent,
-  type CodexExecMcpToolCallItem,
-  type CodexExecReasoningItem,
   type CodexExecThreadStartedEvent,
-  type CodexExecTodoListItem,
-  type CodexExecTurnCompletedEvent,
-  type CodexExecTurnFailedEvent,
-  type CodexExecWebSearchItem,
   parseCodexExecEvent,
 } from "./exec-events.ts";
-import { join } from "@std/path";
+import { buildCodexArgs } from "./argv.ts";
+import {
+  applyCodexEvent,
+  codexItemToToolUseInfo,
+  createCodexRunState,
+  extractCodexOutput,
+  extractCodexUsage,
+  formatCodexEventForOutput,
+} from "./run-state.ts";
+import { findCodexSessionFile } from "./transcript.ts";
 
-/**
- * Flags reserved by {@link buildCodexArgs}. Keys in `extraArgs` that match
- * these throw synchronously — the adapter emits them itself.
- */
-export const CODEX_RESERVED_FLAGS: readonly string[] = [
-  "--experimental-json",
-  "--model",
-  "--cd",
-  "--sandbox",
-];
-
-/**
- * Informational only — these are positional subcommand names emitted by
- * {@link buildCodexArgs} (`exec`, `resume <id>`), not CLI flags. They cannot
- * enter via `extraArgs` (which serializes only flags), so they are kept
- * separate from {@link CODEX_RESERVED_FLAGS} for documentation.
- */
-export const CODEX_RESERVED_POSITIONALS: readonly string[] = [
-  "exec",
-  "resume",
-];
-
-/**
- * Flags {@link buildCodexArgs} may emit but are deliberately **not** in
- * {@link CODEX_RESERVED_FLAGS}. Each entry exists for a documented
- * reason; see {@link import("../claude/process.ts").CLAUDE_INTENTIONALLY_OPEN_FLAGS}
- * for the cross-runtime convention.
- */
-export const CODEX_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
-  // The adapter emits `--config <key=value>` for several purposes
-  // (approval policy via permission mode, MCP server registration via
-  // HITL, FR-L25 reasoning effort). Reserving `--config` would block
-  // legitimate consumer uses of repeatable `--config k=v` overrides
-  // (model_reasoning_effort, web_search, sandbox_workspace_write,
-  // openai_base_url, etc. — see the SDK reference list at the top of
-  // codex/process.ts). Repetition is expected.
-  "--config",
-];
-
-/**
- * Map a runtime-neutral permission mode to Codex argv fragments.
- *
- * Thin serializer over
- * {@link import("./permission-mode.ts").decidePermissionMode} — the
- * conceptual decision lives there, this function only renders it as
- * `--sandbox` / `--config approval_policy="…"` argv. The companion
- * mapper for the app-server transport is
- * {@link import("./session.ts").permissionModeToThreadStartFields}.
- *
- * Returns `[]` for `default` / unrecognized values so Codex falls back
- * to its own config defaults.
- *
- * Exported for testing.
- */
-export function permissionModeToCodexArgs(mode?: string): string[] {
-  const { sandbox, approvalPolicy } = decidePermissionMode(mode);
-  const out: string[] = [];
-  if (sandbox) out.push("--sandbox", sandbox);
-  if (approvalPolicy) {
-    out.push("--config", `approval_policy="${approvalPolicy}"`);
-  }
-  return out;
-}
-
-/**
- * Build the `--config mcp_servers.<name>.command/args` overrides that
- * register a per-invocation local stdio MCP server with Codex. Returns
- * `[]` when no HITL command is configured.
- *
- * The serialization mirrors the TOML overrides emitted by
- * `@openai/codex-sdk`: scalar strings are JSON-quoted, arrays are TOML
- * literal arrays of JSON-quoted strings.
- *
- * Exported for testing.
- */
-export function buildCodexHitlConfigArgs(
-  opts: RuntimeInvokeOptions,
-): string[] {
-  if (!hasConfiguredHitl(opts.hitlConfig)) return [];
-  if (!opts.hitlMcpCommandBuilder) {
-    throw new Error(
-      "Codex HITL requires hitlMcpCommandBuilder — consumer must supply " +
-        "a sub-process entry point for the HITL MCP server. See " +
-        "RuntimeInvokeOptions.hitlMcpCommandBuilder JSDoc.",
-    );
-  }
-  const argv = opts.hitlMcpCommandBuilder();
-  if (!argv.length) {
-    throw new Error("hitlMcpCommandBuilder returned an empty argv");
-  }
-  const [command, ...rest] = argv;
-  const serverPrefix = `mcp_servers.${CODEX_HITL_MCP_SERVER_NAME}`;
-  const args: string[] = [
-    "--config",
-    `${serverPrefix}.command=${JSON.stringify(command)}`,
-  ];
-  if (rest.length > 0) {
-    const renderedArgs = rest.map((a) => JSON.stringify(a)).join(", ");
-    args.push("--config", `${serverPrefix}.args=[${renderedArgs}]`);
-  }
-  return args;
-}
-
-/**
- * Build CLI arguments for the `codex` command.
- * Exported for testing.
- *
- * Codex headless mode: `codex exec --experimental-json [flags] [resume <id>]`.
- * Prompt is written to the subprocess stdin; it is NOT appended to argv.
- *
- * - Session resume: `resume <threadId>` positional subcommand.
- * - Permissions: see {@link permissionModeToCodexArgs}.
- * - HITL injection: see {@link buildCodexHitlConfigArgs}.
- */
-export function buildCodexArgs(opts: RuntimeInvokeOptions): string[] {
-  const args: string[] = ["exec", "--experimental-json"];
-
-  if (opts.model) {
-    args.push("--model", opts.model);
-  }
-
-  if (opts.cwd) {
-    args.push("--cd", opts.cwd);
-  }
-
-  args.push(...permissionModeToCodexArgs(opts.permissionMode));
-  args.push(...buildCodexHitlConfigArgs(opts));
-  // FR-L25: abstract reasoning effort → native Codex config override.
-  if (opts.reasoningEffort) {
-    args.push(
-      "--config",
-      `model_reasoning_effort="${opts.reasoningEffort}"`,
-    );
-  }
-  args.push(...expandExtraArgs(opts.extraArgs, CODEX_RESERVED_FLAGS));
-
-  if (opts.resumeSessionId) {
-    args.push("resume", opts.resumeSessionId);
-  }
-
-  return args;
-}
-
-/** Accumulator of Codex NDJSON events collected during a single run. */
-export interface CodexRunState {
-  /** Thread ID captured from the first `thread.started` event. */
-  threadId: string;
-  /** Text from the most recent `agent_message` item. */
-  finalResponse: string;
-  /** Cumulative `input_tokens` summed across all `turn.completed` events. */
-  inputTokens: number;
-  /** Cumulative `cached_input_tokens` summed across all turns. */
-  cachedInputTokens: number;
-  /** Cumulative `output_tokens` summed across all turns. */
-  outputTokens: number;
-  /** Number of `turn.completed` events observed during the run. */
-  turnCount: number;
-  /** Error message captured from `turn.failed` or top-level `error` events. */
-  errorMessage?: string;
-  /** Wall-clock start time in milliseconds since epoch, for duration reporting. */
-  startMs: number;
-  /**
-   * HITL request extracted from a `mcp_tool_call` item targeting the
-   * `hitl.request_human_input` tool. Set once on first detection.
-   */
-  hitlRequest?: HumanInputRequest;
-  /**
-   * Set when the consumer's `onToolUseObserved` callback returned
-   * `"abort"` for a tool item. The runner SIGTERMs the subprocess and
-   * synthesizes a `permission_denials[]` entry from this data.
-   */
-  denied?: { tool: string; id: string; reason: string };
-}
-
-/** Create a fresh {@link CodexRunState} seeded with the current time. */
-export function createCodexRunState(): CodexRunState {
-  return {
-    threadId: "",
-    finalResponse: "",
-    inputTokens: 0,
-    cachedInputTokens: 0,
-    outputTokens: 0,
-    turnCount: 0,
-    startMs: Date.now(),
-  };
-}
-
-/**
- * Apply a single parsed Codex NDJSON event to the accumulator.
- * Exported for testing.
- */
-export function applyCodexEvent(
-  event: CodexExecEvent,
-  state: CodexRunState,
-): void {
-  switch (event.type) {
-    case "thread.started": {
-      const e = event as CodexExecThreadStartedEvent;
-      if (typeof e.thread_id === "string") state.threadId = e.thread_id;
-      return;
-    }
-    case "turn.completed": {
-      const e = event as CodexExecTurnCompletedEvent;
-      state.turnCount += 1;
-      const usage = e.usage;
-      if (usage) {
-        state.inputTokens += Number(usage.input_tokens ?? 0);
-        state.cachedInputTokens += Number(usage.cached_input_tokens ?? 0);
-        state.outputTokens += Number(usage.output_tokens ?? 0);
-      }
-      return;
-    }
-    case "turn.failed": {
-      const e = event as CodexExecTurnFailedEvent;
-      const message = e.error?.message;
-      state.errorMessage = typeof message === "string"
-        ? message
-        : "Codex turn failed";
-      return;
-    }
-    case "error": {
-      if (!state.errorMessage) {
-        const e = event as CodexExecErrorEvent;
-        state.errorMessage = typeof e.message === "string"
-          ? e.message
-          : "Codex reported an error";
-      }
-      return;
-    }
-    case "item.completed": {
-      const item = (event as CodexExecItemCompletedEvent).item;
-      if (!item || typeof item !== "object") return;
-      if (item.type === "agent_message") {
-        const m = item as CodexExecAgentMessageItem;
-        if (typeof m.text === "string") state.finalResponse = m.text;
-        return;
-      }
-      if (item.type === "mcp_tool_call" && !state.hitlRequest) {
-        const m = item as CodexExecMcpToolCallItem;
-        if (
-          m.status === "completed" &&
-          m.server === CODEX_HITL_MCP_SERVER_NAME &&
-          m.tool === CODEX_HITL_MCP_TOOL_NAME
-        ) {
-          const extracted = extractCodexHitlRequest(m.arguments);
-          if (extracted) state.hitlRequest = extracted;
-        }
-      }
-      return;
-    }
-    default:
-      return;
-  }
-}
-
-/**
- * Parse the `arguments` payload of a `hitl.request_human_input` MCP tool
- * call into a runtime-neutral {@link HumanInputRequest}. Returns
- * `undefined` when the payload is missing or has an empty `question`.
- *
- * Exported for testing.
- */
-export function extractCodexHitlRequest(
-  args: Record<string, unknown> | undefined,
-): HumanInputRequest | undefined {
-  if (!args) return undefined;
-  const question = typeof args.question === "string"
-    ? args.question.trim()
-    : "";
-  if (!question) return undefined;
-
-  const options = Array.isArray(args.options)
-    ? args.options
-      .filter((entry): entry is Record<string, unknown> =>
-        typeof entry === "object" && entry !== null
-      )
-      .map((entry) => ({
-        label: typeof entry.label === "string" ? entry.label : "",
-        description: typeof entry.description === "string"
-          ? entry.description
-          : undefined,
-      }))
-      .filter((entry) => entry.label)
-    : undefined;
-
-  return {
-    question,
-    header: typeof args.header === "string" ? args.header : undefined,
-    options: options && options.length > 0 ? options : undefined,
-    multiSelect: typeof args.multiSelect === "boolean"
-      ? args.multiSelect
-      : undefined,
-  };
-}
-
-/** Default Codex sessions directory: `$CODEX_HOME/sessions` or `~/.codex/sessions`. */
-export function defaultCodexSessionsDir(): string {
-  const codexHome = Deno.env.get("CODEX_HOME") ??
-    join(Deno.env.get("HOME") ?? Deno.cwd(), ".codex");
-  return join(codexHome, "sessions");
-}
-
-/**
- * Locate the persisted Codex rollout transcript file for a given thread id.
- *
- * Codex writes rollouts as
- * `<sessionsDir>/YYYY/MM/DD/rollout-<timestamp>-<thread_id>.jsonl`. The
- * directory layout reflects the run's start date, so the lookup walks
- * `<sessionsDir>/<year>/<month>/<day>` for the run's own start date and the
- * preceding day (covers UTC/local-midnight boundaries) before falling back
- * to a small recent-history scan.
- *
- * Returns the absolute path on success, or `undefined` if no matching file
- * is found (or the sessions dir does not exist).
- */
-export async function findCodexSessionFile(
-  threadId: string,
-  startMs: number = Date.now(),
-  sessionsDir: string = defaultCodexSessionsDir(),
-): Promise<string | undefined> {
-  if (!threadId) return undefined;
-  try {
-    await Deno.stat(sessionsDir);
-  } catch {
-    return undefined;
-  }
-
-  const suffix = `-${threadId}.jsonl`;
-  const dates: string[] = [];
-  for (
-    let offsetMs = 0;
-    offsetMs <= 24 * 3600 * 1000;
-    offsetMs += 3600 * 1000
-  ) {
-    const d = new Date(startMs + offsetMs);
-    dates.push(formatYmd(d));
-    const back = new Date(startMs - offsetMs);
-    dates.push(formatYmd(back));
-  }
-  const seen = new Set<string>();
-  for (const ymd of dates) {
-    if (seen.has(ymd)) continue;
-    seen.add(ymd);
-    const [y, m, d] = ymd.split("-");
-    const dir = join(sessionsDir, y, m, d);
-    try {
-      for await (const entry of Deno.readDir(dir)) {
-        if (
-          entry.isFile && entry.name.startsWith("rollout-") &&
-          entry.name.endsWith(suffix)
-        ) {
-          return join(dir, entry.name);
-        }
-      }
-    } catch {
-      // Directory absent for this date — ignore and continue.
-    }
-  }
-  return undefined;
-}
-
-function formatYmd(d: Date): string {
-  const y = d.getFullYear().toString().padStart(4, "0");
-  const m = (d.getMonth() + 1).toString().padStart(2, "0");
-  const day = d.getDate().toString().padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/**
- * Finalize a {@link CodexRunState} into a normalized {@link CliRunOutput}.
- * Codex emits no cost field; `total_cost_usd` and `duration_api_ms` stay
- * `undefined` so cost-aggregating consumers can distinguish "not reported"
- * from a real free run. Token counts surface via {@link CliRunUsage}.
- */
-export function extractCodexOutput(state: CodexRunState): CliRunOutput {
-  return {
-    runtime: "codex",
-    result: state.errorMessage ?? state.finalResponse,
-    session_id: state.threadId,
-    duration_ms: Math.max(0, Date.now() - state.startMs),
-    num_turns: state.turnCount,
-    is_error: state.errorMessage !== undefined,
-    usage: extractCodexUsage(state),
-    hitl_request: state.hitlRequest,
-  };
-}
-
-/**
- * Project accumulated Codex token counts onto {@link CliRunUsage}.
- * Returns `undefined` when no turn ever reported usage (e.g. denial
- * before first `turn.completed`).
- */
-function extractCodexUsage(state: CodexRunState): CliRunUsage | undefined {
-  if (
-    state.inputTokens === 0 && state.outputTokens === 0 &&
-    state.cachedInputTokens === 0
-  ) {
-    return undefined;
-  }
-  return {
-    input_tokens: state.inputTokens,
-    output_tokens: state.outputTokens,
-    cached_tokens: state.cachedInputTokens,
-  };
-}
-
-/**
- * Build a runtime-neutral {@link import("../runtime/types.ts").RuntimeToolUseInfo}
- * (sans `turn` and `runtime` fields, which the caller injects) from a Codex
- * `ThreadItem`. Returns `undefined` for non-tool items (`agent_message`,
- * `reasoning`, `error`, `todo_list` — the latter is a planning artefact,
- * not a tool invocation).
- *
- * Thin wrapper over {@link parseExecItem} — the conceptual lift lives
- * there alongside the app-server twin {@link parseAppServerItem}.
- *
- * Exported for testing.
- */
-export function codexItemToToolUseInfo(
-  item: CodexExecItem | undefined | null,
-): { id: string; name: string; input: Record<string, unknown> } | undefined {
-  const conc = parseExecItem(item);
-  if (!conc) return undefined;
-  return { id: conc.id, name: conc.name, input: conc.input };
-}
-
-/**
- * Format a single Codex NDJSON event as a one-line summary for terminal or
- * log output. When `verbosity === "semi-verbose"` tool-call and reasoning
- * items are suppressed so only assistant text and lifecycle events remain.
- */
-export function formatCodexEventForOutput(
-  event: CodexExecEvent,
-  verbosity?: Verbosity,
-): string {
-  switch (event.type) {
-    case "thread.started":
-      return `[stream] init thread=${
-        (event as CodexExecThreadStartedEvent).thread_id ?? "?"
-      }`;
-    case "turn.completed": {
-      const usage = (event as CodexExecTurnCompletedEvent).usage ?? {};
-      return `[stream] turn.completed in=${usage.input_tokens ?? 0} out=${
-        usage.output_tokens ?? 0
-      } cached=${usage.cached_input_tokens ?? 0}`;
-    }
-    case "turn.failed":
-      return `[stream] turn.failed: ${
-        (event as CodexExecTurnFailedEvent).error?.message ?? "unknown"
-      }`;
-    case "error":
-      return `[stream] error: ${
-        (event as CodexExecErrorEvent).message ?? "unknown"
-      }`;
-    case "item.completed": {
-      const item = (event as CodexExecItemCompletedEvent).item;
-      if (!item || typeof item !== "object") return "";
-      switch (item.type) {
-        case "agent_message": {
-          const text = (item as CodexExecAgentMessageItem).text ?? "";
-          const preview = text.length > 120 ? text.slice(0, 120) + "…" : text;
-          return `[stream] text: ${preview.replaceAll("\n", "↵")}`;
-        }
-        case "reasoning":
-          if (verbosity === "semi-verbose") return "";
-          // Reasoning text is forward-compat-only; the summary line stays terse.
-          void (item as CodexExecReasoningItem);
-          return "[stream] reasoning";
-        case "command_execution": {
-          if (verbosity === "semi-verbose") return "";
-          const c = item as CodexExecCommandExecutionItem;
-          return `[stream] exec: ${c.command ?? "?"} (${c.status ?? "?"})`;
-        }
-        case "file_change": {
-          if (verbosity === "semi-verbose") return "";
-          const f = item as CodexExecFileChangeItem;
-          return `[stream] patch: ${
-            Array.isArray(f.changes) ? f.changes.length : 0
-          } file(s) ${f.status ?? "?"}`;
-        }
-        case "mcp_tool_call": {
-          if (verbosity === "semi-verbose") return "";
-          const m = item as CodexExecMcpToolCallItem;
-          if (
-            m.server === CODEX_HITL_MCP_SERVER_NAME &&
-            m.tool === CODEX_HITL_MCP_TOOL_NAME
-          ) {
-            const q = m.arguments?.question;
-            return `[stream] hitl_request: ${typeof q === "string" ? q : "?"}`;
-          }
-          return `[stream] mcp: ${m.server ?? "?"}.${m.tool ?? "?"} (${
-            m.status ?? "?"
-          })`;
-        }
-        case "web_search": {
-          if (verbosity === "semi-verbose") return "";
-          const w = item as CodexExecWebSearchItem;
-          return `[stream] web_search: ${w.query ?? "?"}`;
-        }
-        case "todo_list": {
-          if (verbosity === "semi-verbose") return "";
-          const t = item as CodexExecTodoListItem;
-          return `[stream] todo_list: ${
-            Array.isArray(t.items) ? t.items.length : 0
-          } item(s)`;
-        }
-        case "error": {
-          const e = item as CodexExecErrorItem;
-          return `[stream] item.error: ${e.message ?? "unknown"}`;
-        }
-        default:
-          return "";
-      }
-    }
-    default:
-      return "";
-  }
-}
+// Re-exports preserve the historical entry-point shape so existing
+// 'from "./codex/process.ts"' imports (production + tests) keep working
+// after the split.
+export {
+  buildCodexArgs,
+  buildCodexHitlConfigArgs,
+  CODEX_INTENTIONALLY_OPEN_FLAGS,
+  CODEX_RESERVED_FLAGS,
+  CODEX_RESERVED_POSITIONALS,
+  permissionModeToCodexArgs,
+} from "./argv.ts";
+export {
+  applyCodexEvent,
+  codexItemToToolUseInfo,
+  type CodexRunState,
+  createCodexRunState,
+  extractCodexHitlRequest,
+  extractCodexOutput,
+  formatCodexEventForOutput,
+} from "./run-state.ts";
+export { defaultCodexSessionsDir, findCodexSessionFile } from "./transcript.ts";
 
 /** Invoke codex CLI with retry logic. */
 export async function invokeCodexCli(
@@ -960,10 +436,6 @@ async function executeCodexProcess(
   } finally {
     registry.unregister(process);
   }
-}
-
-function hasConfiguredHitl(config?: HitlConfig): config is HitlConfig {
-  return Boolean(config?.ask_script && config?.check_script);
 }
 
 function decodeChunks(chunks: Uint8Array[]): string {
