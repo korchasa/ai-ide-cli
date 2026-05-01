@@ -23,7 +23,19 @@ ai-ide-cli/
   process-registry.ts   — pure child-process tracker + shutdown callbacks
   mod.ts                — public API barrel (re-exports all sub-paths)
   runtime/
-    types.ts            — RuntimeAdapter, RuntimeConfigSource, capabilities
+    types.ts            — barrel re-exporting from capability-types,
+                          session-types, errors, adapter-types
+    capability-types.ts — RuntimeCapabilities, RuntimeInitInfo,
+                          RuntimeLifecycleHooks
+    session-types.ts    — RuntimeSession, RuntimeSessionOptions,
+                          RuntimeSessionEvent, RuntimeSessionStatus,
+                          SYNTHETIC_TURN_END
+    errors.ts           — SessionError + 3 typed subclasses
+                          (InputClosed/Aborted/Delivery)
+    adapter-types.ts    — RuntimeAdapter, RuntimeInvokeOptions,
+                          RuntimeInvokeResult, ResolvedRuntimeConfig,
+                          RuntimeConfigSource, ExtraArgsMap,
+                          RuntimeToolUseInfo, InteractiveOptions
     index.ts            — adapter registry + resolveRuntimeConfig()
     capabilities.ts     — CapabilityInventory types + shared LLM-probe driver
                           (fetchInventoryViaInvoke, parseCapabilityInventoryResponse)
@@ -56,8 +68,17 @@ ai-ide-cli/
                           (streaming-input session with piped stdin)
     content.ts          — extractClaudeContent (per-runtime extractor; FR-L23)
   opencode/
-    process.ts          — buildOpenCodeArgs, invokeOpenCodeCli, extractOpenCodeOutput,
-                          formatOpenCodeEventForOutput, buildOpenCodeConfigContent
+    process.ts          — invokeOpenCodeCli runner; re-exports helpers
+                          from argv/events/transcript modules
+    argv.ts             — buildOpenCodeArgs, buildOpenCodeConfigContent,
+                          OPENCODE_RESERVED_FLAGS / POSITIONALS /
+                          INTENTIONALLY_OPEN_FLAGS
+    events.ts           — OpenCodeStreamEvent typed union (canonical
+                          home), formatOpenCodeEventForOutput,
+                          extractOpenCodeOutput, openCodeToolUseInfo,
+                          extractHitlRequestFromEvent
+    transcript.ts       — exportOpenCodeTranscript,
+                          OpenCodeTranscriptResult
     session.ts          — openOpenCodeSession, OpenCodeSession (streaming-input
                           session backed by `opencode serve` + HTTP + SSE)
     hitl-mcp.ts         — runOpenCodeHitlMcpServer (stdio MCP for HITL tool)
@@ -70,9 +91,17 @@ ai-ide-cli/
                           session: create-chat + resume-per-send)
     content.ts          — extractCursorContent (per-runtime extractor; FR-L23/FR-L30)
   codex/
-    process.ts          — buildCodexArgs, invokeCodexCli, applyCodexEvent,
-                          extractCodexOutput, findCodexSessionFile,
-                          permissionModeToCodexArgs, formatCodexEventForOutput
+    process.ts          — invokeCodexCli runner; re-exports helpers from
+                          argv/run-state/transcript modules
+    argv.ts             — buildCodexArgs, permissionModeToCodexArgs,
+                          buildCodexHitlConfigArgs, CODEX_RESERVED_FLAGS,
+                          CODEX_RESERVED_POSITIONALS,
+                          CODEX_INTENTIONALLY_OPEN_FLAGS
+    run-state.ts        — CodexRunState, applyCodexEvent,
+                          extractCodexOutput, extractCodexHitlRequest,
+                          codexItemToToolUseInfo,
+                          formatCodexEventForOutput
+    transcript.ts       — defaultCodexSessionsDir, findCodexSessionFile
     exec-events.ts      — CodexExecEvent / CodexExecItem typed unions +
                           parseCodexExecEvent (snake_case NDJSON protocol
                           for `codex exec --experimental-json`)
@@ -443,12 +472,18 @@ External `AbortSignal` composed via listener; process-registry
 
 ### 3.7 `opencode/process.ts` — OpenCode Runner
 
-`buildOpenCodeArgs(opts)`: `run` → `--session` → `--model` → `--agent` →
-`--dangerously-skip-permissions` → `extraArgs` → `--format json` → `--` →
-prompt. The `--` separator forces yargs to treat the merged
-`systemPrompt + taskPrompt` as positional even when it begins with `-`
-(e.g. YAML frontmatter `---` from an agent markdown file); without it
-opencode prints usage and exits with code 1.
+Module split: `argv.ts` owns the argv builder + config-content builder,
+`events.ts` owns the typed `OpenCodeStreamEvent` union + formatter +
+output extractor + HITL extractor + tool-use info, `transcript.ts` owns
+`exportOpenCodeTranscript`. The runner in `process.ts` re-exports every
+helper so existing imports keep working.
+
+`buildOpenCodeArgs(opts)` (`opencode/argv.ts`): `run` → `--session` →
+`--model` → `--agent` → `--dangerously-skip-permissions` → `extraArgs` →
+`--format json` → `--` → prompt. The `--` separator forces yargs to
+treat the merged `systemPrompt + taskPrompt` as positional even when it
+begins with `-` (e.g. YAML frontmatter `---` from an agent markdown
+file); without it opencode prints usage and exits with code 1.
 
 `extractOpenCodeOutput(lines)`: parses collected NDJSON lines. Event types:
 `step_start` (increment steps), `text` (accumulate result), `tool_use`
@@ -773,6 +808,29 @@ Consumers in `codex/process.ts` (`applyCodexEvent`,
 the precise variant, mirroring the `claude/stream.ts:processStreamEvent`
 pattern. The tool-item lifting (`codexItemToToolUseInfo`) is delegated
 to `parseExecItem` in `codex/items.ts` (§3.10.2).
+
+### 3.10.4 `codex/process.ts` — Codex Runner (modular split)
+
+`codex/process.ts` is the runner: `invokeCodexCli` (retry loop, abort
+handling) + `executeCodexProcess` (subprocess driver with stdin prompt
+piping, NDJSON parsing, HITL detection, denial synthesis). Pure helpers
+moved out:
+
+- `codex/argv.ts` — `buildCodexArgs`, `permissionModeToCodexArgs`,
+  `buildCodexHitlConfigArgs`, reserved-flag sets
+  (`CODEX_RESERVED_FLAGS`, `CODEX_RESERVED_POSITIONALS`,
+  `CODEX_INTENTIONALLY_OPEN_FLAGS`).
+- `codex/run-state.ts` — `CodexRunState`, `createCodexRunState`,
+  `applyCodexEvent` (snake_case event aggregator),
+  `extractCodexHitlRequest`, `extractCodexOutput`,
+  `codexItemToToolUseInfo`, `formatCodexEventForOutput`.
+- `codex/transcript.ts` — `defaultCodexSessionsDir`,
+  `findCodexSessionFile` (walks
+  `<sessionsDir>/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`).
+
+`codex/process.ts` re-exports every helper for backwards compatibility
+— existing imports `from "../codex/process.ts"` keep working in
+production code, tests, and `mod.ts`.
 
 ### 3.11 `codex/app-server.ts` — JSON-RPC Transport
 

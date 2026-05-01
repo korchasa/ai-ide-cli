@@ -34,6 +34,16 @@ import this package to invoke IDE CLIs uniformly.
 - `types.ts` — shared runtime identifiers and value types.
 - `runtime/` — runtime adapter abstraction (`getRuntimeAdapter`, per-runtime
   adapters for Claude / OpenCode / Cursor / Codex), plus:
+  - `runtime/types.ts` — barrel re-exporting from four focused modules:
+    `capability-types.ts` (`RuntimeCapabilities`, `RuntimeInitInfo`,
+    `RuntimeLifecycleHooks`), `session-types.ts` (`RuntimeSession`,
+    `RuntimeSessionOptions`, `RuntimeSessionEvent`,
+    `RuntimeSessionStatus`, `SYNTHETIC_TURN_END`), `errors.ts`
+    (`SessionError` + 3 typed subclasses), `adapter-types.ts`
+    (`RuntimeAdapter`, `RuntimeInvokeOptions`, `RuntimeInvokeResult`,
+    `ExtraArgsMap`, `RuntimeToolUseInfo`, …). Public API surface is
+    unchanged at the symbol level — every existing
+    `from "../runtime/types.ts"` import keeps working.
   - `runtime/argv.ts` — cycle-free leaf module exporting `expandExtraArgs`;
     every `<runtime>/process.ts` and `<runtime>/session.ts` imports the
     helper from here so the `runtime/index.ts` ↔ `*-adapter.ts` cycle stays
@@ -59,17 +69,28 @@ import this package to invoke IDE CLIs uniformly.
     `validateReasoningEffort` mapped per-runtime (FR-L25).
 - `claude/process.ts`, `claude/stream.ts`, `claude/session.ts` — Claude CLI
   invocation, streaming output parser, and streaming-input session.
-- `opencode/process.ts`, `opencode/session.ts`, `opencode/hitl-mcp.ts` —
-  OpenCode invocation (with `onToolUseObserved` dispatch and
-  `opencode export` transcript surfacing), server-backed streaming-input
-  session, HITL MCP handler.
+- `opencode/process.ts`, `opencode/argv.ts`, `opencode/events.ts`,
+  `opencode/transcript.ts`, `opencode/session.ts`, `opencode/hitl-mcp.ts`
+  — OpenCode invocation split into argv builder (+
+  `OPENCODE_CONFIG_CONTENT`), typed `OpenCodeStreamEvent` union with
+  formatter / output extractor / tool-use info / HITL extractor, and the
+  `opencode export` transcript wrapper; the runner in `process.ts`
+  re-exports every helper for backwards compatibility. Server-backed
+  streaming-input session in `session.ts`, HITL MCP handler in
+  `hitl-mcp.ts`.
 - `cursor/process.ts`, `cursor/session.ts` — Cursor CLI invocation and the
   faux streaming-input session (`create-chat` + per-send subprocess).
-- `codex/process.ts`, `codex/hitl-mcp.ts`, `codex/app-server.ts`,
-  `codex/session.ts` — Codex (`codex exec --experimental-json`) invocation,
-  event-stream aggregator (mirrors `@openai/codex-sdk`), HITL MCP server,
-  plus streaming-input session backed by the experimental
-  `codex app-server --listen stdio://` JSON-RPC transport (`openCodexSession`).
+- `codex/process.ts`, `codex/argv.ts`, `codex/run-state.ts`,
+  `codex/transcript.ts`, `codex/hitl-mcp.ts`, `codex/app-server.ts`,
+  `codex/session.ts` — Codex (`codex exec --experimental-json`) invocation
+  split into argv builder + permission-mode serializer
+  (`argv.ts`), NDJSON event aggregator + output projector + formatter +
+  HITL request parser + tool-use info extractor (`run-state.ts`), and
+  persisted-rollout discovery (`transcript.ts`). Runner in `process.ts`
+  re-exports every helper for backwards compatibility. Streaming-input
+  session in `session.ts` is backed by the experimental
+  `codex app-server --listen stdio://` JSON-RPC transport
+  (`app-server.ts`); HITL MCP server in `hitl-mcp.ts`.
 - `skill/` — SKILL.md parser and typed skill model.
 - `hitl-mcp.ts` — top-level shared HITL MCP request/response NDJSON runner
   reused by Codex and OpenCode adapters.
