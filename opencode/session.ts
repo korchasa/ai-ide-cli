@@ -132,12 +132,15 @@ export interface OpenCodeSession {
    */
   send(content: string): Promise<void>;
   /**
-   * Async iterable of session-scoped events (filtered by sessionID). Global
+   * Async iterator of session-scoped events (filtered by sessionID). Global
    * events (server.connected, non-session state changes) are delivered via
    * {@link OpenCodeSessionOptions.onEvent} but NOT pushed to this queue.
-   * Can be iterated at most once.
+   * **One-shot** — typed as `AsyncIterableIterator` to surface a TypeScript
+   * error on accidental re-iteration, with the runtime guard in
+   * {@link import("../runtime/event-queue.ts").SessionEventQueue} as a
+   * belt-and-suspenders fallback.
    */
-  readonly events: AsyncIterable<OpenCodeSessionEvent>;
+  readonly events: AsyncIterableIterator<OpenCodeSessionEvent>;
   /**
    * Signal no more sends will arrive. Returns promptly. A background task
    * waits for the next session-scoped `session.idle` event and SIGTERMs the

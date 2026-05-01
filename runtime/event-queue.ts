@@ -10,14 +10,26 @@
  * - `next()` blocks until an item arrives or the queue is closed.
  * - `close()` terminates any pending `next()` callers and all subsequent
  *   iterations complete immediately.
- * - Single-iteration — re-iterating the same instance throws.
+ * - Single-iteration — re-iterating the same instance throws. The queue
+ *   itself implements {@link AsyncIterableIterator}: `[Symbol.asyncIterator]()`
+ *   returns the queue, so `for await` on a queue twice walks the same
+ *   iterator and the runtime guard fires on the second entry. Together
+ *   with the type-narrowing of `RuntimeSession.events` to
+ *   `AsyncIterableIterator`, this encodes the one-shot contract at both
+ *   the type and runtime layers.
  */
 
 /**
  * Single-consumer async FIFO used as the backing store for
  * `RuntimeSession.events` and the per-runtime session `events` iterables.
+ *
+ * Implements {@link AsyncIterableIterator} so the one-shot contract is
+ * visible at the type level — consumers receive an iterator (with `next` /
+ * `return`), not a re-iterable iterable. The runtime guard on
+ * `[Symbol.asyncIterator]()` stays as a belt-and-suspenders check against
+ * structural-typing escapes.
  */
-export class SessionEventQueue<T> implements AsyncIterable<T> {
+export class SessionEventQueue<T> implements AsyncIterableIterator<T> {
   private items: T[] = [];
   private resolvers: Array<(r: IteratorResult<T>) => void> = [];
   private closed = false;
@@ -25,6 +37,8 @@ export class SessionEventQueue<T> implements AsyncIterable<T> {
   private readonly label: string;
 
   /**
+   * Construct an empty queue ready to accept pushes.
+   *
    * @param label Short identifier used in the re-iteration error message
    *   (e.g. `"ClaudeSession"`, `"RuntimeSession"`). Purely diagnostic.
    */
@@ -61,28 +75,43 @@ export class SessionEventQueue<T> implements AsyncIterable<T> {
     return this.closed;
   }
 
-  [Symbol.asyncIterator](): AsyncIterator<T> {
+  /**
+   * Pull the next item from the FIFO. Resolves with `{done:true}` once the
+   * queue is closed and drained, otherwise blocks until {@link push} or
+   * {@link close} fires.
+   */
+  next(): Promise<IteratorResult<T>> {
+    const item = this.items.shift();
+    if (item !== undefined) {
+      return Promise.resolve({ value: item, done: false });
+    }
+    if (this.closed) {
+      return Promise.resolve({ value: undefined, done: true });
+    }
+    return new Promise((resolve) => {
+      this.resolvers.push(resolve);
+    });
+  }
+
+  /**
+   * Close the queue early. Mirrors the iterator-protocol `return()` — used
+   * by `for await` loops that exit via `break`/`throw`.
+   */
+  return(): Promise<IteratorResult<T>> {
+    this.close();
+    return Promise.resolve({ value: undefined, done: true });
+  }
+
+  /**
+   * Returns the queue itself — the queue is its own iterator. Throws on
+   * a second call so `for await` loops cannot accidentally re-iterate the
+   * same queue.
+   */
+  [Symbol.asyncIterator](): AsyncIterableIterator<T> {
     if (this.iterated) {
       throw new Error(`${this.label}.events can only be iterated once`);
     }
     this.iterated = true;
-    return {
-      next: (): Promise<IteratorResult<T>> => {
-        const item = this.items.shift();
-        if (item !== undefined) {
-          return Promise.resolve({ value: item, done: false });
-        }
-        if (this.closed) {
-          return Promise.resolve({ value: undefined, done: true });
-        }
-        return new Promise((resolve) => {
-          this.resolvers.push(resolve);
-        });
-      },
-      return: (): Promise<IteratorResult<T>> => {
-        this.close();
-        return Promise.resolve({ value: undefined, done: true });
-      },
-    };
+    return this;
   }
 }

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file. See [standa
 ### [0.5.11](https://github.com/korchasa/ai-ide-cli/compare/v0.5.10...v0.5.11) (2026-04-30)
 
 
+### ⚠ BREAKING CHANGES
+
+* **runtime:** `RuntimeSession.events` (and the per-runtime `ClaudeSession.events` / `OpenCodeSession.events` / `CursorSession.events`) is now typed `AsyncIterableIterator<…>` (one-shot) instead of `AsyncIterable<…>` (multi-shot). Code that called `Symbol.asyncIterator` on the events twice — or passed `events` to a helper that did — fails at compile time instead of at the existing runtime guard. Existing single-iteration consumers (`for await (const e of session.events) {}` once) are unaffected. The runtime guard in `SessionEventQueue` stays as a belt-and-suspenders fallback.
+
 ### Features
 
 * **e2e:** add real-binary test suite across four adapters (FR-L24) ([73f8d86](https://github.com/korchasa/ai-ide-cli/commit/73f8d86513935e11c109156be819e36cde544441))

@@ -571,11 +571,16 @@ export interface RuntimeSession {
    */
   send(content: string): Promise<void>;
   /**
-   * Async iterable of normalized session events. Completes when the
-   * runtime's output stream closes. Can be iterated at most once. Includes
-   * adapter-injected synthetics (see {@link RuntimeSessionEvent}).
+   * Async iterator of normalized session events. Completes when the
+   * runtime's output stream closes. **One-shot** — typed as
+   * `AsyncIterableIterator` so a second `for await` (or any second
+   * `[Symbol.asyncIterator]()` call) is both a TypeScript error against
+   * a freshly assigned `AsyncIterable<…>` view and a runtime throw via
+   * the guard in {@link import("./event-queue").SessionEventQueue}.
+   * Includes adapter-injected synthetics (see
+   * {@link RuntimeSessionEvent}).
    */
-  readonly events: AsyncIterable<RuntimeSessionEvent>;
+  readonly events: AsyncIterableIterator<RuntimeSessionEvent>;
   /**
    * Signal no more sends will arrive; initiate graceful shutdown.
    * Returns promptly — await {@link done} for full termination.

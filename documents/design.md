@@ -27,8 +27,9 @@ ai-ide-cli/
     index.ts            — adapter registry + resolveRuntimeConfig()
     capabilities.ts     — CapabilityInventory types + shared LLM-probe driver
                           (fetchInventoryViaInvoke, parseCapabilityInventoryResponse)
-    event-queue.ts      — SessionEventQueue<T>: shared single-consumer async
-                          FIFO used by every runtime's `session.events`
+    event-queue.ts      — SessionEventQueue<T>: shared one-shot
+                          AsyncIterableIterator FIFO used by every runtime's
+                          `session.events`
     session-adapter.ts  — adaptRuntimeSession, adaptEventCallback: shared
                           helpers that translate runtime-specific sessions
                           into runtime-neutral RuntimeSession handles
@@ -188,7 +189,8 @@ embedder.
 - `RuntimeSession` — live handle: `runtime`, `sessionId` (readonly string;
   `""` on Claude until first `system/init` event, synchronous for other
   three adapters), `send(content)`,
-  `events: AsyncIterable<RuntimeSessionEvent>`, `endInput()`, `abort(reason?)`,
+  `events: AsyncIterableIterator<RuntimeSessionEvent>` (one-shot — see
+  FR-L21 / FR-L22), `endInput()`, `abort(reason?)`,
   `done: Promise<RuntimeSessionStatus>`. The neutral interface deliberately
   omits `pid` — it's a leaky implementation detail that cannot be stable
   across runtimes (Cursor has no long-lived backing process). Runtime-specific
@@ -421,8 +423,9 @@ is reserved (added to `CLAUDE_RESERVED_FLAGS`).
   asynchronously; turn completion is observable via `events`). Rejects
   with typed `SessionError` subclasses: `SessionAbortedError` /
   `SessionInputClosedError` / `SessionDeliveryError` (FR-L22).
-- `events` — single-consumer async iterable backed by the shared
-  `SessionEventQueue<T>` from `runtime/event-queue.ts`. Background stdout
+- `events` — single-consumer async iterator (`AsyncIterableIterator<T>`,
+  one-shot) backed by the shared `SessionEventQueue<T>` from
+  `runtime/event-queue.ts`. Background stdout
   pump decodes NDJSON, parses via `parseClaudeStreamEvent`, enqueues events
   and fires `onEvent`. The neutral adapter layer injects one synthetic
   `{type: "turn-end", synthetic: true, raw: <native result>}` event after
@@ -484,8 +487,9 @@ abort, done }`:
   Rejects with typed `SessionError` subclasses: `SessionAbortedError` /
   `SessionInputClosedError` / `SessionDeliveryError` — the last wraps the
   non-2xx response text and any network-level `fetch` failure (FR-L22).
-- `events` — single-consumer async iterable backed by the shared
-  `SessionEventQueue<T>` from `runtime/event-queue.ts`. SSE pump reads
+- `events` — single-consumer async iterator (`AsyncIterableIterator<T>`,
+  one-shot) backed by the shared `SessionEventQueue<T>` from
+  `runtime/event-queue.ts`. SSE pump reads
   `GET /event`, splits on `\n\n`, delegates each frame to
   `parseOpenCodeSseFrame`, dispatches session-scoped events (by
   `extractOpenCodeSessionId`) onto the queue, fires `onEvent` for every

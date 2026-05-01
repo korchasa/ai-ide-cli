@@ -32,8 +32,8 @@ export interface InnerSessionHandle<T> {
   readonly sessionId: string;
   /** Push a user message into the underlying transport. */
   send(content: string): Promise<void>;
-  /** Single-consumer async iterable of native events. */
-  readonly events: AsyncIterable<T>;
+  /** Single-consumer async iterator of native events (one-shot). */
+  readonly events: AsyncIterableIterator<T>;
   /** Signal graceful shutdown (no-more-input). */
   endInput(): Promise<void>;
   /** SIGTERM / force-stop. Idempotent. */
@@ -71,28 +71,56 @@ export function adaptRuntimeSession<T>(
   toEvent: (event: T) => RuntimeSessionEvent,
   isTurnEnd?: (event: T) => boolean,
 ): RuntimeSession {
+  // Lazily defer to a fresh async generator on `[Symbol.asyncIterator]()`
+  // so re-iteration delegates to `inner.events[Symbol.asyncIterator]()` —
+  // which is a `SessionEventQueue` whose runtime guard throws. The
+  // wrapper's `next` / `return` route through the active generator.
+  let active: AsyncGenerator<RuntimeSessionEvent> | undefined;
+  async function* mapEvents(): AsyncGenerator<RuntimeSessionEvent> {
+    for await (const event of inner.events) {
+      const neutral = toEvent(event);
+      yield neutral;
+      if (isTurnEnd?.(event)) {
+        yield {
+          runtime,
+          type: SYNTHETIC_TURN_END,
+          raw: neutral.raw,
+          synthetic: true,
+        };
+      }
+    }
+  }
+  const events: AsyncIterableIterator<RuntimeSessionEvent> = {
+    [Symbol.asyncIterator](): AsyncIterableIterator<RuntimeSessionEvent> {
+      // First call wires up the generator; subsequent calls re-enter
+      // `inner.events[Symbol.asyncIterator]()` via a fresh `mapEvents()`
+      // body, which trips the `SessionEventQueue` runtime guard on the
+      // 2nd entry. Together with the type narrowing on the public field,
+      // this preserves the documented one-shot contract at both layers.
+      const gen = mapEvents();
+      if (!active) active = gen;
+      return gen;
+    },
+    next(): Promise<IteratorResult<RuntimeSessionEvent>> {
+      if (!active) active = mapEvents();
+      return active.next();
+    },
+    return(
+      value?: RuntimeSessionEvent,
+    ): Promise<IteratorResult<RuntimeSessionEvent>> {
+      if (!active) {
+        return Promise.resolve({ value, done: true });
+      }
+      return active.return(value as RuntimeSessionEvent);
+    },
+  };
   return {
     runtime,
     get sessionId() {
       return inner.sessionId;
     },
     send: (content: string) => inner.send(content),
-    events: {
-      async *[Symbol.asyncIterator]() {
-        for await (const event of inner.events) {
-          const neutral = toEvent(event);
-          yield neutral;
-          if (isTurnEnd?.(event)) {
-            yield {
-              runtime,
-              type: SYNTHETIC_TURN_END,
-              raw: neutral.raw,
-              synthetic: true,
-            };
-          }
-        }
-      },
-    },
+    events,
     endInput: () => inner.endInput(),
     abort: (reason?: string) => inner.abort(reason),
     done: inner.done.then((status): RuntimeSessionStatus => ({

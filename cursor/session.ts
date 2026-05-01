@@ -174,13 +174,16 @@ export interface CursorSession {
    */
   send(content: string): Promise<void>;
   /**
-   * Async iterable of every parsed NDJSON event across all send subprocesses,
+   * Async iterator of every parsed NDJSON event across all send subprocesses,
    * prefixed by a synthetic `system.init` event carrying the chat ID, plus
    * any synthetic `error` events produced by failed sends.
-   * Completes after {@link endInput} drains or {@link abort} fires. Can be
-   * iterated at most once.
+   * Completes after {@link endInput} drains or {@link abort} fires.
+   * **One-shot** — typed as `AsyncIterableIterator` to surface a TypeScript
+   * error on accidental re-iteration, with the runtime guard in
+   * {@link import("../runtime/event-queue.ts").SessionEventQueue} as a
+   * belt-and-suspenders fallback.
    */
-  readonly events: AsyncIterable<CursorStreamEvent>;
+  readonly events: AsyncIterableIterator<CursorStreamEvent>;
   /**
    * Signal no more sends will arrive. Returns promptly. The worker drains
    * any remaining queued sends, then closes the event stream. Full shutdown

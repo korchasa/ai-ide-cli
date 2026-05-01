@@ -132,11 +132,14 @@ export interface ClaudeSession {
    */
   send(content: string | ClaudeSessionUserInput): Promise<void>;
   /**
-   * Async iterable of every parsed `stream-json` event emitted by the CLI,
+   * Async iterator of every parsed `stream-json` event emitted by the CLI,
    * in the order they appeared on stdout. Completes when stdout closes.
-   * Can be iterated at most once.
+   * **One-shot** — typed as `AsyncIterableIterator` to surface a TypeScript
+   * error on accidental re-iteration, with the runtime guard in
+   * {@link import("../runtime/event-queue.ts").SessionEventQueue} as a
+   * belt-and-suspenders fallback.
    */
-  readonly events: AsyncIterable<ClaudeStreamEvent>;
+  readonly events: AsyncIterableIterator<ClaudeStreamEvent>;
   /**
    * Close stdin (signal-only — returns promptly after the EOF is flushed).
    * The CLI finishes the current turn, emits a terminal `result` event, and

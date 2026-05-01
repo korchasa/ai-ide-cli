@@ -575,7 +575,10 @@ stable — never renumber on move.
   - `endInput()` signals "no more sends will come" and returns
     **promptly**. Full-shutdown observation is `await session.done`.
   - `abort(reason?)` is a best-effort forceful stop. Idempotent.
-  - `events` is a single-consumer async iterable; re-iteration throws.
+  - `events` is a single-consumer async iterator
+    (`AsyncIterableIterator<RuntimeSessionEvent>`, one-shot at the type
+    layer); the runtime guard in `SessionEventQueue` throws on a second
+    `[Symbol.asyncIterator]()` call as a belt-and-suspenders fallback.
     Completes when the underlying transport terminates. Emits exactly
     one {@link SYNTHETIC_TURN_END} synthetic event per completed turn,
     immediately after the runtime's native terminator (see FR-L21).
@@ -603,8 +606,8 @@ stable — never renumber on move.
     piped stdin. Returns `ClaudeSession { pid, send, events, endInput,
     abort, done }`. `send` accepts a string or a `ClaudeSessionUserInput`
     object and writes `{"type":"user","message":{"role":"user","content":…}}`
-    + newline to stdin. `events` is a single-consumer async iterable of
-    parsed `ClaudeStreamEvent`. `buildClaudeSessionArgs(opts)` is exported
+    + newline to stdin. `events` is a one-shot async iterator
+    (`AsyncIterableIterator<ClaudeStreamEvent>`). `buildClaudeSessionArgs(opts)` is exported
     for testing. `--input-format` is reserved in `CLAUDE_RESERVED_FLAGS`.
     `settingSources` isolation (FR-L18) is honored.
   - **OpenCode-specific.** `openOpenCodeSession(opts)` spawns a dedicated
