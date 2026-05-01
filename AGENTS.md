@@ -67,30 +67,51 @@ import this package to invoke IDE CLIs uniformly.
     isolation (FR-L18).
   - `runtime/reasoning-effort.ts` — abstract `reasoningEffort` enum +
     `validateReasoningEffort` mapped per-runtime (FR-L25).
+  - `runtime/callback-safety.ts` — `safeInvokeCallback` /
+    `safeAwaitCallback` + `OnCallbackError` routed sink for consumer
+    callbacks (FR-L32).
 - `claude/process.ts`, `claude/stream.ts`, `claude/session.ts` — Claude CLI
   invocation, streaming output parser, and streaming-input session.
+  - `claude/permission-mode.ts` — Claude `--permission-mode` enum +
+    `validateClaudePermissionMode` (canonical home; legacy re-export
+    deprecated on `mod.ts`).
+  - `claude/content.ts` — `extractClaudeContent` per-runtime extractor
+    consumed by the `runtime/content.ts` dispatcher (FR-L23).
 - `opencode/process.ts`, `opencode/argv.ts`, `opencode/events.ts`,
-  `opencode/transcript.ts`, `opencode/session.ts`, `opencode/hitl-mcp.ts`
-  — OpenCode invocation split into argv builder (+
+  `opencode/transcript.ts`, `opencode/session.ts`, `opencode/hitl-mcp.ts`,
+  `opencode/content.ts` — OpenCode invocation split into argv builder (+
   `OPENCODE_CONFIG_CONTENT`), typed `OpenCodeStreamEvent` union with
-  formatter / output extractor / tool-use info / HITL extractor, and the
-  `opencode export` transcript wrapper; the runner in `process.ts`
-  re-exports every helper for backwards compatibility. Server-backed
-  streaming-input session in `session.ts`, HITL MCP handler in
-  `hitl-mcp.ts`.
-- `cursor/process.ts`, `cursor/session.ts` — Cursor CLI invocation and the
-  faux streaming-input session (`create-chat` + per-send subprocess).
+  formatter / output extractor / tool-use info / HITL extractor, the
+  `opencode export` transcript wrapper, and `extractOpenCodeContent` for
+  the `runtime/content.ts` dispatcher (FR-L23); the runner in
+  `process.ts` re-exports every helper for backwards compatibility.
+  Server-backed streaming-input session in `session.ts`, HITL MCP
+  handler in `hitl-mcp.ts`.
+- `cursor/process.ts`, `cursor/session.ts`, `cursor/stream.ts`,
+  `cursor/content.ts` — Cursor CLI invocation, the faux streaming-input
+  session (`create-chat` + per-send subprocess), the `CursorStreamEvent`
+  discriminated union (FR-L30), and `extractCursorContent` for the
+  dispatcher (FR-L23). See `cursor/AGENTS.md` for HITL-not-supported
+  rationale.
 - `codex/process.ts`, `codex/argv.ts`, `codex/run-state.ts`,
   `codex/transcript.ts`, `codex/hitl-mcp.ts`, `codex/app-server.ts`,
-  `codex/session.ts` — Codex (`codex exec --experimental-json`) invocation
-  split into argv builder + permission-mode serializer
-  (`argv.ts`), NDJSON event aggregator + output projector + formatter +
-  HITL request parser + tool-use info extractor (`run-state.ts`), and
-  persisted-rollout discovery (`transcript.ts`). Runner in `process.ts`
-  re-exports every helper for backwards compatibility. Streaming-input
-  session in `session.ts` is backed by the experimental
-  `codex app-server --listen stdio://` JSON-RPC transport
-  (`app-server.ts`); HITL MCP server in `hitl-mcp.ts`.
+  `codex/session.ts`, `codex/permission-mode.ts`, `codex/items.ts`,
+  `codex/exec-events.ts`, `codex/events.ts`, `codex/content.ts` — Codex
+  (`codex exec --experimental-json`) invocation split into argv builder
+  + permission-mode serializer (`argv.ts`), NDJSON event aggregator +
+  output projector + formatter + HITL request parser + tool-use info
+  extractor (`run-state.ts`), and persisted-rollout discovery
+  (`transcript.ts`). Runner in `process.ts` re-exports every helper for
+  backwards compatibility. Streaming-input session in `session.ts` is
+  backed by the experimental `codex app-server --listen stdio://`
+  JSON-RPC transport (`app-server.ts`). Two parallel typed-event
+  surfaces: `exec-events.ts` for the snake_case `codex exec` NDJSON
+  protocol and `events.ts` for the camelCase `codex app-server`
+  JSON-RPC notifications, with the conceptual tool-item layer
+  (`items.ts`) bridging both. `permission-mode.ts` shares the
+  `decidePermissionMode` mapping across both transports.
+  `content.ts` provides `extractCodexContent` for the dispatcher
+  (FR-L23). HITL MCP server in `hitl-mcp.ts`.
 - `skill/` — SKILL.md parser and typed skill model.
 - `hitl-mcp.ts` — top-level shared HITL MCP request/response NDJSON runner
   reused by Codex and OpenCode adapters.
@@ -484,7 +505,7 @@ constructor(foo: string) { ... }
 
 ## Code Documentation
 
-- **Module level**: each module gets an `AGENTS.md` describing its responsibility and key decisions (e.g. `runtime/AGENTS.md`).
+- **Module level**: a module *may* ship an `AGENTS.md` describing its responsibility and key decisions when the module has non-obvious local invariants (see `runtime/AGENTS.md`, `cursor/AGENTS.md`). Not mandatory — small modules whose contract fits in a JSDoc `@module` block do not need one. The root `AGENTS.md` is the source of truth; module files only document local nuances on top of it.
 - **Code level**: JSDoc for exported classes, methods, and functions — JSR slow-types enforces this on public API. Focus on *why* and *how*, not *what*. Skip trivial comments — they add noise without value.
 - **Requirement traceability**: when code implements a requirement from SRS (`documents/requirements.md`), add a `// FR-L<N>` comment **directly above the exported symbol** (function, class, const) that implements the requirement — a module-level comment above the imports does not satisfy this, because future reorganization separates the comment from the logic it traces. Code references requirements, not the reverse — SRS must not contain file paths. Exceptions: requirements verified by benchmarks or proven by file existence need no comment.
 
