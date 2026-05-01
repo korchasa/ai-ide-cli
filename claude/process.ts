@@ -28,6 +28,7 @@ import {
   prepareSettingSourcesDir,
   type SettingSource,
 } from "../runtime/setting-sources.ts";
+import { validateClaudePermissionMode } from "./permission-mode.ts";
 import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import {
   type ClaudeLifecycleHooks,
@@ -247,7 +248,11 @@ export async function invokeClaudeCli(
 export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
   const args: string[] = [];
 
-  // Permission mode (first-class field, maps to --permission-mode)
+  // Permission mode (first-class field, maps to --permission-mode).
+  // Fail-fast on unknown values; mirrors the tool-filter / reasoning-effort
+  // validators so YAML-driven consumers see uniform errors across the three
+  // typed Claude options.
+  validateClaudePermissionMode(opts.permissionMode);
   if (opts.permissionMode) {
     args.push("--permission-mode", opts.permissionMode);
   }

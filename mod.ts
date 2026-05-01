@@ -17,11 +17,25 @@ export type {
   HumanInputOption,
   HumanInputRequest,
   PermissionDenial,
-  PermissionMode,
   RuntimeId,
   Verbosity,
 } from "./types.ts";
-export { VALID_PERMISSION_MODES, VALID_RUNTIME_IDS } from "./types.ts";
+export { VALID_RUNTIME_IDS } from "./types.ts";
+
+/**
+ * Claude-specific `--permission-mode` enum and validator.
+ *
+ * @deprecated Import from `@korchasa/ai-ide-cli/claude/permission-mode`
+ * instead. The root re-export will be removed in a future release.
+ * `PermissionMode` and `VALID_PERMISSION_MODES` now also reflect the
+ * narrowed Claude enum — the previously-included `"dontAsk"` and `"auto"`
+ * values were never wired into any adapter and have been removed.
+ */
+export type { PermissionMode } from "./claude/permission-mode.ts";
+export {
+  VALID_PERMISSION_MODES,
+  validateClaudePermissionMode,
+} from "./claude/permission-mode.ts";
 
 // --- Runtime adapter layer ---
 export {

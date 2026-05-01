@@ -1,33 +1,13 @@
 /**
  * @module
  * Shared types for the `@korchasa/ai-ide-cli` library: runtime identifiers,
- * permission modes, verbosity, HITL request shapes, normalized CLI run
- * output, and HITL config contract.
+ * verbosity, HITL request shapes, normalized CLI run output, and HITL
+ * config contract.
  *
  * All types here are runtime-neutral; Claude- or OpenCode-specific details
+ * (including Claude's `PermissionMode`, see `claude/permission-mode.ts`)
  * live inside their respective sub-modules.
  */
-
-// --- Permission Mode ---
-
-/** Claude Code permission mode values (maps to --permission-mode CLI flag). */
-export type PermissionMode =
-  | "acceptEdits"
-  | "bypassPermissions"
-  | "default"
-  | "dontAsk"
-  | "plan"
-  | "auto";
-
-/** All valid permission mode values, used for config validation. */
-export const VALID_PERMISSION_MODES: readonly string[] = [
-  "acceptEdits",
-  "bypassPermissions",
-  "default",
-  "dontAsk",
-  "plan",
-  "auto",
-];
 
 // --- Runtime ---
 

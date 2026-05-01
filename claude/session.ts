@@ -29,6 +29,7 @@ import {
   validateReasoningEffort,
 } from "../runtime/reasoning-effort.ts";
 import { mapReasoningEffortToClaude } from "./process.ts";
+import { validateClaudePermissionMode } from "./permission-mode.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   defaultClaudeConfigDir,
@@ -182,6 +183,10 @@ export interface ClaudeSessionUserInput {
 export function buildClaudeSessionArgs(opts: ClaudeSessionOptions): string[] {
   const args: string[] = [];
 
+  // Fail-fast on unknown values; mirrors the validator used by
+  // claude/process.ts:buildClaudeArgs and keeps YAML-driven consumers
+  // honest. `undefined` passes through.
+  validateClaudePermissionMode(opts.permissionMode);
   if (opts.permissionMode) {
     args.push("--permission-mode", opts.permissionMode);
   }

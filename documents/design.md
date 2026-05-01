@@ -106,9 +106,6 @@ engine or any external workflow package.
 `RuntimeId` union: `"claude" | "opencode" | "cursor" | "codex"`.
 `VALID_RUNTIME_IDS` array for config validation.
 
-`PermissionMode` — Claude Code `--permission-mode` values. Kept here because
-multiple runtimes reference it for compatibility checks.
-
 `CliRunOutput` — runtime-neutral output shape:
 `result`, `session_id`, `total_cost_usd`, `duration_ms`, `duration_api_ms`,
 `num_turns`, `is_error`, optional `permission_denials`, `hitl_request`,
@@ -304,6 +301,17 @@ Order: `--permission-mode` → tool-filter flag (FR-L24, see below) →
 `--agent`, `--append-system-prompt`, `--model` (session inherits) but
 **does** re-emit the tool-filter flag (filtering is not part of
 session state).
+
+**`PermissionMode` enum (canonical home: `claude/permission-mode.ts`).**
+Narrowed Claude `--permission-mode` values: `"acceptEdits" |
+"bypassPermissions" | "default" | "plan"`. Re-exported from `mod.ts` as
+`@deprecated` for one release; consumers should switch to
+`@korchasa/ai-ide-cli/claude/permission-mode`. `validateClaudePermissionMode`
+runs in `buildClaudeArgs` and `buildClaudeSessionArgs` before the flag is
+emitted; throws synchronously on unknown values, mirroring
+`validateToolFilter` and `validateReasoningEffort`. Other runtimes
+(`opencode`, `cursor`, `codex`) keep `permissionMode: string` and apply
+their own per-adapter mappings (no shared enum).
 
 **FR-L24 tool filter.** `buildClaudeArgs` (and
 `buildClaudeSessionArgs`) calls the shared `validateToolFilter("claude",
