@@ -1,0 +1,109 @@
+# FR-L31
+# E2E (real IDE binaries) — soak window.
+#
+# Triggered on every PR + push to main. Each runtime runs in its own
+# parallel job so a flake in one cannot mask the others. Jobs are
+# `continue-on-error: true` for the soak window — they appear as
+# advisory checks in the PR UI but do NOT block merge. After ~1 week
+# of stability the soak flag will be removed (and the workflow can be
+# added to the required-checks list in branch protection — repo-admin
+# action, not a code change).
+#
+# Per-scenario auto-skip on missing binary or missing API key is
+# handled inside the suite by `e2eEnabled()` in `e2e/_helpers.ts`
+# (composes `E2E=1`, `E2E_RUNTIMES`, and a `command -v <bin>` probe).
+# The workflow does NOT duplicate that gating.
+#
+# TODO(cursor): Cursor is a proprietary desktop app with no headless
+# Linux CLI and no documented release-binary URL safe to script. The
+# GitHub-hosted `macos-latest` image does not preinstall `cursor` and
+# adding a stub job would fail with a "binary not found" error on
+# every run. Cursor real-binary verification stays manual via the
+# existing `e2e.yml` workflow_dispatch flow, run from a developer's
+# macOS workstation. Re-evaluate when upstream ships a Linux CLI or a
+# self-hosted macOS runner with `cursor` is available.
+
+name: CI E2E (soak)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  claude:
+    name: E2E claude
+    runs-on: ubuntu-latest
+    continue-on-error: true # soak window — non-blocking until promoted to required
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v5.0.1
+        with:
+          node-version: 20
+
+      - name: Install Claude Code CLI
+        run: npm i -g @anthropic-ai/claude-code
+
+      - name: Run e2e (claude)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          E2E: "1"
+          E2E_RUNTIMES: claude
+        run: deno task e2e:claude
+
+  opencode:
+    name: E2E opencode
+    runs-on: ubuntu-latest
+    continue-on-error: true # soak window — non-blocking until promoted to required
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+
+      - name: Install OpenCode CLI
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+
+      - name: Run e2e (opencode)
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          E2E: "1"
+          E2E_RUNTIMES: opencode
+        run: deno task e2e:opencode
+
+  codex:
+    name: E2E codex
+    runs-on: ubuntu-latest
+    continue-on-error: true # soak window — non-blocking until promoted to required
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v5.0.1
+        with:
+          node-version: 20
+
+      - name: Install Codex CLI
+        run: npm i -g @openai/codex
+
+      - name: Run e2e (codex)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          E2E: "1"
+          E2E_RUNTIMES: codex
+        run: deno task e2e:codex

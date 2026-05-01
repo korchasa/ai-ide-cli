@@ -879,9 +879,22 @@ process-registry empty. The outer hard-ceiling timer is cleared in
 `finally` regardless of failure.
 
 Publish exclusion: `deno.json:publish.exclude` covers both `e2e` and
-`e2e/**` so the suite is absent from the JSR tarball. CI wiring lives
-in `.github/workflows/e2e.yml` (manual `workflow_dispatch` only —
-never triggered by PRs or pushes).
+`e2e/**` so the suite is absent from the JSR tarball. CI wiring:
+
+- `.github/workflows/e2e.yml` — manual `workflow_dispatch`,
+  selectable runtime list. Used for ad-hoc runs and Cursor (the only
+  surface where Cursor verification is practical, run from a macOS
+  workstation that has the proprietary CLI installed).
+- `.github/workflows/ci-e2e.yml` — automatic on PR + push to main.
+  One parallel job per runtime (claude / opencode / codex), each on
+  `ubuntu-latest`. `continue-on-error: true` during the soak window
+  (~1 week) — checks appear as advisory-only in the PR UI and do
+  NOT block merge. Promotion to a required check is a branch-
+  protection change in the repo admin UI, not a code change.
+  Cursor excluded: no headless Linux CLI, no documented release
+  binary safe to script; an enabled stub job would fail with
+  "binary not found" on every run. The TODO comment in
+  `ci-e2e.yml` documents the rationale.
 
 
 ## 4. Data

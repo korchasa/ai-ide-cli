@@ -1487,6 +1487,13 @@ stable — never renumber on move.
         `deno test -A --no-check e2e/` with `E2E=1`. Cursor is
         Linux-headless-unsupported and is expected to skip. Evidence:
         `ai-ide-cli/.github/workflows/e2e.yml`.
+  - [x] `.github/workflows/ci-e2e.yml` triggered on PR + push to
+        main, one parallel job per runtime (claude / opencode /
+        codex), each with `continue-on-error: true` for the soak
+        window — non-blocking advisory checks until promoted to
+        required in branch protection. Cursor excluded (no headless
+        Linux CLI; manual run via `e2e.yml`). Evidence:
+        `ai-ide-cli/.github/workflows/ci-e2e.yml`.
 
 ## 4. Non-Functional Requirements
 

@@ -346,8 +346,15 @@ throws at invocation time with an explicit error.
   real tokens. Guarded by `E2E=1`; narrow to one runtime with
   `deno task e2e:<claude|opencode|cursor|codex>` (sets `E2E_RUNTIMES`).
   Missing binaries surface as ignored tests instead of ENOENT. Not wired
-  into `deno task check` — invoke manually before a release or via the
-  `E2E (real IDE binaries)` workflow-dispatch GitHub Actions job.
+  into `deno task check`. Two CI surfaces:
+  - `.github/workflows/ci-e2e.yml` — runs on every PR + push to main,
+    one parallel job per runtime (claude / opencode / codex).
+    `continue-on-error: true` for the soak window (~1 week);
+    advisory-only until promoted to required in branch protection.
+    Cursor is excluded — no headless Linux CLI; manual run via
+    `e2e.yml` from a macOS workstation.
+  - `.github/workflows/e2e.yml` — manual `workflow_dispatch`,
+    selectable runtime list. Use for ad-hoc runs and Cursor.
 
 Iteration tip: for fast fmt/lint/JSDoc feedback, run the cheap sub-steps
 individually first (`deno fmt --check`, `deno lint .`,
