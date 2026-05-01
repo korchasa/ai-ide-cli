@@ -13,7 +13,12 @@
  * {@link parseClaudeStreamEvent}.
  */
 
-import type { CliRunOutput, PermissionDenial, Verbosity } from "../types.ts";
+import type {
+  CliRunOutput,
+  CliRunUsage,
+  PermissionDenial,
+  Verbosity,
+} from "../types.ts";
 
 // --- Typed event shapes (discriminated union) ---
 
@@ -397,13 +402,47 @@ export function extractClaudeOutput(event: ClaudeResultEvent): CliRunOutput {
     runtime: "claude",
     result: event.result ?? "",
     session_id: event.session_id ?? "",
-    total_cost_usd: event.total_cost_usd ?? 0,
+    total_cost_usd: event.total_cost_usd,
     duration_ms: event.duration_ms ?? 0,
-    duration_api_ms: event.duration_api_ms ?? 0,
+    duration_api_ms: event.duration_api_ms,
     num_turns: event.num_turns ?? 0,
     is_error: event.is_error ?? event.subtype !== "success",
+    usage: extractClaudeUsage(event),
     permission_denials: event.permission_denials,
   };
+}
+
+/**
+ * Project a Claude `result.usage` block onto the runtime-neutral
+ * {@link CliRunUsage} shape. Returns `undefined` when neither tokens nor
+ * cost are present so consumers can branch on field presence honestly.
+ */
+function extractClaudeUsage(event: ClaudeResultEvent): CliRunUsage | undefined {
+  const rawUsage = (event as { usage?: Record<string, unknown> }).usage;
+  const cost = event.total_cost_usd;
+  const inputTokens = pickNumber(rawUsage, "input_tokens");
+  const outputTokens = pickNumber(rawUsage, "output_tokens");
+  // Claude reports prompt-cache hits under `cache_read_input_tokens`; the
+  // creation counter (`cache_creation_input_tokens`) is a different signal
+  // and stays out of the cached-tokens roll-up.
+  const cachedTokens = pickNumber(rawUsage, "cache_read_input_tokens");
+  const usage: CliRunUsage = {};
+  if (inputTokens !== undefined) usage.input_tokens = inputTokens;
+  if (outputTokens !== undefined) usage.output_tokens = outputTokens;
+  if (cachedTokens !== undefined) usage.cached_tokens = cachedTokens;
+  if (cost !== undefined) usage.cost_usd = cost;
+  return Object.keys(usage).length === 0 ? undefined : usage;
+}
+
+function pickNumber(
+  source: Record<string, unknown> | undefined,
+  key: string,
+): number | undefined {
+  if (!source) return undefined;
+  const value = source[key];
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 /** Shorten an absolute path by stripping common workspace prefixes. */
@@ -516,7 +555,7 @@ export function formatEventForOutput(
 export function formatFooter(output: CliRunOutput): string {
   const status = output.is_error ? "error" : "ok";
   const duration = (output.duration_ms / 1000).toFixed(1);
-  const cost = output.total_cost_usd.toFixed(4);
+  const cost = (output.total_cost_usd ?? 0).toFixed(4);
   return `status=${status} duration=${duration}s cost=$${cost} turns=${output.num_turns}`;
 }
 

@@ -495,9 +495,7 @@ async function executeClaudeProcess(
         runtime: "claude",
         result: "Aborted by onToolUseObserved callback",
         session_id: state.lastSessionId ?? state.resultEvent?.session_id ?? "",
-        total_cost_usd: 0,
         duration_ms: 0,
-        duration_api_ms: 0,
         num_turns: state.turnCount,
         is_error: true,
         permission_denials: [

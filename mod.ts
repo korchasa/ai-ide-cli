@@ -13,6 +13,7 @@
 // --- Runtime-neutral types ---
 export type {
   CliRunOutput,
+  CliRunUsage,
   HitlConfig,
   HumanInputOption,
   HumanInputRequest,

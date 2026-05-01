@@ -62,11 +62,39 @@ export interface HumanInputRequest {
 // --- Normalized CLI output ---
 
 /**
+ * Runtime-neutral per-run usage telemetry. All fields are optional because
+ * runtimes report different subsets:
+ *
+ * - Claude: input/output tokens + cost.
+ * - OpenCode: cost (no token counts on the event stream).
+ * - Cursor: input/output/cached tokens (no cost).
+ * - Codex: input/output/cached tokens (no cost).
+ *
+ * Consumers aggregating telemetry should branch on field presence rather
+ * than treat `0` as "no data" — `0` is a real value (free turn). Absence
+ * (`undefined`) means the runtime did not surface the figure.
+ */
+export interface CliRunUsage {
+  /** Sum of input tokens across all turns of the run. */
+  input_tokens?: number;
+  /** Sum of output tokens across all turns of the run. */
+  output_tokens?: number;
+  /** Cached input tokens (prompt-cache hits) summed across turns. */
+  cached_tokens?: number;
+  /** Total cost in USD if the runtime reports it. */
+  cost_usd?: number;
+}
+
+/**
  * Runtime-neutral output shape returned by the library's low-level runners.
  *
- * Both Claude's `stream-json` `result` event and OpenCode's JSONL event
- * stream normalize into this struct so downstream code (engines, loggers,
- * state machines) stays runtime-agnostic.
+ * Each runtime's terminal event normalizes into this struct so downstream
+ * code (engines, loggers, state machines) stays runtime-agnostic.
+ *
+ * `total_cost_usd` and `duration_api_ms` are optional: Cursor and Codex
+ * emit no cost field, only Claude reports server-side latency.
+ * Consumers that need cost / latency must guard against `undefined`. See
+ * {@link CliRunUsage} for richer per-runtime token telemetry.
  */
 export interface CliRunOutput {
   /** Runtime that produced this output. Optional for backward-compatible tests. */
@@ -75,16 +103,26 @@ export interface CliRunOutput {
   result: string;
   /** Session ID for continuation and log correlation. */
   session_id: string;
-  /** Total API cost in USD for this invocation. */
-  total_cost_usd: number;
+  /**
+   * Total API cost in USD for this invocation, when the runtime reports
+   * one. `undefined` means the runtime emits no cost field (Cursor, Codex)
+   * — distinguishable from a real free run (`0`).
+   */
+  total_cost_usd?: number;
   /** Wall-clock duration of the entire CLI run in milliseconds. */
   duration_ms: number;
-  /** Time spent waiting for API responses in milliseconds. */
-  duration_api_ms: number;
+  /**
+   * Time spent waiting for API responses in milliseconds, when the runtime
+   * reports it. Currently only Claude's `result` event surfaces this.
+   * `undefined` for runtimes that do not split server vs. client time.
+   */
+  duration_api_ms?: number;
   /** Number of conversational turns in this session. */
   num_turns: number;
   /** Whether the CLI exited with an error condition. */
   is_error: boolean;
+  /** Per-run token / cost telemetry (see {@link CliRunUsage}). */
+  usage?: CliRunUsage;
   /** Tools the agent tried to use but was denied permission for. */
   permission_denials?: PermissionDenial[];
   /** Runtime-normalized human-input request captured from a structured tool call. */

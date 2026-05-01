@@ -135,6 +135,10 @@ Deno.test("extractOpenCodeOutput — success stream maps to normalized runtime o
   assertEquals(output.total_cost_usd, 0.125);
   assertEquals(output.duration_ms, 700);
   assertEquals(output.is_error, false);
+  // OpenCode reports cost — mirror it on the runtime-neutral usage block.
+  assertEquals(output.usage, { cost_usd: 0.125 });
+  // OpenCode does NOT split server vs. client time — leave undefined.
+  assertEquals(output.duration_api_ms, undefined);
 });
 
 Deno.test("extractOpenCodeOutput — error event maps to is_error output", () => {

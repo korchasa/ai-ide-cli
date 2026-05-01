@@ -114,7 +114,6 @@ Deno.test("extractCursorOutput — error result event maps is_error correctly", 
     subtype: "error",
     result: "Model not found",
     session_id: "chat_err",
-    total_cost_usd: 0,
     duration_ms: 500,
     num_turns: 0,
   });
@@ -122,6 +121,8 @@ Deno.test("extractCursorOutput — error result event maps is_error correctly", 
   assertEquals(output.runtime, "cursor");
   assertEquals(output.result, "Model not found");
   assertEquals(output.is_error, true);
+  // Cursor emits no cost field — must surface as `undefined`, not `0`.
+  assertEquals(output.total_cost_usd, undefined);
 });
 
 Deno.test("extractCursorOutput — missing fields default to safe values", () => {
@@ -130,11 +131,36 @@ Deno.test("extractCursorOutput — missing fields default to safe values", () =>
   assertEquals(output.runtime, "cursor");
   assertEquals(output.result, "");
   assertEquals(output.session_id, "");
-  assertEquals(output.total_cost_usd, 0);
+  // No cost / api duration reported by Cursor → undefined (FR-L2 honest signal).
+  assertEquals(output.total_cost_usd, undefined);
   assertEquals(output.duration_ms, 0);
-  assertEquals(output.duration_api_ms, 0);
+  assertEquals(output.duration_api_ms, undefined);
   assertEquals(output.num_turns, 0);
   assertEquals(output.is_error, false);
+  assertEquals(output.usage, undefined);
+});
+
+Deno.test("extractCursorOutput — populates usage from event.usage token block", () => {
+  const output = extractCursorOutput({
+    type: "result",
+    subtype: "success",
+    result: "ok",
+    session_id: "chat_u",
+    duration_ms: 100,
+    is_error: false,
+    usage: {
+      inputTokens: 200,
+      outputTokens: 80,
+      cacheReadTokens: 50,
+    },
+  });
+
+  assertEquals(output.usage, {
+    input_tokens: 200,
+    output_tokens: 80,
+    cached_tokens: 50,
+  });
+  assertEquals(output.total_cost_usd, undefined);
 });
 
 // --- formatCursorEventForOutput ---

@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file. See [standa
 
 ### ⚠ BREAKING CHANGES
 
+* **types:** `CliRunOutput.total_cost_usd` and `CliRunOutput.duration_api_ms` are now optional (`number | undefined`). Cursor and Codex previously synthesized `total_cost_usd: 0` because the field was required, masking "no cost reported" as a real free run. Both now leave the field `undefined` so cost-aggregating consumers can branch on presence. New optional `CliRunOutput.usage` (typed `CliRunUsage`) carries per-runtime token telemetry (`input_tokens`, `output_tokens`, `cached_tokens`, `cost_usd`) — every adapter populates the subset its native event stream exposes.
 * **runtime:** `RuntimeSession.events` (and the per-runtime `ClaudeSession.events` / `OpenCodeSession.events` / `CursorSession.events`) is now typed `AsyncIterableIterator<…>` (one-shot) instead of `AsyncIterable<…>` (multi-shot). Code that called `Symbol.asyncIterator` on the events twice — or passed `events` to a helper that did — fails at compile time instead of at the existing runtime guard. Existing single-iteration consumers (`for await (const e of session.events) {}` once) are unaffected. The runtime guard in `SessionEventQueue` stays as a belt-and-suspenders fallback.
 
 ### Features

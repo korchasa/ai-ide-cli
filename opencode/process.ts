@@ -338,9 +338,9 @@ export function extractOpenCodeOutput(lines: string[]): CliRunOutput {
     session_id: sessionId,
     total_cost_usd: cost,
     duration_ms: startTs > 0 && endTs >= startTs ? endTs - startTs : 0,
-    duration_api_ms: 0,
     num_turns: steps,
     is_error: isError,
+    usage: { cost_usd: cost },
     hitl_request: hitlRequest,
   };
 }
@@ -784,9 +784,7 @@ async function executeOpenCodeProcess(
         runtime: "opencode",
         result: denial.reason,
         session_id: lastSessionId,
-        total_cost_usd: 0,
         duration_ms: 0,
-        duration_api_ms: 0,
         num_turns: stepCount,
         is_error: true,
         permission_denials: [

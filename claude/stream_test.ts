@@ -4,6 +4,7 @@ import {
   type ClaudeResultEvent,
   type ClaudeStreamEvent,
   type ClaudeSystemEvent,
+  extractClaudeOutput,
   FileReadTracker,
   parseClaudeStreamEvent,
   processStreamEvent,
@@ -261,4 +262,50 @@ Deno.test("processStreamEvent — 'allow' decision is a no-op", async () => {
   );
   assertEquals(state.denied, undefined);
   assertEquals(abortController.signal.aborted, false);
+});
+
+// --- extractClaudeOutput ---
+
+Deno.test("extractClaudeOutput — populates usage from result.usage tokens + cost", () => {
+  const event: ClaudeResultEvent = {
+    type: "result",
+    subtype: "success",
+    result: "ok",
+    session_id: "s1",
+    total_cost_usd: 0.0123,
+    duration_ms: 100,
+    duration_api_ms: 80,
+    num_turns: 1,
+    is_error: false,
+    usage: {
+      input_tokens: 500,
+      output_tokens: 120,
+      cache_read_input_tokens: 64,
+    },
+  };
+  const out = extractClaudeOutput(event);
+  assertEquals(out.runtime, "claude");
+  assertEquals(out.total_cost_usd, 0.0123);
+  assertEquals(out.duration_api_ms, 80);
+  assertEquals(out.usage, {
+    input_tokens: 500,
+    output_tokens: 120,
+    cached_tokens: 64,
+    cost_usd: 0.0123,
+  });
+});
+
+Deno.test("extractClaudeOutput — leaves cost / api duration undefined when result event omits them", () => {
+  const out = extractClaudeOutput({
+    type: "result",
+    subtype: "success",
+    result: "ok",
+    session_id: "s2",
+    duration_ms: 50,
+    num_turns: 0,
+    is_error: false,
+  });
+  assertEquals(out.total_cost_usd, undefined);
+  assertEquals(out.duration_api_ms, undefined);
+  assertEquals(out.usage, undefined);
 });

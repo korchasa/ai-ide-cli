@@ -167,10 +167,18 @@ Deno.test("extractCodexOutput — happy path aggregates thread id, final respons
   assertEquals(output.result, "Done.");
   assertEquals(output.num_turns, 1);
   assertEquals(output.is_error, false);
-  assertEquals(output.total_cost_usd, 0);
+  // Codex has no cost field — must be `undefined`, not `0`.
+  assertEquals(output.total_cost_usd, undefined);
+  assertEquals(output.duration_api_ms, undefined);
   assertEquals(state.inputTokens, 1234);
   assertEquals(state.cachedInputTokens, 128);
   assertEquals(state.outputTokens, 256);
+  // Token counts surface via the usage telemetry block.
+  assertEquals(output.usage, {
+    input_tokens: 1234,
+    output_tokens: 256,
+    cached_tokens: 128,
+  });
 });
 
 Deno.test("extractCodexOutput — last agent_message wins when multiple are emitted", () => {

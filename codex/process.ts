@@ -67,6 +67,7 @@
 
 import type {
   CliRunOutput,
+  CliRunUsage,
   HitlConfig,
   HumanInputRequest,
   Verbosity,
@@ -478,18 +479,41 @@ function formatYmd(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Finalize a {@link CodexRunState} into a normalized {@link CliRunOutput}. */
+/**
+ * Finalize a {@link CodexRunState} into a normalized {@link CliRunOutput}.
+ * Codex emits no cost field; `total_cost_usd` and `duration_api_ms` stay
+ * `undefined` so cost-aggregating consumers can distinguish "not reported"
+ * from a real free run. Token counts surface via {@link CliRunUsage}.
+ */
 export function extractCodexOutput(state: CodexRunState): CliRunOutput {
   return {
     runtime: "codex",
     result: state.errorMessage ?? state.finalResponse,
     session_id: state.threadId,
-    total_cost_usd: 0,
     duration_ms: Math.max(0, Date.now() - state.startMs),
-    duration_api_ms: 0,
     num_turns: state.turnCount,
     is_error: state.errorMessage !== undefined,
+    usage: extractCodexUsage(state),
     hitl_request: state.hitlRequest,
+  };
+}
+
+/**
+ * Project accumulated Codex token counts onto {@link CliRunUsage}.
+ * Returns `undefined` when no turn ever reported usage (e.g. denial
+ * before first `turn.completed`).
+ */
+function extractCodexUsage(state: CodexRunState): CliRunUsage | undefined {
+  if (
+    state.inputTokens === 0 && state.outputTokens === 0 &&
+    state.cachedInputTokens === 0
+  ) {
+    return undefined;
+  }
+  return {
+    input_tokens: state.inputTokens,
+    output_tokens: state.outputTokens,
+    cached_tokens: state.cachedInputTokens,
   };
 }
 
@@ -885,11 +909,10 @@ async function executeCodexProcess(
         runtime: "codex",
         result: state.denied.reason,
         session_id: state.threadId,
-        total_cost_usd: 0,
         duration_ms: Math.max(0, Date.now() - state.startMs),
-        duration_api_ms: 0,
         num_turns: state.turnCount,
         is_error: true,
+        usage: extractCodexUsage(state),
         permission_denials: [
           {
             tool_name: state.denied.tool,

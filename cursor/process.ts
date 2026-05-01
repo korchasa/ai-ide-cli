@@ -7,7 +7,7 @@
  * Entry point: {@link invokeCursorCli}.
  */
 
-import type { CliRunOutput, Verbosity } from "../types.ts";
+import type { CliRunOutput, CliRunUsage, Verbosity } from "../types.ts";
 import type {
   OnRuntimeToolUseObservedCallback,
   RuntimeInvokeOptions,
@@ -108,22 +108,60 @@ export function buildCursorArgs(opts: RuntimeInvokeOptions): string[] {
 
 /**
  * Extract {@link CliRunOutput} fields from a Cursor stream-json result event.
- * Cursor uses the same stream-json format as Claude Code.
+ * Cursor uses the same stream-json format as Claude Code, but does NOT
+ * emit a cost field; `total_cost_usd` stays `undefined` when absent so
+ * cost-aggregating consumers can distinguish "no cost reported" from a
+ * real free run. Token counts surface via {@link CliRunUsage}.
  */
 export function extractCursorOutput(
   // deno-lint-ignore no-explicit-any
   event: Record<string, any>,
 ): CliRunOutput {
+  const usage = extractCursorUsageFromEvent(event);
   return {
     runtime: "cursor",
     result: event.result ?? "",
     session_id: event.session_id ?? "",
-    total_cost_usd: event.total_cost_usd ?? 0,
+    total_cost_usd: typeof event.total_cost_usd === "number"
+      ? event.total_cost_usd
+      : undefined,
     duration_ms: event.duration_ms ?? 0,
-    duration_api_ms: event.duration_api_ms ?? 0,
+    duration_api_ms: typeof event.duration_api_ms === "number"
+      ? event.duration_api_ms
+      : undefined,
     num_turns: event.num_turns ?? 0,
     is_error: event.is_error ?? event.subtype !== "success",
+    usage,
   };
+}
+
+/**
+ * Project a Cursor `result.usage` block onto runtime-neutral
+ * {@link CliRunUsage}. Returns `undefined` if no token data is present.
+ */
+function extractCursorUsageFromEvent(
+  // deno-lint-ignore no-explicit-any
+  event: Record<string, any>,
+): CliRunUsage | undefined {
+  const raw = event.usage;
+  if (!raw || typeof raw !== "object") {
+    if (typeof event.total_cost_usd === "number") {
+      return { cost_usd: event.total_cost_usd };
+    }
+    return undefined;
+  }
+  const usage: CliRunUsage = {};
+  if (typeof raw.inputTokens === "number") usage.input_tokens = raw.inputTokens;
+  if (typeof raw.outputTokens === "number") {
+    usage.output_tokens = raw.outputTokens;
+  }
+  if (typeof raw.cacheReadTokens === "number") {
+    usage.cached_tokens = raw.cacheReadTokens;
+  }
+  if (typeof event.total_cost_usd === "number") {
+    usage.cost_usd = event.total_cost_usd;
+  }
+  return Object.keys(usage).length === 0 ? undefined : usage;
 }
 
 /**
@@ -451,9 +489,7 @@ async function executeCursorProcess(
         runtime: "cursor",
         result: denied.reason,
         session_id: lastSessionId ?? "",
-        total_cost_usd: 0,
         duration_ms: 0,
-        duration_api_ms: 0,
         num_turns: turnCount,
         is_error: true,
         permission_denials: [
