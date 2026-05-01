@@ -952,16 +952,20 @@ stable — never renumber on move.
         Cursor, Codex) exhaustively via `switch` on `event.runtime`.
         Evidence: `ai-ide-cli/runtime/content.ts`.
   - [x] Pure: no I/O, no state, never throws on malformed payloads.
-        Evidence: `ai-ide-cli/runtime/content_test.ts` (`malformed
-        raw never throws` case).
+        Evidence: `ai-ide-cli/runtime/content_dispatch_test.ts`
+        (`malformed raw never throws` case).
   - [x] Synthetic events return `[]`. Evidence:
-        `ai-ide-cli/runtime/content_test.ts`
-        (`synthetic turn-end`, `cursor synthetic init`,
-        `cursor synthetic send_failed` cases).
+        `ai-ide-cli/runtime/content_dispatch_test.ts`
+        (`synthetic turn-end` case);
+        `ai-ide-cli/cursor/content_test.ts`
+        (`cursor synthetic init`, `cursor synthetic send_failed` cases).
   - [x] Unit tests cover each runtime × each content kind, including
         edge cases (empty final, mixed blocks, HITL filter, non-terminal
         OpenCode tool states, Codex item types without ids). Evidence:
-        `ai-ide-cli/runtime/content_test.ts`.
+        `ai-ide-cli/claude/content_test.ts`,
+        `ai-ide-cli/cursor/content_test.ts`,
+        `ai-ide-cli/codex/content_test.ts`,
+        `ai-ide-cli/opencode/content_test.ts`.
   - [x] Contract test asserts the normalized stream on a scripted
         event sequence through the Claude stub adapter. Evidence:
         `ai-ide-cli/runtime/session_contract_test.ts`

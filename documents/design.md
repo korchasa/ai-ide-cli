@@ -32,9 +32,11 @@ ai-ide-cli/
     session-adapter.ts  — adaptRuntimeSession, adaptEventCallback: shared
                           helpers that translate runtime-specific sessions
                           into runtime-neutral RuntimeSession handles
-    content.ts          — extractSessionContent(event), NormalizedContent
-                          union: runtime-neutral content extraction from
-                          RuntimeSessionEvent (FR-L23)
+    content.ts          — extractSessionContent(event) dispatcher +
+                          NormalizedContent union: runtime-neutral content
+                          extraction from RuntimeSessionEvent (FR-L23).
+                          Per-runtime extraction lives in
+                          <runtime>/content.ts.
     tool-filter.ts      — validateToolFilter(runtime, opts): shared typed
                           tool-filter validation used by every adapter
                           (FR-L24)
@@ -51,18 +53,21 @@ ai-ide-cli/
                           formatEventForOutput, stampLines, formatFooter
     session.ts          — openClaudeSession, buildClaudeSessionArgs, ClaudeSession
                           (streaming-input session with piped stdin)
+    content.ts          — extractClaudeContent (per-runtime extractor; FR-L23)
   opencode/
     process.ts          — buildOpenCodeArgs, invokeOpenCodeCli, extractOpenCodeOutput,
                           formatOpenCodeEventForOutput, buildOpenCodeConfigContent
     session.ts          — openOpenCodeSession, OpenCodeSession (streaming-input
                           session backed by `opencode serve` + HTTP + SSE)
     hitl-mcp.ts         — runOpenCodeHitlMcpServer (stdio MCP for HITL tool)
+    content.ts          — extractOpenCodeContent (per-runtime extractor; FR-L23)
   cursor/
     process.ts          — buildCursorArgs, invokeCursorCli, extractCursorOutput,
                           formatCursorEventForOutput
     session.ts          — openCursorSession, createCursorChat,
                           buildCursorSendArgs, CursorSession (faux streaming
                           session: create-chat + resume-per-send)
+    content.ts          — extractCursorContent (per-runtime extractor; FR-L23/FR-L30)
   codex/
     process.ts          — buildCodexArgs, invokeCodexCli, applyCodexEvent,
                           extractCodexOutput, findCodexSessionFile,
@@ -75,6 +80,7 @@ ai-ide-cli/
                           permissionModeToThreadStartFields,
                           expandCodexSessionExtraArgs, updateActiveTurnId
                           (streaming-input session over app-server)
+    content.ts          — extractCodexContent (per-runtime extractor; FR-L23)
   skill/
     types.ts            — SkillDef, SkillFrontmatter (union of all IDE fields)
     parser.ts           — parseSkill(dir) → SkillDef
@@ -261,6 +267,13 @@ embedder.
 - `extractSessionContent(event): NormalizedContent[]` — pure
   dispatcher keyed on `event.runtime`. Synthetic events and
   unrecognized types return `[]`. Never throws on malformed payloads.
+- Per-runtime extractor functions live in `<runtime>/content.ts`
+  (`claude/content.ts:extractClaudeContent`,
+  `cursor/content.ts:extractCursorContent`,
+  `codex/content.ts:extractCodexContent`,
+  `opencode/content.ts:extractOpenCodeContent`). The dispatcher in
+  `runtime/content.ts` is the only allowed `runtime/ → <runtime>/`
+  consumer (mirrors the `runtime/index.ts` adapter aggregation).
 - Per-runtime extractors:
   - **Claude / Cursor** (shared — stream-json): `assistant` event
     fans out `raw.message.content[]` preserving source order
