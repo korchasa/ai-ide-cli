@@ -148,6 +148,7 @@ export {
   buildCursorArgs,
   CURSOR_INTENTIONALLY_OPEN_FLAGS,
   CURSOR_RESERVED_FLAGS,
+  CURSOR_RESERVED_POSITIONALS,
   extractCursorOutput,
   formatCursorEventForOutput,
   invokeCursorCli,
@@ -200,6 +201,7 @@ export {
   buildCodexHitlConfigArgs,
   CODEX_INTENTIONALLY_OPEN_FLAGS,
   CODEX_RESERVED_FLAGS,
+  CODEX_RESERVED_POSITIONALS,
   codexItemToToolUseInfo,
   createCodexRunState,
   defaultCodexSessionsDir,
@@ -261,6 +263,7 @@ export type {
 export {
   CODEX_APP_SERVER_INTENTIONALLY_OPEN_FLAGS,
   CODEX_APP_SERVER_RESERVED_FLAGS,
+  CODEX_APP_SERVER_RESERVED_POSITIONALS,
   CodexAppServerClient,
   CodexAppServerError,
 } from "./codex/app-server.ts";
@@ -334,6 +337,7 @@ export {
   invokeOpenCodeCli,
   OPENCODE_INTENTIONALLY_OPEN_FLAGS,
   OPENCODE_RESERVED_FLAGS,
+  OPENCODE_RESERVED_POSITIONALS,
   openCodeToolUseInfo,
 } from "./opencode/process.ts";
 export type {

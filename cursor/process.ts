@@ -45,13 +45,22 @@ export interface CursorInvokeOptions extends RuntimeInvokeOptions {
  * match these throw synchronously — the adapter emits them itself.
  */
 export const CURSOR_RESERVED_FLAGS: readonly string[] = [
-  "agent",
   "-p",
   "--output-format",
   "--trust",
   "--resume",
   "--model",
   "--yolo",
+];
+
+/**
+ * Informational only — these are positional subcommand names emitted by
+ * {@link buildCursorArgs} (`cursor agent …`), not CLI flags. They cannot
+ * enter via `extraArgs` (which serializes only flags), so they are kept
+ * separate from {@link CURSOR_RESERVED_FLAGS} for documentation.
+ */
+export const CURSOR_RESERVED_POSITIONALS: readonly string[] = [
+  "agent",
 ];
 
 /**

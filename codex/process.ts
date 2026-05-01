@@ -115,11 +115,20 @@ import { join } from "@std/path";
  * these throw synchronously — the adapter emits them itself.
  */
 export const CODEX_RESERVED_FLAGS: readonly string[] = [
-  "exec",
   "--experimental-json",
   "--model",
   "--cd",
   "--sandbox",
+];
+
+/**
+ * Informational only — these are positional subcommand names emitted by
+ * {@link buildCodexArgs} (`exec`, `resume <id>`), not CLI flags. They cannot
+ * enter via `extraArgs` (which serializes only flags), so they are kept
+ * separate from {@link CODEX_RESERVED_FLAGS} for documentation.
+ */
+export const CODEX_RESERVED_POSITIONALS: readonly string[] = [
+  "exec",
   "resume",
 ];
 

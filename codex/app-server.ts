@@ -43,8 +43,18 @@ import type { CodexUntypedNotification } from "./events.ts";
  * match these throw synchronously — the client emits them itself.
  */
 export const CODEX_APP_SERVER_RESERVED_FLAGS: readonly string[] = [
-  "app-server",
   "--listen",
+];
+
+/**
+ * Informational only — these are positional subcommand names emitted by
+ * {@link CodexAppServerClient.spawn} (`codex app-server …`), not CLI
+ * flags. They cannot enter via `extraArgs` (which serializes only flags),
+ * so they are kept separate from {@link CODEX_APP_SERVER_RESERVED_FLAGS}
+ * for documentation.
+ */
+export const CODEX_APP_SERVER_RESERVED_POSITIONALS: readonly string[] = [
+  "app-server",
 ];
 
 /**

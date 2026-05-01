@@ -37,12 +37,21 @@ import {
  * match these throw synchronously — the adapter emits them itself.
  */
 export const OPENCODE_RESERVED_FLAGS: readonly string[] = [
-  "run",
   "--format",
   "--session",
   "--model",
   "--agent",
   "--dangerously-skip-permissions",
+];
+
+/**
+ * Informational only — these are positional subcommand names emitted by
+ * {@link buildOpenCodeArgs} (`run`), not CLI flags. They cannot enter via
+ * `extraArgs` (which serializes only flags), so they are kept separate
+ * from {@link OPENCODE_RESERVED_FLAGS} for documentation.
+ */
+export const OPENCODE_RESERVED_POSITIONALS: readonly string[] = [
+  "run",
 ];
 
 /**
