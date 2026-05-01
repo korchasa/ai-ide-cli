@@ -1206,6 +1206,17 @@ every adapter invokes before dispatch.
 - Legacy `extraArgs: {"--effort": …}` / `{"--variant": …}` without
   the typed field still works — reserved-flag lists are NOT extended.
 
+**Reserved-flag coverage** — every adapter exports two paired
+constants: `<RUNTIME>_RESERVED_FLAGS` (extraArgs key collision throws)
+and `<RUNTIME>_INTENTIONALLY_OPEN_FLAGS` (flags the builder emits but
+which stay legacy-extraArgs-routable on purpose, e.g. `--allowedTools`,
+`--effort`, `--variant`, `--config`). The cross-runtime test
+`runtime/reserved-flag-coverage_test.ts` asserts both directions: every
+emitted flag is reserved-or-open, and every reserved entry shows up in
+some scenario's argv (catches stale reservations after refactors).
+Adding a flag to a builder without updating one of the two lists fails
+the test loudly.
+
 ## 5. Constraints
 
 - **No domain logic:** Library MUST NOT contain git, GitHub, workflow, DAG,

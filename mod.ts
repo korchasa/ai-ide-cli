@@ -113,6 +113,7 @@ export type {
 // --- Claude runner (public entry points only) ---
 export {
   buildClaudeArgs,
+  CLAUDE_INTENTIONALLY_OPEN_FLAGS,
   CLAUDE_RESERVED_FLAGS,
   invokeClaudeCli,
 } from "./claude/process.ts";
@@ -145,6 +146,7 @@ export type {
 // --- Cursor runner ---
 export {
   buildCursorArgs,
+  CURSOR_INTENTIONALLY_OPEN_FLAGS,
   CURSOR_RESERVED_FLAGS,
   extractCursorOutput,
   formatCursorEventForOutput,
@@ -196,6 +198,7 @@ export {
   applyCodexEvent,
   buildCodexArgs,
   buildCodexHitlConfigArgs,
+  CODEX_INTENTIONALLY_OPEN_FLAGS,
   CODEX_RESERVED_FLAGS,
   codexItemToToolUseInfo,
   createCodexRunState,
@@ -256,6 +259,7 @@ export type {
 
 // --- Codex app-server transport + streaming session ---
 export {
+  CODEX_APP_SERVER_INTENTIONALLY_OPEN_FLAGS,
   CODEX_APP_SERVER_RESERVED_FLAGS,
   CodexAppServerClient,
   CodexAppServerError,
@@ -328,6 +332,7 @@ export {
   extractOpenCodeOutput,
   formatOpenCodeEventForOutput,
   invokeOpenCodeCli,
+  OPENCODE_INTENTIONALLY_OPEN_FLAGS,
   OPENCODE_RESERVED_FLAGS,
   openCodeToolUseInfo,
 } from "./opencode/process.ts";

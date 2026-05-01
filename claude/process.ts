@@ -57,6 +57,29 @@ export const CLAUDE_RESERVED_FLAGS: readonly string[] = [
   "--input-format",
 ];
 
+/**
+ * Flags that {@link buildClaudeArgs} / {@link buildClaudeSessionArgs}
+ * may emit but are deliberately **not** in {@link CLAUDE_RESERVED_FLAGS}
+ * — consumers can still set them via the legacy `extraArgs` map for
+ * backward compatibility. Each entry exists for a documented reason.
+ *
+ * Exists to make the contract explicit so the cross-runtime coverage
+ * test (`runtime/reserved-flag-coverage_test.ts`) can assert that every
+ * emitted flag is either reserved or intentionally open — drift between
+ * the builder and the reserved list fails the test loudly.
+ */
+export const CLAUDE_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
+  // FR-L24: typed `allowedTools` is the preferred path, but the legacy
+  // `claudeArgs: { "--allowedTools": "Read,Bash" }` route stays valid so
+  // existing YAML-driven configurations keep working.
+  "--allowedTools",
+  // FR-L24: same back-compat reasoning as `--allowedTools`.
+  "--disallowedTools",
+  // FR-L25: typed `reasoningEffort` is preferred, but legacy
+  // `claudeArgs: { "--effort": "high" }` is still accepted.
+  "--effort",
+];
+
 /** Low-level options for a single claude CLI invocation (initial or resume). */
 export interface ClaudeInvokeOptions {
   /**

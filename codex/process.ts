@@ -124,6 +124,23 @@ export const CODEX_RESERVED_FLAGS: readonly string[] = [
 ];
 
 /**
+ * Flags {@link buildCodexArgs} may emit but are deliberately **not** in
+ * {@link CODEX_RESERVED_FLAGS}. Each entry exists for a documented
+ * reason; see {@link import("../claude/process.ts").CLAUDE_INTENTIONALLY_OPEN_FLAGS}
+ * for the cross-runtime convention.
+ */
+export const CODEX_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
+  // The adapter emits `--config <key=value>` for several purposes
+  // (approval policy via permission mode, MCP server registration via
+  // HITL, FR-L25 reasoning effort). Reserving `--config` would block
+  // legitimate consumer uses of repeatable `--config k=v` overrides
+  // (model_reasoning_effort, web_search, sandbox_workspace_write,
+  // openai_base_url, etc. — see the SDK reference list at the top of
+  // codex/process.ts). Repetition is expected.
+  "--config",
+];
+
+/**
  * Map a runtime-neutral permission mode to Codex argv fragments.
  *
  * Thin serializer over

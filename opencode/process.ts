@@ -45,6 +45,19 @@ export const OPENCODE_RESERVED_FLAGS: readonly string[] = [
   "--dangerously-skip-permissions",
 ];
 
+/**
+ * Flags {@link buildOpenCodeArgs} may emit but are deliberately **not**
+ * in {@link OPENCODE_RESERVED_FLAGS}. Mirrors
+ * {@link import("../claude/process.ts").CLAUDE_INTENTIONALLY_OPEN_FLAGS}
+ * — each entry preserves a legacy `extraArgs` route after a typed
+ * field was added.
+ */
+export const OPENCODE_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
+  // FR-L25: typed `reasoningEffort` is preferred, but legacy
+  // `extraArgs: { "--variant": "high" }` still works.
+  "--variant",
+];
+
 // --- Typed event shapes (discriminated union) ---
 //
 // OpenCode `run --format json` emits one JSON object per line. Each object

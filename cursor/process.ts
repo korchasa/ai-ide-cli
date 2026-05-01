@@ -55,6 +55,15 @@ export const CURSOR_RESERVED_FLAGS: readonly string[] = [
 ];
 
 /**
+ * Flags {@link buildCursorArgs} / {@link buildCursorSendArgs} may emit
+ * but are deliberately **not** in {@link CURSOR_RESERVED_FLAGS}. Empty
+ * today — Cursor has no typed-field/extraArgs back-compat overlap. Kept
+ * exported for symmetry with the other runtimes so the cross-runtime
+ * coverage test can iterate uniformly.
+ */
+export const CURSOR_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [];
+
+/**
  * Build CLI arguments for the `cursor agent` command.
  * Exported for testing.
  *

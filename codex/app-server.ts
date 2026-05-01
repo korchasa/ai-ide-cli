@@ -48,6 +48,23 @@ export const CODEX_APP_SERVER_RESERVED_FLAGS: readonly string[] = [
 ];
 
 /**
+ * Flags emitted into the `codex app-server` argv (either by
+ * {@link CodexAppServerClient.spawn} or by upstream callers like
+ * `openCodexSession`'s reasoning-effort prefix) that are deliberately
+ * **not** reserved. Each entry has a documented reason — mirrors the
+ * pattern used by every other adapter (see
+ * {@link import("../claude/process.ts").CLAUDE_INTENTIONALLY_OPEN_FLAGS}).
+ */
+export const CODEX_APP_SERVER_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
+  // FR-L25: the session prepends `--config model_reasoning_effort="…"`
+  // when the typed `reasoningEffort` field is set, but consumers may
+  // also want to pass repeatable `--config <key=value>` overrides
+  // (approval_policy, web_search, sandbox_workspace_write, openai_base_url,
+  // …). Reserving `--config` would block all of those.
+  "--config",
+];
+
+/**
  * Raw runtime shape of a server-sent notification (no `id`, just `method`
  * + `params`). This is the on-the-wire shape; `method` is arbitrary string
  * since the Codex CLI may emit notifications the library does not narrow
