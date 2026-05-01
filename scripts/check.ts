@@ -65,7 +65,20 @@ if (import.meta.main) {
   // Caveat: `deno doc --lint <entry>` validates only symbols reachable from
   // `<entry>`. Public symbols accessed through other barrels stay invisible —
   // the publish dry-run below is what catches them.
-  await run("deno", ["doc", "--lint", "mod.ts"], "Doc Lint");
+  //
+  // We also lint `runtime/index.ts` separately because it is a sub-path entry
+  // (`./runtime` in deno.json). JSR's publish dry-run does not surface
+  // `private-type-ref` errors per sub-path entry, so a regression there
+  // (a function added to `runtime/index.ts` that references a type not
+  // re-exported from the same file) would only show up to a downstream
+  // consumer that imports from `@korchasa/ai-ide-cli/runtime` — never to
+  // CI.
+  await run("deno", ["doc", "--lint", "mod.ts"], "Doc Lint (mod.ts)");
+  await run(
+    "deno",
+    ["doc", "--lint", "runtime/index.ts"],
+    "Doc Lint (runtime/index.ts)",
+  );
 
   // Publish dry-run — catches JSR slow-types, invalid paths, missing
   // explicit types on public API, and exports pointing at nonexistent

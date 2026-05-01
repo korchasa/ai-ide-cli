@@ -15,6 +15,56 @@ import { opencodeRuntimeAdapter } from "./opencode-adapter.ts";
 // Re-exported here to preserve the long-standing public API surface.
 export { expandExtraArgs } from "./argv.ts";
 
+// Re-export every type that appears in this module's public function
+// signatures (plus everything transitively reachable from those types).
+// Required by JSR slow-types: a sub-path entry must keep the types
+// referenced from its public API reachable from the same entry — otherwise
+// `deno doc --lint runtime/index.ts` (and downstream consumers of
+// `@korchasa/ai-ide-cli/runtime`) fire `private-type-ref`.
+export type {
+  CliRunOutput,
+  CliRunUsage,
+  HitlConfig,
+  HumanInputOption,
+  HumanInputRequest,
+  PermissionDenial,
+  RuntimeId,
+  Verbosity,
+} from "../types.ts";
+export type {
+  ExtraArgsMap,
+  InteractiveOptions,
+  InteractiveResult,
+  OnRuntimeToolUseObservedCallback,
+  ResolvedRuntimeConfig,
+  RuntimeAdapter,
+  RuntimeCapabilities,
+  RuntimeConfigSource,
+  RuntimeInitInfo,
+  RuntimeInvokeOptions,
+  RuntimeInvokeResult,
+  RuntimeLifecycleHooks,
+  RuntimeSession,
+  RuntimeSessionEvent,
+  RuntimeSessionOptions,
+  RuntimeSessionStatus,
+  RuntimeToolUseDecision,
+  RuntimeToolUseInfo,
+} from "./types.ts";
+export type {
+  CapabilityInventory,
+  CapabilityRef,
+  FetchCapabilitiesOptions,
+} from "./capabilities.ts";
+export type { ReasoningEffort } from "./reasoning-effort.ts";
+export type {
+  CallbackErrorSource,
+  OnCallbackError,
+} from "./callback-safety.ts";
+export type { SettingSource } from "./setting-sources.ts";
+export type { ProcessRegistry } from "../process-registry.ts";
+export type { SkillDef, SkillFrontmatter } from "../skill/types.ts";
+
 const ADAPTERS: Record<RuntimeId, RuntimeAdapter> = {
   claude: claudeRuntimeAdapter,
   opencode: opencodeRuntimeAdapter,
