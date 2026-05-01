@@ -5,11 +5,12 @@ import {
   openClaudeSession,
 } from "./session.ts";
 import { SessionInputClosedError } from "../runtime/types.ts";
+import { defaultRegistry } from "../process-registry.ts";
 
 function makeOpts(
   overrides?: Partial<ClaudeSessionOptions>,
 ): ClaudeSessionOptions {
-  return { ...overrides };
+  return { processRegistry: defaultRegistry, ...overrides };
 }
 
 // --- buildClaudeSessionArgs ---
@@ -139,7 +140,7 @@ Deno.test("openClaudeSession — events iterable yields parsed stream-json", asy
 {"type":"result","subtype":"success","result":"ok","session_id":"stub-1","total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"num_turns":0,"is_error":false}
 EOF`,
     async () => {
-      const session = await openClaudeSession({});
+      const session = await openClaudeSession(makeOpts());
       const collected: string[] = [];
       for await (const event of session.events) {
         collected.push(event.type);
@@ -157,7 +158,7 @@ Deno.test("openClaudeSession — send throws SessionInputClosedError after endIn
     // Stay alive until stdin closes.
     `cat > /dev/null`,
     async () => {
-      const session = await openClaudeSession({});
+      const session = await openClaudeSession(makeOpts());
       await session.endInput();
       await assertRejects(() => session.send("late"), SessionInputClosedError);
       await session.done;
@@ -170,7 +171,7 @@ Deno.test("openClaudeSession — abort() kills subprocess and resolves done", as
     // Sleep forever — only SIGTERM can kill us.
     `trap 'exit 143' TERM; while true; do sleep 1; done`,
     async () => {
-      const session = await openClaudeSession({});
+      const session = await openClaudeSession(makeOpts());
       session.abort("test");
       const status = await session.done;
       // Either exitCode=143 (script trap) or signal=SIGTERM (before trap).
@@ -184,7 +185,9 @@ Deno.test("openClaudeSession — external signal triggers SIGTERM", async () => 
     `trap 'exit 143' TERM; while true; do sleep 1; done`,
     async () => {
       const controller = new AbortController();
-      const session = await openClaudeSession({ signal: controller.signal });
+      const session = await openClaudeSession(
+        makeOpts({ signal: controller.signal }),
+      );
       setTimeout(() => controller.abort("external"), 100);
       const status = await session.done;
       assert(status.exitCode === 143 || status.signal === "SIGTERM");
@@ -199,7 +202,7 @@ Deno.test("openClaudeSession — send writes JSONL to stdin in user-message shap
     async (dir) => {
       const capture = `${dir}/stdin.log`;
       const env = { STUB_CAPTURE: capture };
-      const session = await openClaudeSession({ env });
+      const session = await openClaudeSession(makeOpts({ env }));
       await session.send("hello");
       await session.send({
         type: "user",

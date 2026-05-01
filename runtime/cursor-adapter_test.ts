@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import { getRuntimeAdapter } from "./index.ts";
 import {
   _resetReasoningEffortWarning,
@@ -37,6 +38,7 @@ Deno.test("cursorRuntimeAdapter.invoke — malformed tool filter throws synchron
   assertThrows(
     () =>
       cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -54,6 +56,7 @@ Deno.test("cursorRuntimeAdapter.invoke — empty allowedTools array throws synch
   assertThrows(
     () =>
       cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -71,6 +74,7 @@ Deno.test("cursorRuntimeAdapter.openSession — malformed input rejects without 
     await assertRejects(
       () =>
         cursorRuntimeAdapter.openSession!({
+          processRegistry: defaultRegistry,
           allowedTools: ["Read"],
           disallowedTools: ["Bash"],
         }),
@@ -101,6 +105,7 @@ Deno.test("cursorRuntimeAdapter.invoke — reasoningEffort warns once, then sile
     // error we ignore.
     try {
       await cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -112,6 +117,7 @@ Deno.test("cursorRuntimeAdapter.invoke — reasoningEffort warns once, then sile
     }
     try {
       await cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -128,6 +134,7 @@ Deno.test("cursorRuntimeAdapter.invoke — reasoningEffort warns once, then sile
     _resetReasoningEffortWarning();
     try {
       await cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -148,6 +155,7 @@ Deno.test("cursorRuntimeAdapter.invoke — malformed reasoningEffort throws sync
   assertThrows(
     () =>
       cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -166,6 +174,7 @@ Deno.test("cursorRuntimeAdapter.openSession — malformed reasoningEffort reject
     await assertRejects(
       () =>
         cursorRuntimeAdapter.openSession!({
+          processRegistry: defaultRegistry,
           // deno-lint-ignore no-explicit-any
           reasoningEffort: "bogus" as any,
         }),

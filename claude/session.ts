@@ -40,7 +40,7 @@ import {
   prepareSettingSourcesDir,
   type SettingSource,
 } from "../runtime/setting-sources.ts";
-import { type ProcessRegistry } from "../process-registry.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
 import { CLAUDE_RESERVED_FLAGS } from "./process.ts";
 import { type ClaudeStreamEvent, parseClaudeStreamEvent } from "./stream.ts";
 

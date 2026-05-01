@@ -125,16 +125,17 @@ stable — never renumber on move.
         `ai-ide-cli/process-registry_test.ts::ProcessRegistry SIGKILL
         escalation`.
   - [x] All runtime runners route subprocess lifecycle through the
-        registry resolved from `opts.processRegistry ?? defaultRegistry`.
-        Evidence: `ai-ide-cli/claude/process.ts`,
+        caller-supplied registry — no implicit fallback to the default
+        singleton. Evidence: `ai-ide-cli/claude/process.ts`,
         `ai-ide-cli/claude/session.ts`, `ai-ide-cli/opencode/process.ts`,
         `ai-ide-cli/opencode/session.ts`, `ai-ide-cli/cursor/process.ts`,
         `ai-ide-cli/cursor/session.ts`, `ai-ide-cli/codex/process.ts`,
         `ai-ide-cli/codex/app-server.ts`.
-  - [x] `RuntimeInvokeOptions` and `RuntimeSessionOptions` carry an
-        optional `processRegistry` that, when supplied, scopes the
-        spawned subprocess to that registry instead of the default
-        singleton. Test:
+  - [x] `RuntimeInvokeOptions` and `RuntimeSessionOptions` (and every
+        per-runtime invoke/session options type) carry a **required**
+        `processRegistry` field that scopes the spawned subprocess to
+        that registry. Standalone callers pass the module-level
+        `defaultRegistry`; embedders pass per-scope instances. Test:
         `ai-ide-cli/runtime/process-registry-routing_test.ts::processRegistry
         routing — createCursorChat tracks subprocess on supplied registry,
         not default`.

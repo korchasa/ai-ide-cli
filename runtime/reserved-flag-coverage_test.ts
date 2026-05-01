@@ -19,6 +19,7 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import {
   buildClaudeArgs,
   CLAUDE_INTENTIONALLY_OPEN_FLAGS,
@@ -110,6 +111,7 @@ Deno.test("reserved-flag coverage — Claude (one-shot + session)", () => {
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
   });
   // Resume covers --resume, suppresses --agent / --model /
   // --append-system-prompt / --effort.
@@ -121,6 +123,7 @@ Deno.test("reserved-flag coverage — Claude (one-shot + session)", () => {
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
   });
   // Session builder additionally emits --input-format.
   const sessionFresh = buildClaudeSessionArgs({
@@ -130,11 +133,13 @@ Deno.test("reserved-flag coverage — Claude (one-shot + session)", () => {
     permissionMode: "plan",
     allowedTools: ["Read"],
     reasoningEffort: "high",
+    processRegistry: defaultRegistry,
   });
   const sessionResume = buildClaudeSessionArgs({
     resumeSessionId: "sess-1",
     permissionMode: "default",
     disallowedTools: ["Read"],
+    processRegistry: defaultRegistry,
   });
 
   for (
@@ -164,6 +169,7 @@ Deno.test("reserved-flag coverage — OpenCode", () => {
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
   });
   const resume = buildOpenCodeArgs({
     taskPrompt: "task",
@@ -171,6 +177,7 @@ Deno.test("reserved-flag coverage — OpenCode", () => {
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
   });
 
   for (const argv of [fresh, resume]) {
@@ -195,6 +202,7 @@ Deno.test("reserved-flag coverage — Cursor (one-shot + session send)", () => {
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
   });
   const oneShotResume = buildCursorArgs({
     taskPrompt: "task",
@@ -202,6 +210,7 @@ Deno.test("reserved-flag coverage — Cursor (one-shot + session send)", () => {
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
   });
   const sendBypass = buildCursorSendArgs({
     chatId: "chat-1",
@@ -250,6 +259,7 @@ Deno.test("reserved-flag coverage — Codex one-shot", () => {
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
   });
   // Resume run covers `resume <id>` positional.
   const resume = buildCodexArgs({
@@ -258,6 +268,7 @@ Deno.test("reserved-flag coverage — Codex one-shot", () => {
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
   });
 
   for (const argv of [fresh, resume]) {

@@ -16,7 +16,7 @@ import type {
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
-import { type ProcessRegistry } from "../process-registry.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
 import {
   type CursorAssistantEvent,
   type CursorLifecycleHooks,
@@ -224,6 +224,7 @@ export async function invokeCursorCli(
       const output = await executeCursorProcess(
         args,
         opts.timeoutSeconds,
+        opts.processRegistry,
         opts.onOutput,
         opts.streamLogPath,
         opts.verbosity,
@@ -232,7 +233,6 @@ export async function invokeCursorCli(
         opts.onEvent,
         opts.signal,
         opts.hooks,
-        opts.processRegistry,
         opts.onToolUseObserved,
         opts.cursorHooks,
       );
@@ -288,6 +288,7 @@ export async function invokeCursorCli(
 async function executeCursorProcess(
   args: string[],
   timeoutSeconds: number,
+  processRegistry: ProcessRegistry,
   onOutput?: (line: string) => void,
   streamLogPath?: string,
   verbosity?: Verbosity,
@@ -296,7 +297,6 @@ async function executeCursorProcess(
   onEvent?: (event: Record<string, unknown>) => void,
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
-  processRegistry: ProcessRegistry,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   cursorHooks?: CursorLifecycleHooks,
 ): Promise<CliRunOutput> {

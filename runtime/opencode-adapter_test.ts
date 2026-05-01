@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import { getRuntimeAdapter } from "./index.ts";
 import {
   _resetReasoningEffortWarning,
@@ -129,7 +130,9 @@ Deno.test("opencodeRuntimeAdapter — declares session capability", () => {
 
 Deno.test("opencodeRuntimeAdapter.openSession — yields normalized runtime events with raw payload", async () => {
   await withStubOpenCode(async () => {
-    const session = await opencodeRuntimeAdapter.openSession!({});
+    const session = await opencodeRuntimeAdapter.openSession!({
+      processRegistry: defaultRegistry,
+    });
     try {
       assertEquals(session.runtime, "opencode");
       await session.send("hi");
@@ -155,6 +158,7 @@ Deno.test("opencodeRuntimeAdapter.openSession — onEvent receives normalized ev
   await withStubOpenCode(async () => {
     const observed: string[] = [];
     const session = await opencodeRuntimeAdapter.openSession!({
+      processRegistry: defaultRegistry,
       onEvent: (e) => {
         assertEquals(e.runtime, "opencode");
         observed.push(e.type);
@@ -176,7 +180,9 @@ Deno.test("opencodeRuntimeAdapter.openSession — onEvent receives normalized ev
 
 Deno.test("opencodeRuntimeAdapter.openSession — abort returns exit status on done", async () => {
   await withStubOpenCode(async () => {
-    const session = await opencodeRuntimeAdapter.openSession!({});
+    const session = await opencodeRuntimeAdapter.openSession!({
+      processRegistry: defaultRegistry,
+    });
     session.abort("test");
     const status = await session.done;
     assert(status.exitCode !== undefined || status.signal !== null);
@@ -196,6 +202,7 @@ Deno.test("opencodeRuntimeAdapter.invoke — malformed tool filter throws synchr
   assertThrows(
     () =>
       opencodeRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -213,6 +220,7 @@ Deno.test("opencodeRuntimeAdapter.invoke — empty allowedTools array throws syn
   assertThrows(
     () =>
       opencodeRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -229,12 +237,14 @@ Deno.test("opencodeRuntimeAdapter.openSession — warns once, subsequent session
   await withStubOpenCode(async () => {
     await withWarnSpy(async (calls) => {
       const s1 = await opencodeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         allowedTools: ["Read"],
       });
       s1.abort();
       await s1.done;
       assertEquals(calls.length, 1);
       const s2 = await opencodeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         allowedTools: ["Read"],
       });
       s2.abort();
@@ -242,6 +252,7 @@ Deno.test("opencodeRuntimeAdapter.openSession — warns once, subsequent session
       assertEquals(calls.length, 1, "second call must not warn again");
       _resetToolFilterWarning();
       const s3 = await opencodeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         allowedTools: ["Read"],
       });
       s3.abort();
@@ -259,7 +270,9 @@ Deno.test("opencodeRuntimeAdapter.openSession — no warn when typed fields are 
   _resetToolFilterWarning();
   await withStubOpenCode(async () => {
     await withWarnSpy(async (calls) => {
-      const s = await opencodeRuntimeAdapter.openSession!({});
+      const s = await opencodeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       s.abort();
       await s.done;
       assertEquals(calls.length, 0);
@@ -276,6 +289,7 @@ Deno.test("opencodeRuntimeAdapter.openSession — malformed input rejects withou
       await assertRejects(
         () =>
           opencodeRuntimeAdapter.openSession!({
+            processRegistry: defaultRegistry,
             allowedTools: ["Read"],
             disallowedTools: ["Bash"],
           }),
@@ -284,6 +298,7 @@ Deno.test("opencodeRuntimeAdapter.openSession — malformed input rejects withou
       );
       assertEquals(calls.length, 0, "failed validation must not warn");
       const s = await opencodeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         allowedTools: ["Read"],
       });
       s.abort();
@@ -304,11 +319,13 @@ Deno.test("opencodeRuntimeAdapter.openSession — reasoningEffort warns once on 
   await withStubOpenCode(async () => {
     await withWarnSpy(async (calls) => {
       const s1 = await opencodeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         reasoningEffort: "high",
       });
       s1.abort();
       await s1.done;
       const s2 = await opencodeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         reasoningEffort: "low",
       });
       s2.abort();
@@ -320,6 +337,7 @@ Deno.test("opencodeRuntimeAdapter.openSession — reasoningEffort warns once on 
       assert(String(reCalls[0][0]).includes("[opencode]"));
       _resetReasoningEffortWarning();
       const s3 = await opencodeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         reasoningEffort: "medium",
       });
       s3.abort();
@@ -340,6 +358,7 @@ Deno.test("opencodeRuntimeAdapter.openSession — reasoningEffort sets body.vari
     Deno.env.set("STUB_CAPTURE", capture);
     await withStubOpenCode(async () => {
       const session = await opencodeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         reasoningEffort: "high",
       });
       await session.send("hello");

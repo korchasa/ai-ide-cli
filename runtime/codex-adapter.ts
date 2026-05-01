@@ -125,7 +125,7 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
   },
 
   async fetchCapabilitiesSlow(
-    opts?: FetchCapabilitiesOptions,
+    opts: FetchCapabilitiesOptions,
   ): Promise<CapabilityInventory> {
     const schemaPath = await Deno.makeTempFile({
       prefix: "codex-capability-schema-",

@@ -6,6 +6,7 @@ import {
   updateActiveTurnId,
 } from "./session.ts";
 import { SessionInputClosedError } from "../runtime/types.ts";
+import { defaultRegistry } from "../process-registry.ts";
 
 // --- Pure helpers ---
 
@@ -324,7 +325,9 @@ Deno.test({
   sanitizeResources: false, // stub subprocess pipes
   fn: async () => {
     await withStubCodex(async () => {
-      const session = await openCodexSession({});
+      const session = await openCodexSession({
+        processRegistry: defaultRegistry,
+      });
       assertEquals(session.threadId, "thread-abc");
       assertEquals(session.runtime, "codex");
       await session.endInput();
@@ -339,7 +342,9 @@ Deno.test({
   sanitizeResources: false,
   fn: async () => {
     await withStubCodex(async ({ captureFile }) => {
-      const session = await openCodexSession({});
+      const session = await openCodexSession({
+        processRegistry: defaultRegistry,
+      });
       await session.send("first");
 
       // Wait for the stub's turn/started notification to land in events —
@@ -386,7 +391,9 @@ Deno.test({
     // `turn/start` response synchronously, so the second `send` sees a
     // populated `activeTurnId` and routes through `turn/steer`.
     await withStubCodex(async ({ captureFile }) => {
-      const session = await openCodexSession({});
+      const session = await openCodexSession({
+        processRegistry: defaultRegistry,
+      });
       await session.send("first");
       await session.send("second");
       await session.endInput();
@@ -422,7 +429,9 @@ Deno.test({
   sanitizeResources: false,
   fn: async () => {
     await withStubCodex(async () => {
-      const session = await openCodexSession({});
+      const session = await openCodexSession({
+        processRegistry: defaultRegistry,
+      });
       await session.endInput();
       const status = await session.done;
       assertEquals(status.exitCode, 0);
@@ -436,7 +445,9 @@ Deno.test({
   sanitizeResources: false,
   fn: async () => {
     await withStubCodex(async () => {
-      const session = await openCodexSession({});
+      const session = await openCodexSession({
+        processRegistry: defaultRegistry,
+      });
       await session.endInput();
       await assertRejects(
         () => session.send("late"),
@@ -453,7 +464,9 @@ Deno.test({
   sanitizeResources: false,
   fn: async () => {
     await withStubCodex(async () => {
-      const session = await openCodexSession({});
+      const session = await openCodexSession({
+        processRegistry: defaultRegistry,
+      });
       session.abort("test");
       const status = await session.done;
       // The Deno runtime is trapping SIGTERM for the stub → exit 143; if the

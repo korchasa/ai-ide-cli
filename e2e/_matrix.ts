@@ -13,6 +13,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import type { RuntimeId } from "../types.ts";
 import { getRuntimeAdapter } from "../runtime/index.ts";
 import {
@@ -127,7 +128,9 @@ async function finalizeSession(session: RuntimeSession): Promise<void> {
  */
 export async function scenarioSessionIdSync(runtime: RuntimeId): Promise<void> {
   const adapter = sessionAdapter(runtime);
-  const session = await adapter.openSession!({});
+  const session = await adapter.openSession!({
+    processRegistry: defaultRegistry,
+  });
   const cancel = ceiling(
     DEFAULT_CEILING_MS,
     () => session.abort("e2e-ceiling"),
@@ -155,7 +158,9 @@ export async function scenarioSessionIdAfterInit(
 ): Promise<void> {
   assertEquals(runtime, "claude", "sessionId-after-first-event is Claude-only");
   const adapter = sessionAdapter(runtime);
-  const session = await adapter.openSession!({});
+  const session = await adapter.openSession!({
+    processRegistry: defaultRegistry,
+  });
   const cancel = ceiling(
     DEFAULT_CEILING_MS,
     () => session.abort("e2e-ceiling"),
@@ -207,7 +212,9 @@ export async function scenarioSyntheticTurnEnd(
   runtime: RuntimeId,
 ): Promise<void> {
   const adapter = sessionAdapter(runtime);
-  const session = await adapter.openSession!({});
+  const session = await adapter.openSession!({
+    processRegistry: defaultRegistry,
+  });
   const cancel = ceiling(
     runtime === "cursor" ? CURSOR_CEILING_MS : DEFAULT_CEILING_MS,
     () => session.abort("e2e-ceiling"),
@@ -257,7 +264,9 @@ export async function scenarioSendAfterEndInput(
   runtime: RuntimeId,
 ): Promise<void> {
   const adapter = sessionAdapter(runtime);
-  const session = await adapter.openSession!({});
+  const session = await adapter.openSession!({
+    processRegistry: defaultRegistry,
+  });
   const cancel = ceiling(
     DEFAULT_CEILING_MS,
     () => session.abort("e2e-ceiling"),
@@ -291,7 +300,9 @@ export async function scenarioSendAfterAbort(
   runtime: RuntimeId,
 ): Promise<void> {
   const adapter = sessionAdapter(runtime);
-  const session = await adapter.openSession!({});
+  const session = await adapter.openSession!({
+    processRegistry: defaultRegistry,
+  });
   const cancel = ceiling(
     DEFAULT_CEILING_MS,
     () => session.abort("e2e-ceiling"),
@@ -326,7 +337,9 @@ export async function scenarioSendAfterAbort(
  */
 export async function scenarioAbortMidTurn(runtime: RuntimeId): Promise<void> {
   const adapter = sessionAdapter(runtime);
-  const session = await adapter.openSession!({});
+  const session = await adapter.openSession!({
+    processRegistry: defaultRegistry,
+  });
   const runtimeCeiling = runtime === "cursor" ? CURSOR_CEILING_MS : 15_000;
   const cancel = ceiling(runtimeCeiling, () => session.abort("e2e-ceiling"));
   try {
@@ -366,7 +379,9 @@ export async function scenarioAbortMidTurn(runtime: RuntimeId): Promise<void> {
  */
 export async function scenarioTwoTurns(runtime: RuntimeId): Promise<void> {
   const adapter = sessionAdapter(runtime);
-  const session = await adapter.openSession!({});
+  const session = await adapter.openSession!({
+    processRegistry: defaultRegistry,
+  });
   const runtimeCeiling = runtime === "cursor"
     ? CURSOR_CEILING_MS
     : DEFAULT_CEILING_MS;
@@ -431,7 +446,9 @@ export async function scenarioContentNormalization(
   runtime: RuntimeId,
 ): Promise<void> {
   const adapter = sessionAdapter(runtime);
-  const session = await adapter.openSession!({});
+  const session = await adapter.openSession!({
+    processRegistry: defaultRegistry,
+  });
   const runtimeCeiling = runtime === "cursor"
     ? CURSOR_CEILING_MS
     : DEFAULT_CEILING_MS;
@@ -511,7 +528,9 @@ export async function scenarioCodexTypedNotifications(
     throw new Error("scenarioCodexTypedNotifications is codex-only");
   }
   const adapter = sessionAdapter(runtime);
-  const session = await adapter.openSession!({});
+  const session = await adapter.openSession!({
+    processRegistry: defaultRegistry,
+  });
   const cancel = ceiling(
     DEFAULT_CEILING_MS,
     () => session.abort("e2e-ceiling"),

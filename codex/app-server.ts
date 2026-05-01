@@ -35,7 +35,7 @@
  * Entry point: {@link CodexAppServerClient}.
  */
 
-import { type ProcessRegistry } from "../process-registry.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
 import type { CodexUntypedNotification } from "./events.ts";
 
 /**
@@ -282,7 +282,7 @@ export class CodexAppServerClient {
    * process registry} so SIGINT shutdown reaps it automatically.
    */
   static spawn(
-    opts: CodexAppServerClientOptions = {},
+    opts: CodexAppServerClientOptions,
   ): CodexAppServerClient {
     const extra = opts.extraArgs ?? [];
     for (const reserved of CODEX_APP_SERVER_RESERVED_FLAGS) {

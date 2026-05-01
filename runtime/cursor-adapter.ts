@@ -124,7 +124,7 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
   },
 
   fetchCapabilitiesSlow(
-    opts?: FetchCapabilitiesOptions,
+    opts: FetchCapabilitiesOptions,
   ): Promise<CapabilityInventory> {
     return fetchInventoryViaInvoke(
       "cursor",

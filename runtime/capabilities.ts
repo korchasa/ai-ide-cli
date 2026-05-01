@@ -12,6 +12,7 @@
  * runtimes that support structured-output constraints (Claude, Codex).
  */
 
+import type { ProcessRegistry } from "../process-registry.ts";
 import type { RuntimeId } from "../types.ts";
 import type { ExtraArgsMap, RuntimeInvokeResult } from "./types.ts";
 
@@ -44,6 +45,13 @@ export interface CapabilityInventory {
 
 /** Options for {@link RuntimeAdapter.fetchCapabilitiesSlow}. */
 export interface FetchCapabilitiesOptions {
+  /**
+   * Process registry tracking spawned subprocesses for graceful shutdown.
+   * Standalone callers pass the module-level `defaultRegistry`; embedders
+   * hosting multiple runtimes use a per-scope `ProcessRegistry` so
+   * `killAll()` is bounded.
+   */
+  processRegistry: ProcessRegistry;
   /** Working directory in which to run the IDE CLI. */
   cwd?: string;
   /** External cancellation signal. */
@@ -198,21 +206,23 @@ export async function fetchInventoryViaInvoke(
     cwd?: string;
     env?: Record<string, string>;
     model?: string;
+    processRegistry: ProcessRegistry;
   }) => Promise<RuntimeInvokeResult>,
-  opts: FetchCapabilitiesOptions | undefined,
+  opts: FetchCapabilitiesOptions,
   extraArgs?: ExtraArgsMap,
 ): Promise<CapabilityInventory> {
   const result = await invoke({
     systemPrompt: CAPABILITY_INVENTORY_SYSTEM_PROMPT,
     taskPrompt: CAPABILITY_INVENTORY_PROMPT,
     extraArgs,
-    timeoutSeconds: opts?.timeoutSeconds ?? 120,
+    timeoutSeconds: opts.timeoutSeconds ?? 120,
     maxRetries: 0,
     retryDelaySeconds: 0,
-    signal: opts?.signal,
-    cwd: opts?.cwd,
-    env: opts?.env,
-    model: opts?.model,
+    signal: opts.signal,
+    cwd: opts.cwd,
+    env: opts.env,
+    model: opts.model,
+    processRegistry: opts.processRegistry,
   });
 
   if (result.error) {

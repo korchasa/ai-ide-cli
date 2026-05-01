@@ -18,6 +18,7 @@
  */
 
 import { assert } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import { invokeCursorCli } from "../cursor/process.ts";
 import {
   parseCursorStreamEvent,
@@ -49,6 +50,7 @@ Deno.test({
       const observed: RuntimeToolUseInfo[] = [];
 
       const result = await invokeCursorCli({
+        processRegistry: defaultRegistry,
         taskPrompt:
           "Read the file hello.txt in the current directory and reply with exactly the word inside it.",
         timeoutSeconds: 60,

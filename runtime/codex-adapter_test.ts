@@ -1,4 +1,5 @@
 import { assertEquals, assertThrows } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import { getRuntimeAdapter } from "./index.ts";
 import { _resetToolFilterWarning } from "./codex-adapter.ts";
 
@@ -15,6 +16,7 @@ Deno.test("codexRuntimeAdapter.invoke — malformed tool filter throws synchrono
   assertThrows(
     () =>
       codexRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -32,6 +34,7 @@ Deno.test("codexRuntimeAdapter.invoke — empty allowedTools array throws synchr
   assertThrows(
     () =>
       codexRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
         taskPrompt: "ignored",
         timeoutSeconds: 1,
         maxRetries: 1,
@@ -50,6 +53,7 @@ Deno.test("codexRuntimeAdapter.openSession — malformed input throws synchronou
   assertThrows(
     () =>
       codexRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         allowedTools: ["Read"],
         disallowedTools: ["Bash"],
       }),

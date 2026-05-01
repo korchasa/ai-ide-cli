@@ -12,6 +12,7 @@
  */
 
 import { assert, assertEquals, assertRejects } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import { getRuntimeAdapter } from "./index.ts";
 import {
   type RuntimeSession,
@@ -77,7 +78,9 @@ Deno.test("RuntimeSession contract — runtime field matches adapter id", async 
 {"type":"result","subtype":"success","result":"ok","is_error":false}
 EOF`,
     async () => {
-      const session = await claudeAdapter.openSession!({});
+      const session = await claudeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       try {
         assertEquals(session.runtime, "claude");
       } finally {
@@ -92,7 +95,9 @@ Deno.test("RuntimeSession contract — send after endInput throws SessionInputCl
   await withStubClaude(
     `cat > /dev/null`,
     async () => {
-      const session = await claudeAdapter.openSession!({});
+      const session = await claudeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       await session.endInput();
       const err = await assertRejects(
         () => session.send("late"),
@@ -111,7 +116,9 @@ Deno.test("RuntimeSession contract — send after abort throws SessionAbortedErr
   await withStubClaude(
     `trap 'exit 143' TERM; while true; do sleep 1; done`,
     async () => {
-      const session = await claudeAdapter.openSession!({});
+      const session = await claudeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       session.abort("test");
       const err = await assertRejects(
         () => session.send("after-abort"),
@@ -128,7 +135,9 @@ Deno.test("RuntimeSession contract — abort is idempotent", async () => {
   await withStubClaude(
     `trap 'exit 143' TERM; while true; do sleep 1; done`,
     async () => {
-      const session = await claudeAdapter.openSession!({});
+      const session = await claudeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       session.abort("first");
       session.abort("second");
       session.abort("third");
@@ -145,7 +154,9 @@ Deno.test("RuntimeSession contract — events iterable is single-consumer", asyn
 {"type":"result","subtype":"success","result":"ok","is_error":false}
 EOF`,
     async () => {
-      const session = await claudeAdapter.openSession!({});
+      const session = await claudeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       try {
         for await (const _event of session.events) {
           // drain
@@ -173,7 +184,9 @@ Deno.test("RuntimeSession contract — done resolves after abort", async () => {
   await withStubClaude(
     `trap 'exit 143' TERM; while true; do sleep 1; done`,
     async () => {
-      const session = await claudeAdapter.openSession!({});
+      const session = await claudeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       session.abort();
       const status = await session.done;
       assert(typeof status.exitCode === "number" || status.exitCode === null);
@@ -229,7 +242,9 @@ Deno.test("RuntimeSession contract — synthetic turn-end is emitted after nativ
 {"type":"result","subtype":"success","result":"ok","is_error":false,"session_id":"s1"}
 EOF`,
     async () => {
-      const session = await claudeAdapter.openSession!({});
+      const session = await claudeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       try {
         const collected: RuntimeSessionEvent[] = [];
         for await (const ev of session.events) {
@@ -281,7 +296,9 @@ Deno.test("RuntimeSession contract — extractSessionContent surfaces normalized
 {"type":"result","subtype":"success","result":"Done reading.","is_error":false,"session_id":"s1"}
 EOF`,
     async () => {
-      const session = await claudeAdapter.openSession!({});
+      const session = await claudeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       try {
         const collected: RuntimeSessionEvent[] = [];
         for await (const ev of session.events) {
@@ -323,7 +340,9 @@ Deno.test("RuntimeSession contract — sessionId is populated after first event 
 {"type":"result","subtype":"success","result":"","is_error":false,"session_id":"abc-123"}
 EOF`,
     async () => {
-      const session = await claudeAdapter.openSession!({});
+      const session = await claudeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       try {
         for await (const _ of session.events) {
           // drain — session.sessionId is populated in-place by the

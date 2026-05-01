@@ -125,7 +125,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   },
 
   fetchCapabilitiesSlow(
-    opts?: FetchCapabilitiesOptions,
+    opts: FetchCapabilitiesOptions,
   ): Promise<CapabilityInventory> {
     return fetchInventoryViaInvoke(
       "opencode",

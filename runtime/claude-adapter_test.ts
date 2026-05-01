@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import { getRuntimeAdapter } from "./index.ts";
 
 const claudeRuntimeAdapter = getRuntimeAdapter("claude");
@@ -38,7 +39,9 @@ Deno.test("claudeRuntimeAdapter.openSession — yields normalized session events
 {"type":"result","subtype":"success","result":"ok","session_id":"stub-1","total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"num_turns":0,"is_error":false}
 EOF`,
     async () => {
-      const session = await claudeRuntimeAdapter.openSession!({});
+      const session = await claudeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       assertEquals(session.runtime, "claude");
       const events = [];
       for await (const event of session.events) {
@@ -68,6 +71,7 @@ EOF`,
     async () => {
       const events: { type: string; synthetic?: boolean }[] = [];
       const session = await claudeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         onEvent: (e) => {
           assertEquals(e.runtime, "claude");
           events.push({ type: e.type, synthetic: e.synthetic });
@@ -93,6 +97,7 @@ Deno.test("claudeRuntimeAdapter.openSession — send forwards user message to su
     async (dir) => {
       const capture = `${dir}/stdin.log`;
       const session = await claudeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
         env: { STUB_CAPTURE: capture },
       });
       await session.send("hello");
@@ -112,7 +117,9 @@ Deno.test("claudeRuntimeAdapter.openSession — abort returns exit status on don
   await withStubClaude(
     `trap 'exit 143' TERM; while true; do sleep 1; done`,
     async () => {
-      const session = await claudeRuntimeAdapter.openSession!({});
+      const session = await claudeRuntimeAdapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       session.abort("test");
       const status = await session.done;
       assert(status.exitCode === 143 || status.signal === "SIGTERM");

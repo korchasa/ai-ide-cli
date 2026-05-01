@@ -17,7 +17,7 @@
  * Entry point: {@link openOpenCodeSession}.
  */
 
-import { type ProcessRegistry } from "../process-registry.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   SessionAbortedError,

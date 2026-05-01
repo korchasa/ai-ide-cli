@@ -6,6 +6,7 @@ import {
   openCursorSession,
 } from "./session.ts";
 import { SessionDeliveryError } from "../runtime/types.ts";
+import { defaultRegistry } from "../process-registry.ts";
 
 // --- buildCursorSendArgs ---
 
@@ -127,7 +128,7 @@ exit 99
 function makeOpts(
   overrides?: Partial<CursorSessionOptions>,
 ): CursorSessionOptions {
-  return { ...overrides };
+  return { processRegistry: defaultRegistry, ...overrides };
 }
 
 // --- createCursorChat ---
@@ -136,6 +137,7 @@ Deno.test("createCursorChat — returns trimmed chat ID from stdout", async () =
   await withStubCursor(async () => {
     Deno.env.set("STUB_CHAT_ID", "chat-xyz-789");
     const id = await createCursorChat({
+      processRegistry: defaultRegistry,
       env: { STUB_CHAT_ID: "chat-xyz-789" },
     });
     assertEquals(id, "chat-xyz-789");
@@ -158,7 +160,7 @@ exit 7
   Deno.env.set("PATH", `${dir}:${prevPath}`);
   try {
     await assertRejects(
-      () => createCursorChat({}),
+      () => createCursorChat({ processRegistry: defaultRegistry }),
       Error,
       "create-chat exited with code 7",
     );

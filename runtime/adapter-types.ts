@@ -283,7 +283,7 @@ export interface RuntimeAdapter {
    * the expected shape.
    */
   fetchCapabilitiesSlow?(
-    opts?: FetchCapabilitiesOptions,
+    opts: FetchCapabilitiesOptions,
   ): Promise<CapabilityInventory>;
 }
 

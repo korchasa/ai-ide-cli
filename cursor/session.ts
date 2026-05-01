@@ -49,7 +49,7 @@ import {
 } from "../runtime/callback-safety.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
-import { type ProcessRegistry } from "../process-registry.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
 import { CURSOR_RESERVED_FLAGS } from "./process.ts";
 
 /** Options for {@link openCursorSession}. */
@@ -233,7 +233,7 @@ export interface CreateCursorChatOptions {
  * pass to {@link invokeCursorCli} via `resumeSessionId`).
  */
 export async function createCursorChat(
-  opts: CreateCursorChatOptions = {},
+  opts: CreateCursorChatOptions,
 ): Promise<string> {
   const timeoutMs = (opts.timeoutSeconds ?? 30) * 1000;
   const cmd = new Deno.Command("cursor", {
@@ -305,7 +305,7 @@ export function buildCursorSendArgs(opts: {
  * create-chat + resume-per-send emulation strategy.
  */
 export async function openCursorSession(
-  opts: CursorSessionOptions = {},
+  opts: CursorSessionOptions,
 ): Promise<CursorSession> {
   const registry = opts.processRegistry;
   const chatId = opts.resumeSessionId ??

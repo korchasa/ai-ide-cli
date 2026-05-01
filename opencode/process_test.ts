@@ -1,4 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import {
   buildOpenCodeArgs,
   buildOpenCodeConfigContent,
@@ -19,6 +20,7 @@ function makeInvokeOpts(
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
     ...overrides,
   };
 }

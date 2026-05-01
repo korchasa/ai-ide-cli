@@ -16,6 +16,7 @@
  */
 
 import { invokeClaudeCli } from "../claude/process.ts";
+import { defaultRegistry } from "../process-registry.ts";
 import { openClaudeSession } from "../claude/session.ts";
 import { invokeCursorCli } from "../cursor/process.ts";
 import { getRuntimeAdapter } from "../runtime/index.ts";
@@ -51,6 +52,7 @@ scenario(
     const controller = new AbortController();
     controller.abort("manual");
     const res = await invokeClaudeCli({
+      processRegistry: defaultRegistry,
       taskPrompt: "say hello",
       timeoutSeconds: 30,
       maxRetries: 1,
@@ -71,6 +73,7 @@ scenario(
     const abortTimer = setTimeout(() => controller.abort("smoke-test"), 800);
     const start = Date.now();
     const res = await invokeClaudeCli({
+      processRegistry: defaultRegistry,
       taskPrompt: "Count from 1 to 1000 slowly, one number per line.",
       timeoutSeconds: 30,
       maxRetries: 1,
@@ -95,6 +98,7 @@ scenario(
   async () => {
     const start = Date.now();
     const res = await invokeClaudeCli({
+      processRegistry: defaultRegistry,
       taskPrompt: "Count from 1 to 1000 slowly, one number per line.",
       timeoutSeconds: 2,
       maxRetries: 1,
@@ -121,6 +125,7 @@ scenario(
     // End-to-end check: we just confirm the run completes without stalling
     // or crashing when Claude is pointed at an empty config dir.
     const res = await invokeClaudeCli({
+      processRegistry: defaultRegistry,
       taskPrompt: "Reply with the single word: ok",
       timeoutSeconds: 30,
       maxRetries: 1,
@@ -142,7 +147,9 @@ scenario(
   "session",
   "two user messages in one live session produce two turns",
   async () => {
-    const session = await openClaudeSession({});
+    const session = await openClaudeSession({
+      processRegistry: defaultRegistry,
+    });
     const events: string[] = [];
     const turns: string[] = [];
 
@@ -194,7 +201,9 @@ scenario(
   "session",
   "abort mid-session terminates the subprocess",
   async () => {
-    const session = await openClaudeSession({});
+    const session = await openClaudeSession({
+      processRegistry: defaultRegistry,
+    });
     await session.send("Count slowly from 1 to 1000, one per line.");
     setTimeout(() => session.abort("smoke-test"), 600);
     const start = Date.now();
@@ -215,7 +224,9 @@ scenario(
   "synthetic turn-end fires once per turn and carries native result in raw",
   async () => {
     const adapter = getRuntimeAdapter("claude");
-    const session = await adapter.openSession!({});
+    const session = await adapter.openSession!({
+      processRegistry: defaultRegistry,
+    });
     let turnEndCount = 0;
     let lastTurnEndRawType: unknown = undefined;
     let syntheticFlagSeen = false;
@@ -261,7 +272,9 @@ scenario(
   "sessionId populated after first init event on real Claude",
   async () => {
     const adapter = getRuntimeAdapter("claude");
-    const session = await adapter.openSession!({});
+    const session = await adapter.openSession!({
+      processRegistry: defaultRegistry,
+    });
     // Right after openSession() resolves, Claude's sessionId is still "" —
     // the CLI has not yet emitted system/init.
     const initial = session.sessionId;
@@ -308,7 +321,9 @@ scenario(
   "send after endInput throws SessionInputClosedError (real Claude)",
   async () => {
     const adapter = getRuntimeAdapter("claude");
-    const session = await adapter.openSession!({});
+    const session = await adapter.openSession!({
+      processRegistry: defaultRegistry,
+    });
     await session.endInput();
     let caught: unknown;
     try {
@@ -331,7 +346,9 @@ scenario(
   "send after abort throws SessionAbortedError (real Claude)",
   async () => {
     const adapter = getRuntimeAdapter("claude");
-    const session = await adapter.openSession!({});
+    const session = await adapter.openSession!({
+      processRegistry: defaultRegistry,
+    });
     session.abort("smoke-test");
     let caught: unknown;
     try {
@@ -396,7 +413,9 @@ for (const spec of nonClaudeMatrix) {
     `${spec.runtime}: sessionId populated synchronously at open`,
     async () => {
       const adapter = getRuntimeAdapter(spec.runtime);
-      const session = await adapter.openSession!({});
+      const session = await adapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       const captured = session.sessionId;
       session.abort("smoke-test");
       await session.done;
@@ -414,7 +433,9 @@ for (const spec of nonClaudeMatrix) {
     `${spec.runtime}: synthetic turn-end fires once per turn with native raw`,
     async () => {
       const adapter = getRuntimeAdapter(spec.runtime);
-      const session = await adapter.openSession!({});
+      const session = await adapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       let turnEndCount = 0;
       let lastRawType: unknown = undefined;
       let syntheticFlagSeen = false;
@@ -481,7 +502,9 @@ for (const spec of nonClaudeMatrix) {
     `${spec.runtime}: send after endInput throws SessionInputClosedError`,
     async () => {
       const adapter = getRuntimeAdapter(spec.runtime);
-      const session = await adapter.openSession!({});
+      const session = await adapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       await session.endInput();
       let caught: unknown;
       try {
@@ -509,7 +532,9 @@ for (const spec of nonClaudeMatrix) {
     `${spec.runtime}: send after abort throws SessionAbortedError`,
     async () => {
       const adapter = getRuntimeAdapter(spec.runtime);
-      const session = await adapter.openSession!({});
+      const session = await adapter.openSession!({
+        processRegistry: defaultRegistry,
+      });
       session.abort("smoke-test");
       let caught: unknown;
       try {
@@ -546,6 +571,7 @@ scenario(
 
     try {
       const res = await invokeCursorCli({
+        processRegistry: defaultRegistry,
         taskPrompt:
           "Read package.json from the current directory, then grep the codebase for the word 'TODO'. Reply with a one-sentence summary of what you found. Do not modify any files.",
         timeoutSeconds: 90,

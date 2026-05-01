@@ -23,7 +23,7 @@
  */
 
 import type { CliRunOutput, Verbosity } from "../types.ts";
-import { type ProcessRegistry } from "../process-registry.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
 import type {
   OnRuntimeToolUseObservedCallback,
   RuntimeInvokeOptions,
@@ -94,6 +94,7 @@ export async function invokeOpenCodeCli(
       const output = await executeOpenCodeProcess(
         args,
         opts.timeoutSeconds,
+        opts.processRegistry,
         opts.onOutput,
         opts.streamLogPath,
         opts.verbosity,
@@ -104,7 +105,6 @@ export async function invokeOpenCodeCli(
         opts.signal,
         opts.hooks,
         opts.onToolUseObserved,
-        opts.processRegistry,
         opts.onCallbackError,
       );
       if (output.is_error) {
@@ -153,6 +153,7 @@ export async function invokeOpenCodeCli(
 async function executeOpenCodeProcess(
   args: string[],
   timeoutSeconds: number,
+  processRegistry: ProcessRegistry,
   onOutput?: (line: string) => void,
   streamLogPath?: string,
   verbosity?: Verbosity,
@@ -163,7 +164,6 @@ async function executeOpenCodeProcess(
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
-  processRegistry: ProcessRegistry,
   onCallbackError?: OnCallbackError,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };

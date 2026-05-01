@@ -18,6 +18,7 @@ import {
   CODEX_HITL_MCP_TOOL_NAME,
 } from "./hitl-mcp.ts";
 import type { RuntimeInvokeOptions } from "../runtime/types.ts";
+import { defaultRegistry } from "../process-registry.ts";
 import { join } from "@std/path";
 
 function makeInvokeOpts(
@@ -28,6 +29,7 @@ function makeInvokeOpts(
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
     ...overrides,
   };
 }

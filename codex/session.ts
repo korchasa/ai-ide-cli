@@ -162,7 +162,7 @@ export async function openCodexSession(
   opts: RuntimeSessionOptions & {
     /** Override the `codex` binary path (used in tests). */
     binary?: string;
-  } = {},
+  },
 ): Promise<CodexSession> {
   const extraArgv = expandCodexSessionExtraArgs(opts.extraArgs);
   // FR-L25: abstract reasoning effort → Codex app-server --config override,

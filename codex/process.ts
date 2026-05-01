@@ -66,7 +66,7 @@ import {
   type OnCallbackError,
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
-import { type ProcessRegistry } from "../process-registry.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
 import {
   type CodexExecEvent,
   type CodexExecItemCompletedEvent,
@@ -125,6 +125,7 @@ export async function invokeCodexCli(
         args,
         mergedTaskPrompt,
         opts.timeoutSeconds,
+        opts.processRegistry,
         opts.onOutput,
         opts.streamLogPath,
         opts.verbosity,
@@ -134,7 +135,6 @@ export async function invokeCodexCli(
         opts.signal,
         opts.hooks,
         opts.onToolUseObserved,
-        opts.processRegistry,
         opts.onCallbackError,
       );
       // HITL request: surface output, do not retry.
@@ -193,6 +193,7 @@ async function executeCodexProcess(
   args: string[],
   prompt: string,
   timeoutSeconds: number,
+  processRegistry: ProcessRegistry,
   onOutput?: (line: string) => void,
   streamLogPath?: string,
   verbosity?: Verbosity,
@@ -202,7 +203,6 @@ async function executeCodexProcess(
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
-  processRegistry: ProcessRegistry,
   onCallbackError?: OnCallbackError,
 ): Promise<CliRunOutput> {
   const cmd = new Deno.Command("codex", {

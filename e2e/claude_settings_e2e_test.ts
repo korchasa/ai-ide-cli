@@ -6,6 +6,7 @@
  */
 
 import { assert } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import { invokeClaudeCli } from "../claude/process.ts";
 import { e2eEnabled, ONE_WORD_OK } from "./_helpers.ts";
 
@@ -23,6 +24,7 @@ Deno.test({
     // a hang (timeout) is not.
     const start = Date.now();
     const res = await invokeClaudeCli({
+      processRegistry: defaultRegistry,
       taskPrompt: ONE_WORD_OK,
       timeoutSeconds: 30,
       maxRetries: 1,

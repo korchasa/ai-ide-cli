@@ -6,6 +6,7 @@
  */
 
 import { assert } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import { invokeClaudeCli } from "../claude/process.ts";
 import { e2eEnabled, LONG_COUNT_PROMPT } from "./_helpers.ts";
 
@@ -18,6 +19,7 @@ Deno.test({
     const controller = new AbortController();
     controller.abort("e2e-pre-abort");
     const res = await invokeClaudeCli({
+      processRegistry: defaultRegistry,
       taskPrompt: "say hello",
       timeoutSeconds: 30,
       maxRetries: 1,
@@ -40,6 +42,7 @@ Deno.test({
     const abortTimer = setTimeout(() => controller.abort("e2e-mid"), 800);
     const start = Date.now();
     const res = await invokeClaudeCli({
+      processRegistry: defaultRegistry,
       taskPrompt: LONG_COUNT_PROMPT,
       timeoutSeconds: 30,
       maxRetries: 1,
@@ -64,6 +67,7 @@ Deno.test({
   fn: async () => {
     const start = Date.now();
     const res = await invokeClaudeCli({
+      processRegistry: defaultRegistry,
       taskPrompt: LONG_COUNT_PROMPT,
       timeoutSeconds: 2,
       maxRetries: 1,

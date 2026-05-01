@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
+import { defaultRegistry } from "../process-registry.ts";
 import {
   extractOpenCodeSessionId,
   type OpenCodeSessionEvent,
@@ -192,7 +193,9 @@ exec "${denoPath}" run --allow-net --allow-read --allow-write --allow-env "${stu
 
 Deno.test("openOpenCodeSession — creates session and streams events", async () => {
   await withStubOpenCode(async () => {
-    const session = await openOpenCodeSession({});
+    const session = await openOpenCodeSession({
+      processRegistry: defaultRegistry,
+    });
     try {
       assertEquals(session.sessionId, "ses_stub");
       assert(session.baseUrl.startsWith("http://127.0.0.1:"));
@@ -217,6 +220,7 @@ Deno.test("openOpenCodeSession — send POSTs prompt body to prompt_async", asyn
   await withStubOpenCode(async (dir) => {
     const capture = `${dir}/stdin.log`;
     const session = await openOpenCodeSession({
+      processRegistry: defaultRegistry,
       env: { STUB_CAPTURE: capture },
       agent: "build",
       model: "zai-coding-plan/glm-5",
@@ -248,7 +252,9 @@ Deno.test("openOpenCodeSession — send POSTs prompt body to prompt_async", asyn
 
 Deno.test("openOpenCodeSession — send throws after endInput", async () => {
   await withStubOpenCode(async () => {
-    const session = await openOpenCodeSession({});
+    const session = await openOpenCodeSession({
+      processRegistry: defaultRegistry,
+    });
     await session.endInput();
     await assertRejects(
       () => session.send("late"),
@@ -261,7 +267,9 @@ Deno.test("openOpenCodeSession — send throws after endInput", async () => {
 
 Deno.test("openOpenCodeSession — abort() tears the server down and resolves done", async () => {
   await withStubOpenCode(async () => {
-    const session = await openOpenCodeSession({});
+    const session = await openOpenCodeSession({
+      processRegistry: defaultRegistry,
+    });
     session.abort("test");
     const status = await session.done;
     // Deno.serve exits cleanly on SIGTERM; accept either signal or code.
@@ -272,7 +280,10 @@ Deno.test("openOpenCodeSession — abort() tears the server down and resolves do
 Deno.test("openOpenCodeSession — external AbortSignal triggers shutdown", async () => {
   await withStubOpenCode(async () => {
     const controller = new AbortController();
-    const session = await openOpenCodeSession({ signal: controller.signal });
+    const session = await openOpenCodeSession({
+      processRegistry: defaultRegistry,
+      signal: controller.signal,
+    });
     setTimeout(() => controller.abort("external"), 50);
     const status = await session.done;
     assert(status.exitCode !== undefined || status.signal !== null);

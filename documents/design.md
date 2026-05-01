@@ -178,12 +178,14 @@ Pure tracker. No signal wiring. Two flavors share one implementation:
 `Promise.race([allSettled, graceMs timeout])` → SIGKILL survivors →
 run shutdown callbacks.
 
-Adapters resolve the active registry as
-`opts.processRegistry ?? defaultRegistry` at the spawn site. Embedders
-that host multiple independent runtimes in one process pass a private
-`ProcessRegistry` through `RuntimeInvokeOptions.processRegistry` /
-`RuntimeSessionOptions.processRegistry` so `killAll` is scoped to the
-embedder.
+`processRegistry` is **required** on `RuntimeInvokeOptions` and
+`RuntimeSessionOptions` (and on every per-runtime invoke/session options
+type). Standalone callers explicitly pass the module-level
+`defaultRegistry`; embedders hosting multiple runtimes in one process
+pass per-scope `ProcessRegistry` instances so `killAll` is bounded.
+Making the field required eliminates the silent fallback that previously
+let multi-runtime embedders accidentally share the global registry —
+shutdown is no longer ambiguous about which subprocesses are in scope.
 
 ### 3.3 `runtime/` — Adapter Layer
 
@@ -200,8 +202,9 @@ embedder.
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
   `hitlConfig`, `hitlMcpCommandBuilder`, `cwd`, `agent`, `systemPrompt`,
   `env`, `onEvent`, `allowedTools`, `disallowedTools` (FR-L24),
-  `processRegistry` (FR-L3 — optional `ProcessRegistry` instance for
-  scoping the spawned subprocess; falls back to the module default).
+  `processRegistry` (FR-L3 — **required** `ProcessRegistry` instance for
+  scoping the spawned subprocess; standalone callers pass the module-level
+  `defaultRegistry`).
 - `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string }`.
 - `InteractiveOptions` — `{ skills?, systemPrompt?, cwd?, env? }`.
 - `InteractiveResult` — `{ exitCode: number }`.

@@ -5,6 +5,7 @@ import {
   invokeClaudeCli,
 } from "./process.ts";
 import type { ClaudeInvokeOptions } from "./process.ts";
+import { defaultRegistry } from "../process-registry.ts";
 
 function makeOpts(
   overrides?: Partial<ClaudeInvokeOptions>,
@@ -14,6 +15,7 @@ function makeOpts(
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
     ...overrides,
   };
 }

@@ -29,7 +29,7 @@ import {
   type SettingSource,
 } from "../runtime/setting-sources.ts";
 import { validateClaudePermissionMode } from "./permission-mode.ts";
-import { type ProcessRegistry } from "../process-registry.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
 import {
   type ClaudeLifecycleHooks,
   type ClaudeStreamEvent,

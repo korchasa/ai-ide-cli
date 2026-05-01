@@ -5,6 +5,7 @@ import {
   formatCursorEventForOutput,
   invokeCursorCli,
 } from "./process.ts";
+import { defaultRegistry } from "../process-registry.ts";
 import type {
   RuntimeInvokeOptions,
   RuntimeToolUseInfo,
@@ -18,6 +19,7 @@ function makeInvokeOpts(
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
+    processRegistry: defaultRegistry,
     ...overrides,
   };
 }
@@ -305,6 +307,7 @@ Deno.test("invokeCursorCli — onToolUseObserved fires once per tool_call/starte
   await withStubCursorEmittingNdjson(STUB_NDJSON, async () => {
     const observed: RuntimeToolUseInfo[] = [];
     const { output, error } = await invokeCursorCli({
+      processRegistry: defaultRegistry,
       taskPrompt: "do something",
       timeoutSeconds: 30,
       maxRetries: 1,
@@ -328,6 +331,7 @@ Deno.test("invokeCursorCli — onToolUseObserved fires once per tool_call/starte
 Deno.test("invokeCursorCli — onToolUseObserved 'abort' synthesizes permission_denials (FR-L30)", async () => {
   await withStubCursorEmittingNdjson(STUB_NDJSON, async () => {
     const { output, error } = await invokeCursorCli({
+      processRegistry: defaultRegistry,
       taskPrompt: "do something",
       timeoutSeconds: 30,
       maxRetries: 1,
@@ -356,6 +360,7 @@ Deno.test("invokeCursorCli — cursorHooks.onAssistant fires per assistant event
     let initHit = false;
     let resultHit = false;
     const { output, error } = await invokeCursorCli({
+      processRegistry: defaultRegistry,
       taskPrompt: "do something",
       timeoutSeconds: 30,
       maxRetries: 1,
@@ -385,6 +390,7 @@ Deno.test("invokeCursorCli — onToolUseObserved is not called when capability n
   // Sanity check: no callback → no error path.
   await withStubCursorEmittingNdjson(STUB_NDJSON, async () => {
     const { output, error } = await invokeCursorCli({
+      processRegistry: defaultRegistry,
       taskPrompt: "do something",
       timeoutSeconds: 30,
       maxRetries: 1,
