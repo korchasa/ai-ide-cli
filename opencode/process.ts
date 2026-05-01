@@ -27,6 +27,10 @@ import type {
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
+import {
+  type OnCallbackError,
+  safeAwaitCallback,
+} from "../runtime/callback-safety.ts";
 
 /**
  * Flags reserved by {@link buildOpenCodeArgs}. Keys in `extraArgs` that
@@ -378,11 +382,34 @@ export function openCodeToolUseInfo(
 }
 
 /**
+ * Result of {@link exportOpenCodeTranscript}. Exactly one of `path` or
+ * `error` is populated:
+ *
+ * - `{ path }` — export succeeded; absolute path to a temp file holding
+ *   the transcript JSON.
+ * - `{ error }` — export attempt failed; `error` is a short diagnostic
+ *   suitable for surfacing as `CliRunOutput.transcript_error` (FR-L32).
+ *
+ * Empty / no-id input returns `{}` so callers can branch uniformly.
+ */
+export interface OpenCodeTranscriptResult {
+  /** Absolute path to the temp file holding the captured transcript JSON. */
+  path?: string;
+  /** Short diagnostic when export failed (subprocess non-zero, I/O error, …). */
+  error?: string;
+}
+
+/**
  * Export an OpenCode session transcript to a local temporary file by invoking
- * `opencode export <sessionId> [--sanitize]` and capturing stdout. Returns
- * the absolute path to the temp file on success, or `undefined` on failure
- * (non-zero exit, missing binary, I/O error — all swallowed best-effort so
- * transcript export never masks the primary invocation result).
+ * `opencode export <sessionId> [--sanitize]` and capturing stdout.
+ *
+ * Returns `{ path }` on success, `{ error }` on failure (FR-L32 — previously
+ * failures were swallowed wholesale, leaving consumers unable to
+ * distinguish "runtime exposes no transcript" from "export attempted but
+ * crashed"). The caller is responsible for surfacing `error` to the
+ * normalized {@link import("../types.ts").CliRunOutput.transcript_error}
+ * field; failures still never throw, so the primary invocation result is
+ * never masked.
  *
  * Exported for testing.
  */
@@ -394,8 +421,8 @@ export async function exportOpenCodeTranscript(
     sanitize?: boolean;
     signal?: AbortSignal;
   },
-): Promise<string | undefined> {
-  if (!sessionId) return undefined;
+): Promise<OpenCodeTranscriptResult> {
+  if (!sessionId) return {};
   const args = ["export", sessionId];
   if (opts?.sanitize) args.push("--sanitize");
   try {
@@ -408,16 +435,28 @@ export async function exportOpenCodeTranscript(
       ...(opts?.env ? { env: opts.env } : {}),
       ...(opts?.signal ? { signal: opts.signal } : {}),
     });
-    const { success, stdout } = await cmd.output();
-    if (!success || stdout.length === 0) return undefined;
+    const { success, code, stdout, stderr } = await cmd.output();
+    if (!success) {
+      const tail = new TextDecoder().decode(stderr).trim();
+      return {
+        error: `opencode export exited with code ${code}${
+          tail ? `: ${tail.slice(0, 256)}` : ""
+        }`,
+      };
+    }
+    if (stdout.length === 0) {
+      return { error: "opencode export produced empty stdout" };
+    }
     const path = await Deno.makeTempFile({
       prefix: `opencode-transcript-${sessionId}-`,
       suffix: ".json",
     });
     await Deno.writeFile(path, stdout);
-    return path;
-  } catch {
-    return undefined;
+    return { path };
+  } catch (err) {
+    return {
+      error: `opencode export failed: ${(err as Error).message ?? String(err)}`,
+    };
   }
 }
 
@@ -454,6 +493,7 @@ export async function invokeOpenCodeCli(
         opts.hooks,
         opts.onToolUseObserved,
         opts.processRegistry,
+        opts.onCallbackError,
       );
       if (output.is_error) {
         lastError = `OpenCode returned error: ${output.result}`;
@@ -512,6 +552,7 @@ async function executeOpenCodeProcess(
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   processRegistry?: ProcessRegistry,
+  onCallbackError?: OnCallbackError,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };
   if (configContent) {
@@ -617,18 +658,25 @@ async function executeOpenCodeProcess(
           const info = openCodeToolUseInfo(event as OpenCodeToolUseEvent);
           if (info && !seenObservedIds.has(info.id)) {
             seenObservedIds.add(info.id);
-            let decision: RuntimeToolUseDecision = "allow";
-            try {
-              decision = await onToolUseObserved({
-                runtime: "opencode",
-                id: info.id,
-                name: info.name,
-                input: info.input,
-                turn: Math.max(1, stepCount),
-              });
-            } catch {
-              decision = "abort";
-            }
+            // FR-L32: callback throws no longer auto-abort. They route
+            // via onCallbackError and the decision defaults to "allow"
+            // so a consumer typo cannot silently kill a run.
+            const observedDecision = await safeAwaitCallback(
+              onToolUseObserved,
+              [
+                {
+                  runtime: "opencode" as const,
+                  id: info.id,
+                  name: info.name,
+                  input: info.input,
+                  turn: Math.max(1, stepCount),
+                },
+              ],
+              "onToolUseObserved",
+              onCallbackError,
+            );
+            const decision: RuntimeToolUseDecision = observedDecision ??
+              "allow";
             if (decision === "abort") {
               denial = {
                 toolName: info.name,
@@ -705,6 +753,11 @@ async function executeOpenCodeProcess(
     // output regardless of subprocess status (SIGTERM path may look like
     // any exit code depending on OS).
     if (denial) {
+      // FR-L32: surface transcript export failure instead of swallowing.
+      const denialTranscript = await exportOpenCodeTranscript(lastSessionId, {
+        cwd,
+        env,
+      });
       return {
         runtime: "opencode",
         result: denial.reason,
@@ -720,10 +773,8 @@ async function executeOpenCodeProcess(
             tool_input: { id: denial.toolId, reason: denial.reason },
           },
         ],
-        transcript_path: await exportOpenCodeTranscript(lastSessionId, {
-          cwd,
-          env,
-        }),
+        transcript_path: denialTranscript.path,
+        transcript_error: denialTranscript.error,
       };
     }
 
@@ -762,10 +813,13 @@ async function executeOpenCodeProcess(
         );
       }
       if (output.session_id) {
-        output.transcript_path = await exportOpenCodeTranscript(
+        // FR-L32: surface transcript export failure instead of swallowing.
+        const transcript = await exportOpenCodeTranscript(
           output.session_id,
           { cwd, env },
         );
+        output.transcript_path = transcript.path;
+        output.transcript_error = transcript.error;
       }
       return output;
     }

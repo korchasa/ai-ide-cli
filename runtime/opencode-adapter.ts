@@ -150,6 +150,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       signal: opts.signal,
       onEvent: adaptEventCallback(opts.onEvent, opencodeEventToRuntime),
       onStderr: opts.onStderr,
+      onCallbackError: opts.onCallbackError,
       processRegistry: opts.processRegistry,
     });
     return adaptRuntimeSession("opencode", inner, opencodeEventToRuntime);

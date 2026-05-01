@@ -22,6 +22,10 @@ import {
   SessionDeliveryError,
   SessionInputClosedError,
 } from "../runtime/types.ts";
+import {
+  type OnCallbackError,
+  safeInvokeCallback,
+} from "../runtime/callback-safety.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import {
@@ -89,6 +93,12 @@ export interface ClaudeSessionOptions {
   onEvent?: (event: ClaudeStreamEvent) => void;
   /** Fires for every decoded stderr line (trimmed, may be empty). */
   onStderr?: (line: string) => void;
+  /**
+   * Routed error sink for `onEvent` / `onStderr`. Default handler logs to
+   * `console.warn`; supply a no-op to opt out. Streaming loop stays alive
+   * regardless of consumer callback throws. See FR-L32.
+   */
+  onCallbackError?: OnCallbackError;
 }
 
 /** Terminal state of a Claude session subprocess. */
@@ -310,11 +320,13 @@ export async function openClaudeSession(
           if (!event) continue;
           captureSessionId(event);
           queue.push(event);
-          try {
-            opts.onEvent?.(event);
-          } catch {
-            // onEvent is a notification hook; swallow consumer errors.
-          }
+          // FR-L32: route consumer-callback throws to onCallbackError.
+          safeInvokeCallback(
+            opts.onEvent,
+            [event],
+            "onEvent",
+            opts.onCallbackError,
+          );
         }
       }
       if (buffer.trim()) {
@@ -322,11 +334,13 @@ export async function openClaudeSession(
         if (event) {
           captureSessionId(event);
           queue.push(event);
-          try {
-            opts.onEvent?.(event);
-          } catch {
-            // ignore
-          }
+          // FR-L32: same routing for the trailing partial line.
+          safeInvokeCallback(
+            opts.onEvent,
+            [event],
+            "onEvent",
+            opts.onCallbackError,
+          );
         }
       }
     } catch {
@@ -350,19 +364,23 @@ export async function openClaudeSession(
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
-          try {
-            opts.onStderr?.(line);
-          } catch {
-            // ignore
-          }
+          // FR-L32: route consumer-callback throws to onCallbackError.
+          safeInvokeCallback(
+            opts.onStderr,
+            [line],
+            "onStderr",
+            opts.onCallbackError,
+          );
         }
       }
       if (buffer.length > 0) {
-        try {
-          opts.onStderr?.(buffer);
-        } catch {
-          // ignore
-        }
+        // FR-L32: same routing for the trailing partial line.
+        safeInvokeCallback(
+          opts.onStderr,
+          [buffer],
+          "onStderr",
+          opts.onCallbackError,
+        );
       }
     } catch {
       // stream closed

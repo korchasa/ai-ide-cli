@@ -308,9 +308,9 @@ Deno.test("openCodeToolUseInfo — falls back to callID when id missing", () => 
 
 // --- Transcript export helper ---------------------------------------------
 
-Deno.test("exportOpenCodeTranscript — returns undefined for empty sessionId", async () => {
-  const path = await exportOpenCodeTranscript("");
-  assertEquals(path, undefined);
+Deno.test("exportOpenCodeTranscript — returns empty result for empty sessionId", async () => {
+  const result = await exportOpenCodeTranscript("");
+  assertEquals(result, {});
 });
 
 /**
@@ -364,11 +364,11 @@ esac
 
 Deno.test("exportOpenCodeTranscript — writes stdout of opencode export to a temp file", async () => {
   await withStubOpenCodeBinary([], async () => {
-    const path = await exportOpenCodeTranscript("ses_xyz");
-    assert(path);
-    const text = await Deno.readTextFile(path!);
+    const result = await exportOpenCodeTranscript("ses_xyz");
+    assert(result.path);
+    const text = await Deno.readTextFile(result.path);
     assert(text.includes(`"sessionID":"ses_xyz"`));
-    await Deno.remove(path!);
+    await Deno.remove(result.path);
   });
 });
 

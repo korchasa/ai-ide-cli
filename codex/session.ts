@@ -72,6 +72,7 @@ import {
   SessionInputClosedError,
   SYNTHETIC_TURN_END,
 } from "../runtime/types.ts";
+import { safeInvokeCallback } from "../runtime/callback-safety.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   CodexAppServerClient,
@@ -212,11 +213,13 @@ export async function openCodexSession(
             raw: { method: note.method, params: note.params },
           };
           events.push(runtimeEvent);
-          try {
-            opts.onEvent?.(runtimeEvent);
-          } catch {
-            // onEvent is a notification hook — swallow consumer errors.
-          }
+          // FR-L32: route consumer-callback throws to onCallbackError.
+          safeInvokeCallback(
+            opts.onEvent,
+            [runtimeEvent],
+            "onEvent",
+            opts.onCallbackError,
+          );
           if (wasTurnEnd) {
             const synthetic: RuntimeSessionEvent = {
               runtime: "codex",
@@ -225,11 +228,13 @@ export async function openCodexSession(
               synthetic: true,
             };
             events.push(synthetic);
-            try {
-              opts.onEvent?.(synthetic);
-            } catch {
-              // ignore
-            }
+            // FR-L32: same routing for the synthetic turn-end event.
+            safeInvokeCallback(
+              opts.onEvent,
+              [synthetic],
+              "onEvent",
+              opts.onCallbackError,
+            );
           }
         }
       } finally {

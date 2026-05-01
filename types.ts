@@ -95,8 +95,22 @@ export interface CliRunOutput {
    * `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`). Consumers
    * can copy or stream this file as the canonical conversation log. Absent
    * for runtimes without a discoverable transcript.
+   *
+   * **Distinguishing "unsupported" vs. "export failed":** `transcript_path
+   * === undefined` means EITHER (a) the runtime exposes no transcript
+   * (Cursor) OR (b) export was attempted but failed. Branch on
+   * {@link transcript_error} to disambiguate (FR-L32).
    */
   transcript_path?: string;
+  /**
+   * Diagnostic message set when the runtime supports transcript export but
+   * the export itself failed (e.g. `opencode export <id>` exited non-zero,
+   * Codex rollout dir missing, or the FS write failed). When present,
+   * {@link transcript_path} stays `undefined`. Absent for runtimes without
+   * transcript support and on successful exports. Surfaced under FR-L32
+   * — previously failures were swallowed silently.
+   */
+  transcript_error?: string;
 }
 
 // --- HITL Configuration ---

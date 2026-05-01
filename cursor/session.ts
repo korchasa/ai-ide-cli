@@ -43,6 +43,10 @@ import {
   SessionDeliveryError,
   SessionInputClosedError,
 } from "../runtime/types.ts";
+import {
+  type OnCallbackError,
+  safeInvokeCallback,
+} from "../runtime/callback-safety.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
@@ -102,6 +106,12 @@ export interface CursorSessionOptions {
    * hook, mirroring the contract of {@link onEvent} / {@link onStderr}).
    */
   onSendFailed?: (err: SessionDeliveryError, message: string) => void;
+  /**
+   * Routed error sink for `onEvent` / `onStderr` / `onSendFailed` throws.
+   * Default handler logs to `console.warn`; supply a no-op to opt out.
+   * Streaming loop stays alive regardless. See FR-L32.
+   */
+  onCallbackError?: OnCallbackError;
   /**
    * Optional process registry that owns this session's send subprocesses.
    * When omitted, the module-level default registry is used, preserving
@@ -369,8 +379,18 @@ export async function openCursorSession(
       }
     }
 
-    const stdoutPump = pumpStdout(proc.stdout, queue, opts.onEvent);
-    const stderrPump = pumpStderr(proc.stderr, stderrChunks, opts.onStderr);
+    const stdoutPump = pumpStdout(
+      proc.stdout,
+      queue,
+      opts.onEvent,
+      opts.onCallbackError,
+    );
+    const stderrPump = pumpStderr(
+      proc.stderr,
+      stderrChunks,
+      opts.onStderr,
+      opts.onCallbackError,
+    );
 
     try {
       const [status] = await Promise.all([proc.status, stdoutPump, stderrPump]);
@@ -419,11 +439,13 @@ export async function openCursorSession(
               cause.message,
               { cause },
             );
-            try {
-              opts.onSendFailed?.(deliveryErr, message);
-            } catch {
-              // Notification hook — swallow consumer errors, same as `onEvent`.
-            }
+            // FR-L32: route consumer-callback throws to onCallbackError.
+            safeInvokeCallback(
+              opts.onSendFailed,
+              [deliveryErr, message],
+              "onSendFailed",
+              opts.onCallbackError,
+            );
             queue.push({
               type: "error",
               subtype: "send_failed",
@@ -510,6 +532,7 @@ async function pumpStdout(
   stream: ReadableStream<Uint8Array>,
   queue: SessionEventQueue<CursorStreamEvent>,
   onEvent: CursorSessionOptions["onEvent"],
+  onCallbackError: OnCallbackError | undefined,
 ): Promise<void> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -526,22 +549,16 @@ async function pumpStdout(
         const event = safeParse(line);
         if (!event) continue;
         queue.push(event);
-        try {
-          onEvent?.(event);
-        } catch {
-          // onEvent is a notification hook; swallow consumer errors.
-        }
+        // FR-L32: route consumer-callback throws to onCallbackError.
+        safeInvokeCallback(onEvent, [event], "onEvent", onCallbackError);
       }
     }
     if (buffer.trim()) {
       const event = safeParse(buffer);
       if (event) {
         queue.push(event);
-        try {
-          onEvent?.(event);
-        } catch {
-          // ignore
-        }
+        // FR-L32: same routing for the trailing partial line.
+        safeInvokeCallback(onEvent, [event], "onEvent", onCallbackError);
       }
     }
   } catch {
@@ -553,6 +570,7 @@ async function pumpStderr(
   stream: ReadableStream<Uint8Array>,
   sink: Uint8Array[],
   onStderr: CursorSessionOptions["onStderr"],
+  onCallbackError: OnCallbackError | undefined,
 ): Promise<void> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -566,19 +584,13 @@ async function pumpStderr(
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const line of lines) {
-        try {
-          onStderr?.(line);
-        } catch {
-          // ignore
-        }
+        // FR-L32: route consumer-callback throws to onCallbackError.
+        safeInvokeCallback(onStderr, [line], "onStderr", onCallbackError);
       }
     }
     if (buffer.length > 0) {
-      try {
-        onStderr?.(buffer);
-      } catch {
-        // ignore
-      }
+      // FR-L32: same routing for the trailing partial line.
+      safeInvokeCallback(onStderr, [buffer], "onStderr", onCallbackError);
     }
   } catch {
     // stream closed

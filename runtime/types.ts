@@ -12,6 +12,7 @@ import type {
 } from "./capabilities.ts";
 import type { ReasoningEffort } from "./reasoning-effort.ts";
 import type { ProcessRegistry } from "../process-registry.ts";
+import type { OnCallbackError } from "./callback-safety.ts";
 
 /**
  * Map-shaped extra CLI arguments.
@@ -293,6 +294,23 @@ export interface RuntimeInvokeOptions {
    * interpretation may differ). See FR-L25.
    */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Routed error sink for consumer-supplied notification callbacks
+   * (`onEvent`, `onOutput`, `onToolUseObserved`, lifecycle hooks). Fires
+   * when one of those callbacks throws so the streaming loop stays alive
+   * but the bug is visible. When omitted, the default handler logs to
+   * `console.warn` with a source tag and stack trace; supply a no-op
+   * handler to opt out of the default. The handler MUST NOT throw — it
+   * is itself wrapped in try/catch. See FR-L32.
+   *
+   * **`onToolUseObserved` semantics shift.** A throw from
+   * `onToolUseObserved` no longer auto-aborts the run (the previous
+   * behaviour was a footgun: a consumer typo silently produced a
+   * `permission_denied` output). The decision now defaults to
+   * `"allow"` and the throw is routed through `onCallbackError` with
+   * source `"onToolUseObserved"`.
+   */
+  onCallbackError?: OnCallbackError;
 }
 
 /** Result returned by a runtime adapter invocation. */
@@ -397,6 +415,13 @@ export interface RuntimeSessionOptions {
   onEvent?: (event: RuntimeSessionEvent) => void;
   /** Fires for every decoded stderr chunk (may be empty on a flush). */
   onStderr?: (line: string) => void;
+  /**
+   * Routed error sink for `onEvent` / `onStderr` (and any future
+   * notification hook). Default handler logs the throw to `console.warn`
+   * — supply a no-op to opt out. The streaming loop stays alive
+   * regardless. See FR-L32.
+   */
+  onCallbackError?: OnCallbackError;
 }
 
 /**

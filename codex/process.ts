@@ -79,6 +79,10 @@ import type {
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
+import {
+  type OnCallbackError,
+  safeAwaitCallback,
+} from "../runtime/callback-safety.ts";
 import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import {
   CODEX_HITL_MCP_SERVER_NAME,
@@ -605,6 +609,7 @@ export async function invokeCodexCli(
         opts.hooks,
         opts.onToolUseObserved,
         opts.processRegistry,
+        opts.onCallbackError,
       );
       // HITL request: surface output, do not retry.
       if (output.hitl_request) {
@@ -672,6 +677,7 @@ async function executeCodexProcess(
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   processRegistry?: ProcessRegistry,
+  onCallbackError?: OnCallbackError,
 ): Promise<CliRunOutput> {
   const cmd = new Deno.Command("codex", {
     args,
@@ -753,18 +759,24 @@ async function executeCodexProcess(
         const info = codexItemToToolUseInfo(item);
         if (info && info.id && !seenObservedIds.has(info.id)) {
           seenObservedIds.add(info.id);
-          let decision: RuntimeToolUseDecision = "allow";
-          try {
-            decision = await onToolUseObserved({
-              runtime: "codex",
-              id: info.id,
-              name: info.name,
-              input: info.input,
-              turn: state.turnCount + 1,
-            });
-          } catch {
-            decision = "abort";
-          }
+          // FR-L32: callback throws no longer auto-abort. They route via
+          // onCallbackError and the decision defaults to "allow" so a
+          // consumer typo cannot silently kill a run.
+          const observedDecision = await safeAwaitCallback(
+            onToolUseObserved,
+            [
+              {
+                runtime: "codex" as const,
+                id: info.id,
+                name: info.name,
+                input: info.input,
+                turn: state.turnCount + 1,
+              },
+            ],
+            "onToolUseObserved",
+            onCallbackError,
+          );
+          const decision: RuntimeToolUseDecision = observedDecision ?? "allow";
           if (decision === "abort") {
             state.denied = {
               tool: info.name,

@@ -24,6 +24,10 @@ import {
   SessionDeliveryError,
   SessionInputClosedError,
 } from "../runtime/types.ts";
+import {
+  type OnCallbackError,
+  safeInvokeCallback,
+} from "../runtime/callback-safety.ts";
 import type { ReasoningEffort } from "../runtime/reasoning-effort.ts";
 
 /** Parsed SSE event from the OpenCode server's `/event` endpoint. */
@@ -79,6 +83,12 @@ export interface OpenCodeSessionOptions {
   onEvent?: (event: OpenCodeSessionEvent) => void;
   /** Fires for every decoded stderr line (trimmed, may be empty). */
   onStderr?: (line: string) => void;
+  /**
+   * Routed error sink for `onEvent` / `onStderr` throws. Default handler
+   * logs to `console.warn`; supply a no-op to opt out. SSE pump stays
+   * alive regardless. See FR-L32.
+   */
+  onCallbackError?: OnCallbackError;
   /**
    * Explicit TCP port for `opencode serve --port`. When omitted, a free port
    * is picked via an ephemeral `Deno.listen({ port: 0 })`.
@@ -247,19 +257,23 @@ export async function openOpenCodeSession(
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
-          try {
-            opts.onStderr?.(line);
-          } catch {
-            // ignore
-          }
+          // FR-L32: route consumer-callback throws to onCallbackError.
+          safeInvokeCallback(
+            opts.onStderr,
+            [line],
+            "onStderr",
+            opts.onCallbackError,
+          );
         }
       }
       if (buffer.length > 0) {
-        try {
-          opts.onStderr?.(buffer);
-        } catch {
-          // ignore
-        }
+        // FR-L32: same routing for the trailing partial line.
+        safeInvokeCallback(
+          opts.onStderr,
+          [buffer],
+          "onStderr",
+          opts.onCallbackError,
+        );
       }
     } catch {
       // stream closed
@@ -360,11 +374,13 @@ export async function openOpenCodeSession(
         becameIdle = true;
       }
     }
-    try {
-      opts.onEvent?.(event);
-    } catch {
-      // onEvent is a notification hook; swallow consumer errors.
-    }
+    // FR-L32: route consumer-callback throws to onCallbackError.
+    safeInvokeCallback(
+      opts.onEvent,
+      [event],
+      "onEvent",
+      opts.onCallbackError,
+    );
     for (let i = waiters.length - 1; i >= 0; i--) {
       if (waiters[i].predicate(event)) {
         const w = waiters[i];
@@ -380,11 +396,13 @@ export async function openOpenCodeSession(
         synthetic: true,
       };
       queue.push(synthetic);
-      try {
-        opts.onEvent?.(synthetic);
-      } catch {
-        // ignore
-      }
+      // FR-L32: same routing for the synthetic turn-end event.
+      safeInvokeCallback(
+        opts.onEvent,
+        [synthetic],
+        "onEvent",
+        opts.onCallbackError,
+      );
     }
   }
 

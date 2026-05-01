@@ -152,6 +152,7 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
         isCursorTurnEnd,
       ),
       onStderr: opts.onStderr,
+      onCallbackError: opts.onCallbackError,
       processRegistry: opts.processRegistry,
     });
     return adaptRuntimeSession(

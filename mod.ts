@@ -71,6 +71,16 @@ export type {
   RuntimeToolUseInfo,
 } from "./runtime/types.ts";
 export type { SettingSource } from "./runtime/setting-sources.ts";
+// FR-L32: routed error sink for consumer-supplied callbacks.
+export {
+  defaultOnCallbackError,
+  safeAwaitCallback,
+  safeInvokeCallback,
+} from "./runtime/callback-safety.ts";
+export type {
+  CallbackErrorSource,
+  OnCallbackError,
+} from "./runtime/callback-safety.ts";
 export { extractSessionContent } from "./runtime/content.ts";
 export type {
   NormalizedContent,
@@ -328,6 +338,7 @@ export type {
   OpenCodeStreamEvent,
   OpenCodeTextEvent,
   OpenCodeToolUseEvent,
+  OpenCodeTranscriptResult,
 } from "./opencode/process.ts";
 export { openOpenCodeSession } from "./opencode/session.ts";
 export type {
