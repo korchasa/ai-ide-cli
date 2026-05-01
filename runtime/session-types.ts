@@ -31,10 +31,10 @@ import type { ExtraArgsMap } from "./adapter-types.ts";
  */
 export interface RuntimeSessionOptions {
   /**
-   * Optional process tracker scope — see
-   * `RuntimeInvokeOptions.processRegistry`.
+   * Process tracker scope — see `RuntimeInvokeOptions.processRegistry` for
+   * the standalone-vs-embedded contract. Required.
    */
-  processRegistry?: ProcessRegistry;
+  processRegistry: ProcessRegistry;
   /** Optional runtime-native agent selector. */
   agent?: string;
   /** Optional system prompt content for the session. */

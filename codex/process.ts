@@ -66,7 +66,7 @@ import {
   type OnCallbackError,
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
-import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry } from "../process-registry.ts";
 import {
   type CodexExecEvent,
   type CodexExecItemCompletedEvent,
@@ -202,7 +202,7 @@ async function executeCodexProcess(
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
-  processRegistry?: ProcessRegistry,
+  processRegistry: ProcessRegistry,
   onCallbackError?: OnCallbackError,
 ): Promise<CliRunOutput> {
   const cmd = new Deno.Command("codex", {
@@ -215,7 +215,7 @@ async function executeCodexProcess(
   });
 
   const process = cmd.spawn();
-  const registry = processRegistry ?? defaultRegistry;
+  const registry = processRegistry;
   registry.register(process);
 
   let interruptedForHitl = false;

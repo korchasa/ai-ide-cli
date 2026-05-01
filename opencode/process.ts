@@ -23,7 +23,7 @@
  */
 
 import type { CliRunOutput, Verbosity } from "../types.ts";
-import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry } from "../process-registry.ts";
 import type {
   OnRuntimeToolUseObservedCallback,
   RuntimeInvokeOptions,
@@ -163,7 +163,7 @@ async function executeOpenCodeProcess(
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
-  processRegistry?: ProcessRegistry,
+  processRegistry: ProcessRegistry,
   onCallbackError?: OnCallbackError,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };
@@ -180,7 +180,7 @@ async function executeOpenCodeProcess(
   });
 
   const process = cmd.spawn();
-  const registry = processRegistry ?? defaultRegistry;
+  const registry = processRegistry;
   registry.register(process);
 
   let timedOut = false;

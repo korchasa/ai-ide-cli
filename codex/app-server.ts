@@ -35,7 +35,7 @@
  * Entry point: {@link CodexAppServerClient}.
  */
 
-import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry } from "../process-registry.ts";
 import type { CodexUntypedNotification } from "./events.ts";
 
 /**
@@ -126,7 +126,7 @@ export interface CodexAppServerClientOptions {
    * runtimes in one process should pass an instance-scoped
    * {@link ProcessRegistry} so `killAll` is scoped to the embedder.
    */
-  processRegistry?: ProcessRegistry;
+  processRegistry: ProcessRegistry;
 }
 
 /**
@@ -216,7 +216,7 @@ export class CodexAppServerClient {
     this.pid = process.pid;
     this.stdinWriter = process.stdin.getWriter();
     this.externalSignal = opts.signal;
-    this.registry = opts.processRegistry ?? defaultRegistry;
+    this.registry = opts.processRegistry;
 
     // External abort → SIGTERM. Registered only when a signal is provided so
     // clients without a signal incur no listener overhead.
@@ -302,7 +302,7 @@ export class CodexAppServerClient {
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
     });
     const process = cmd.spawn();
-    const registry = opts.processRegistry ?? defaultRegistry;
+    const registry = opts.processRegistry;
     registry.register(process);
     return new CodexAppServerClient(process, opts);
   }

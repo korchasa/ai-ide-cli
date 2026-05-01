@@ -63,15 +63,15 @@ export type OnRuntimeToolUseObservedCallback = (
 /** Low-level options for a single runtime invocation (initial or resume). */
 export interface RuntimeInvokeOptions {
   /**
-   * Optional process tracker scope. When provided, child processes spawned
-   * for this invocation are tracked in the supplied `ProcessRegistry`
-   * instance instead of the package-wide default singleton. Embedding
-   * applications that host multiple independent runtimes in one Deno
-   * process (e.g. an operator chat session plus an active workflow run)
-   * use this to scope `killAll()` and shutdown callbacks per logical run.
-   * Falls back to the default singleton when omitted.
+   * Process tracker scope. Child processes spawned for this invocation are
+   * tracked in the supplied `ProcessRegistry` instance, scoping `killAll()`
+   * and shutdown callbacks. **Standalone callers** (single-rooted CLI use)
+   * should pass `defaultRegistry` from `process-registry.ts`; **embedded
+   * callers** that host multiple independent runtimes in one Deno process
+   * MUST pass per-scope `ProcessRegistry` instances so `killAll()` in one
+   * subsystem cannot reap another's children.
    */
-  processRegistry?: ProcessRegistry;
+  processRegistry: ProcessRegistry;
   /** Optional runtime-native agent selector. */
   agent?: string;
   /** Optional system prompt content for the invocation. */

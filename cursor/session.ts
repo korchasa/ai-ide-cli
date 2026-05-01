@@ -49,7 +49,7 @@ import {
 } from "../runtime/callback-safety.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
-import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry } from "../process-registry.ts";
 import { CURSOR_RESERVED_FLAGS } from "./process.ts";
 
 /** Options for {@link openCursorSession}. */
@@ -119,7 +119,7 @@ export interface CursorSessionOptions {
    * runtimes in one process should pass an instance-scoped
    * {@link ProcessRegistry} so `killAll` is scoped to the embedder.
    */
-  processRegistry?: ProcessRegistry;
+  processRegistry: ProcessRegistry;
 }
 
 // FR-L30: re-export the typed discriminated union from cursor/stream.ts as
@@ -224,7 +224,7 @@ export interface CreateCursorChatOptions {
    * Optional process registry that owns the spawned subprocess. When
    * omitted, the module-level default registry is used.
    */
-  processRegistry?: ProcessRegistry;
+  processRegistry: ProcessRegistry;
 }
 
 /**
@@ -246,7 +246,7 @@ export async function createCursorChat(
     signal: AbortSignal.timeout(timeoutMs),
   });
   const proc = cmd.spawn();
-  const registry = opts.processRegistry ?? defaultRegistry;
+  const registry = opts.processRegistry;
   registry.register(proc);
   try {
     const [status, stdoutBuf, stderrBuf] = await Promise.all([
@@ -307,7 +307,7 @@ export function buildCursorSendArgs(opts: {
 export async function openCursorSession(
   opts: CursorSessionOptions = {},
 ): Promise<CursorSession> {
-  const registry = opts.processRegistry ?? defaultRegistry;
+  const registry = opts.processRegistry;
   const chatId = opts.resumeSessionId ??
     (await createCursorChat({
       cwd: opts.cwd,

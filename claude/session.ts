@@ -40,7 +40,7 @@ import {
   prepareSettingSourcesDir,
   type SettingSource,
 } from "../runtime/setting-sources.ts";
-import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry } from "../process-registry.ts";
 import { CLAUDE_RESERVED_FLAGS } from "./process.ts";
 import { type ClaudeStreamEvent, parseClaudeStreamEvent } from "./stream.ts";
 
@@ -50,7 +50,7 @@ export interface ClaudeSessionOptions {
    * Optional process tracker scope. Falls back to the default singleton when
    * omitted. See {@link import("../runtime/types.ts").RuntimeSessionOptions.processRegistry}.
    */
-  processRegistry?: ProcessRegistry;
+  processRegistry: ProcessRegistry;
   /** Agent name passed via --agent. */
   agent?: string;
   /** System prompt appended via --append-system-prompt. */
@@ -288,7 +288,7 @@ export async function openClaudeSession(
   });
 
   const process = cmd.spawn();
-  const registry = opts.processRegistry ?? defaultRegistry;
+  const registry = opts.processRegistry;
   registry.register(process);
 
   const encoder = new TextEncoder();

@@ -29,7 +29,7 @@ import {
   type SettingSource,
 } from "../runtime/setting-sources.ts";
 import { validateClaudePermissionMode } from "./permission-mode.ts";
-import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry } from "../process-registry.ts";
 import {
   type ClaudeLifecycleHooks,
   type ClaudeStreamEvent,
@@ -86,7 +86,7 @@ export interface ClaudeInvokeOptions {
    * Optional process tracker scope. Falls back to the default singleton when
    * omitted. See {@link import("../runtime/types.ts").RuntimeInvokeOptions.processRegistry}.
    */
-  processRegistry?: ProcessRegistry;
+  processRegistry: ProcessRegistry;
   /** Name of Claude Code agent (without .md) passed via --agent flag. Skipped on resume. */
   agent?: string;
   /** System context passed via --append-system-prompt. Skipped on resume. */
@@ -370,7 +370,7 @@ async function executeClaudeProcess(
   });
 
   const process = cmd.spawn();
-  const registry = opts.processRegistry ?? defaultRegistry;
+  const registry = opts.processRegistry;
   registry.register(process);
 
   // Build a combined abort signal: user signal + timeout. SIGTERM fires

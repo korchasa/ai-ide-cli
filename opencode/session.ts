@@ -17,7 +17,7 @@
  * Entry point: {@link openOpenCodeSession}.
  */
 
-import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry } from "../process-registry.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   SessionAbortedError,
@@ -103,7 +103,7 @@ export interface OpenCodeSessionOptions {
    * independent runtimes in one process should pass an instance-scoped
    * {@link ProcessRegistry} so `killAll` is scoped to the embedder.
    */
-  processRegistry?: ProcessRegistry;
+  processRegistry: ProcessRegistry;
 }
 
 /** Terminal state of the OpenCode server subprocess. */
@@ -197,7 +197,7 @@ export async function openOpenCodeSession(
   });
 
   const process = cmd.spawn();
-  const registry = opts.processRegistry ?? defaultRegistry;
+  const registry = opts.processRegistry;
   registry.register(process);
 
   let readyResolve: (() => void) | null = null;

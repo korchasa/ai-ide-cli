@@ -16,7 +16,7 @@ import type {
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
-import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry } from "../process-registry.ts";
 import {
   type CursorAssistantEvent,
   type CursorLifecycleHooks,
@@ -296,7 +296,7 @@ async function executeCursorProcess(
   onEvent?: (event: Record<string, unknown>) => void,
   userSignal?: AbortSignal,
   hooks?: RuntimeLifecycleHooks,
-  processRegistry?: ProcessRegistry,
+  processRegistry: ProcessRegistry,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   cursorHooks?: CursorLifecycleHooks,
 ): Promise<CliRunOutput> {
@@ -310,7 +310,7 @@ async function executeCursorProcess(
   });
 
   const process = cmd.spawn();
-  const registry = processRegistry ?? defaultRegistry;
+  const registry = processRegistry;
   registry.register(process);
 
   try {
