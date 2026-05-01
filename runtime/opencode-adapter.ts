@@ -20,6 +20,7 @@ import {
 } from "./capabilities.ts";
 import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
+import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -181,12 +182,14 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
         args.push("--system-prompt", opts.systemPrompt);
       }
 
+      // FR-L33: sync env.PWD with cwd at the spawn boundary.
+      const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;
       const cmd = new Deno.Command("opencode", {
         args,
         stdin: "inherit",
         stdout: "inherit",
         stderr: "inherit",
-        env,
+        env: syncedEnv,
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
       });
 

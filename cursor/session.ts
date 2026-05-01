@@ -48,6 +48,7 @@ import {
   safeInvokeCallback,
 } from "../runtime/callback-safety.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
+import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import type { ProcessRegistry } from "../process-registry.ts";
 import { CURSOR_RESERVED_FLAGS } from "./process.ts";
@@ -236,13 +237,15 @@ export async function createCursorChat(
   opts: CreateCursorChatOptions,
 ): Promise<string> {
   const timeoutMs = (opts.timeoutSeconds ?? 30) * 1000;
+  // FR-L33: sync env.PWD with cwd at the spawn boundary.
+  const syncedEnv = withSyncedPWD(opts.env, opts.cwd);
   const cmd = new Deno.Command("cursor", {
     args: ["agent", "create-chat"],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
-    ...(opts.env ? { env: opts.env } : {}),
+    ...(syncedEnv ? { env: syncedEnv } : {}),
     signal: AbortSignal.timeout(timeoutMs),
   });
   const proc = cmd.spawn();
@@ -357,12 +360,14 @@ export async function openCursorSession(
       cursorArgs: opts.cursorArgs,
     });
 
+    // FR-L33: sync env.PWD with cwd at the spawn boundary.
+    const syncedEnv = withSyncedPWD(opts.env, opts.cwd);
     const proc = new Deno.Command("cursor", {
       args,
       stdin: "null",
       stdout: "piped",
       stderr: "piped",
-      ...(opts.env ? { env: opts.env } : {}),
+      ...(syncedEnv ? { env: syncedEnv } : {}),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
     }).spawn();
 

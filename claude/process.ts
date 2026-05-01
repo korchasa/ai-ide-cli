@@ -19,6 +19,7 @@ import type { CliRunOutput, Verbosity } from "../types.ts";
 import type { ExtraArgsMap, RuntimeInvokeResult } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
+import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import {
   type ReasoningEffort,
   validateReasoningEffort,
@@ -360,12 +361,14 @@ async function executeClaudeProcess(
   // Unset CLAUDECODE to allow nested claude CLI invocations.
   // Claude Code checks this variable and refuses to launch inside another session.
   // Deno.Command merges env with parent, so setting empty string overrides it.
+  // FR-L33: sync env.PWD with cwd at the spawn boundary.
+  const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;
   const cmd = new Deno.Command("claude", {
     args,
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    env,
+    env: syncedEnv,
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
   });
 

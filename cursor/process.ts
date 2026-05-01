@@ -16,6 +16,7 @@ import type {
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
+import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import type { ProcessRegistry } from "../process-registry.ts";
 import {
   type CursorAssistantEvent,
@@ -300,12 +301,14 @@ async function executeCursorProcess(
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   cursorHooks?: CursorLifecycleHooks,
 ): Promise<CliRunOutput> {
+  // FR-L33: sync env.PWD with cwd at the spawn boundary.
+  const syncedEnv = withSyncedPWD(env, cwd);
   const cmd = new Deno.Command("cursor", {
     args,
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    ...(env ? { env } : {}),
+    ...(syncedEnv ? { env: syncedEnv } : {}),
     ...(cwd ? { cwd } : {}),
   });
 

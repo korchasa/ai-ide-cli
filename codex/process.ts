@@ -66,6 +66,7 @@ import {
   type OnCallbackError,
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
+import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import type { ProcessRegistry } from "../process-registry.ts";
 import {
   type CodexExecEvent,
@@ -205,12 +206,14 @@ async function executeCodexProcess(
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   onCallbackError?: OnCallbackError,
 ): Promise<CliRunOutput> {
+  // FR-L33: sync env.PWD with cwd at the spawn boundary.
+  const syncedEnv = withSyncedPWD(env, cwd);
   const cmd = new Deno.Command("codex", {
     args,
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
-    ...(env ? { env } : {}),
+    ...(syncedEnv ? { env: syncedEnv } : {}),
     ...(cwd ? { cwd } : {}),
   });
 

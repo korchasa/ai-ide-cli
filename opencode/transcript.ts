@@ -5,6 +5,8 @@
  * result instead of swallowing the error (FR-L32).
  */
 
+import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+
 /**
  * Result of {@link exportOpenCodeTranscript}. Exactly one of `path` or
  * `error` is populated:
@@ -49,13 +51,15 @@ export async function exportOpenCodeTranscript(
   const args = ["export", sessionId];
   if (opts?.sanitize) args.push("--sanitize");
   try {
+    // FR-L33: sync env.PWD with cwd at the spawn boundary.
+    const syncedEnv = withSyncedPWD(opts?.env, opts?.cwd);
     const cmd = new Deno.Command("opencode", {
       args,
       stdin: "null",
       stdout: "piped",
       stderr: "piped",
       ...(opts?.cwd ? { cwd: opts.cwd } : {}),
-      ...(opts?.env ? { env: opts.env } : {}),
+      ...(syncedEnv ? { env: syncedEnv } : {}),
       ...(opts?.signal ? { signal: opts.signal } : {}),
     });
     const { success, code, stdout, stderr } = await cmd.output();

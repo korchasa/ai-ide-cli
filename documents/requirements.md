@@ -1505,6 +1505,54 @@ stable — never renumber on move.
         Linux CLI; manual run via `e2e.yml`). Evidence:
         `ai-ide-cli/.github/workflows/ci-e2e.yml`.
 
+### 3.32 FR-L33: Sync `PWD` Env Var With Subprocess `cwd`
+
+- **Description:** Every adapter spawn site that accepts `cwd` routes
+  the subprocess `env` through `withSyncedPWD(env, cwd)` from
+  `runtime/env-cwd-sync.ts`. The helper returns a new env with
+  `PWD = resolve(cwd)` whenever `cwd` is supplied and the caller did
+  not pre-populate `env.PWD`. When `cwd` is absent, `env` is returned
+  unchanged (inherited `PWD` is correct by definition). When the
+  caller explicitly passed `env.PWD`, caller intent wins. Pure: never
+  mutates the input env, never throws.
+- **Motivation:** `Deno.Command({cwd, env})` updates the kernel-level
+  cwd via `chdir(2)` but leaves `env.PWD` inherited from the parent
+  process. Tools inside spawned IDE binaries that resolve relative
+  paths against `$PWD` (instead of `getcwd(2)`) then operate on the
+  wrong directory. In `@korchasa/flowai-workflow` runs this surfaces
+  as cross-worktree file leaks: the engine spawns opencode with
+  `cwd = <per-run worktree>` while `PWD = <consumer repo root>` flows
+  in from the user shell. opencode's file-write tools resolve against
+  `$PWD` and write into the consumer repo; `git add && git commit`
+  (which uses `getcwd(2)`) operates on the worktree. The FR-E50 leak
+  guardrail then fires on diverged state. POSIX leaves `$PWD` ↔
+  kernel-cwd consistency to the shell — anyone calling `posix_spawn`
+  must keep them in sync explicitly.
+- **Scenario:** A consumer invokes any adapter with
+  `opts.cwd = "/some/worktree"` and no `opts.env.PWD`. The spawned
+  child process observes `PWD=/some/worktree` (absolute, even if
+  `opts.cwd` was relative). If the consumer instead passes
+  `opts.env.PWD = "/explicit/override"`, the child observes that
+  exact value. If the consumer passes no `cwd`, no `PWD` is injected.
+- **Acceptance:**
+  - [x] `runtime/env-cwd-sync.ts` exports
+        `withSyncedPWD(env, cwd): env` with the four documented
+        branches (cwd undefined → no-op; env.PWD set → no-op;
+        env undefined + cwd set → `{PWD}`; env set + cwd set →
+        merged). Evidence: `// FR-L33` traceability comment above
+        the export.
+  - [x] Every `new Deno.Command(...)` site that takes `cwd` in the
+        adapter dirs (`claude/`, `opencode/`, `codex/`, `cursor/`)
+        and the runtime dispatchers (`runtime/claude-adapter.ts`,
+        `runtime/opencode-adapter.ts`, `runtime/codex-adapter.ts`)
+        routes `env` through `withSyncedPWD`. Evidence: `// FR-L33`
+        traceability comments at every call site.
+  - [x] `runtime/env-cwd-sync_test.ts` covers all four branches
+        plus a relative-cwd → absolute-PWD case, an integration
+        smoke that spawns `bash -c 'echo "$PWD"'` and asserts the
+        child observes the resolved tmpDir. Evidence:
+        `ai-ide-cli/runtime/env-cwd-sync_test.ts`.
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

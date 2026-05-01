@@ -36,6 +36,7 @@
  */
 
 import type { ProcessRegistry } from "../process-registry.ts";
+import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import type { CodexUntypedNotification } from "./events.ts";
 
 /**
@@ -293,12 +294,14 @@ export class CodexAppServerClient {
       }
     }
     const args = ["app-server", ...extra, "--listen", "stdio://"];
+    // FR-L33: sync env.PWD with cwd at the spawn boundary.
+    const syncedEnv = withSyncedPWD(opts.env, opts.cwd);
     const cmd = new Deno.Command(opts.binary ?? "codex", {
       args,
       stdin: "piped",
       stdout: "piped",
       stderr: "piped",
-      ...(opts.env ? { env: opts.env } : {}),
+      ...(syncedEnv ? { env: syncedEnv } : {}),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
     });
     const process = cmd.spawn();

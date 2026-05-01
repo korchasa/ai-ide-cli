@@ -28,6 +28,7 @@ import {
 } from "../runtime/callback-safety.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
+import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import {
   type ReasoningEffort,
   validateReasoningEffort,
@@ -278,12 +279,14 @@ export async function openClaudeSession(
     env = { ...env, CLAUDE_CONFIG_DIR: prepared.tmpDir };
   }
 
+  // FR-L33: sync env.PWD with cwd at the spawn boundary.
+  const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;
   const cmd = new Deno.Command("claude", {
     args,
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
-    env,
+    env: syncedEnv,
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
   });
 

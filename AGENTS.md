@@ -70,6 +70,10 @@ import this package to invoke IDE CLIs uniformly.
   - `runtime/callback-safety.ts` — `safeInvokeCallback` /
     `safeAwaitCallback` + `OnCallbackError` routed sink for consumer
     callbacks (FR-L32).
+  - `runtime/env-cwd-sync.ts` — `withSyncedPWD(env, cwd)` pure helper
+    that syncs `env.PWD` with subprocess `cwd` at every adapter spawn
+    site so child processes see a `PWD` matching the kernel-level cwd
+    (FR-L33).
 - `claude/process.ts`, `claude/stream.ts`, `claude/session.ts` — Claude CLI
   invocation, streaming output parser, and streaming-input session.
   - `claude/permission-mode.ts` — Claude `--permission-mode` enum +

@@ -28,6 +28,7 @@ import {
   type OnCallbackError,
   safeInvokeCallback,
 } from "../runtime/callback-safety.ts";
+import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import type { ReasoningEffort } from "../runtime/reasoning-effort.ts";
 
 /** Parsed SSE event from the OpenCode server's `/event` endpoint. */
@@ -187,12 +188,14 @@ export async function openOpenCodeSession(
 
   const env: Record<string, string> = { ...(opts.env ?? {}) };
 
+  // FR-L33: sync env.PWD with cwd at the spawn boundary.
+  const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;
   const cmd = new Deno.Command("opencode", {
     args: ["serve", "--hostname", hostname, "--port", String(port)],
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    env,
+    env: syncedEnv,
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
   });
 

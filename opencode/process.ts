@@ -35,6 +35,7 @@ import {
   type OnCallbackError,
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
+import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { buildOpenCodeArgs, buildOpenCodeConfigContent } from "./argv.ts";
 import {
   extractHitlRequestFromEvent,
@@ -170,12 +171,14 @@ async function executeOpenCodeProcess(
   if (configContent) {
     processEnv.OPENCODE_CONFIG_CONTENT = configContent;
   }
+  // FR-L33: sync env.PWD with cwd at the spawn boundary.
+  const syncedEnv = withSyncedPWD(processEnv, cwd) ?? processEnv;
   const cmd = new Deno.Command("opencode", {
     args,
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    ...(Object.keys(processEnv).length > 0 ? { env: processEnv } : {}),
+    ...(Object.keys(syncedEnv).length > 0 ? { env: syncedEnv } : {}),
     ...(cwd ? { cwd } : {}),
   });
 

@@ -56,6 +56,9 @@ ai-ide-cli/
     reasoning-effort.ts — validateReasoningEffort(runtime, opts): shared
                           typed reasoning-effort validation + enum
                           (FR-L25)
+    env-cwd-sync.ts     — withSyncedPWD(env, cwd): pure helper that syncs
+                          env.PWD with subprocess cwd at the spawn boundary
+                          (FR-L33)
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
@@ -980,6 +983,26 @@ via the `initialize` handshake (visible in Codex logs).
 
 Handshake failure tears down the subprocess (`abort` → `await done`) so
 callers never see a zombie process on rejection.
+
+### 3.12.5 `runtime/env-cwd-sync.ts` — Subprocess `PWD` Sync (FR-L33)
+
+Pure helper: `withSyncedPWD(env, cwd) → env`. Returns `env` unchanged
+when `cwd` is `undefined` or when the caller already supplied
+`env.PWD`; otherwise returns `{ ...env, PWD: resolve(cwd) }`. Imported
+at every adapter spawn site that accepts `cwd`
+(`runtime/{claude,opencode,codex}-adapter.ts`,
+`claude/{process,session}.ts`,
+`opencode/{process,session,transcript}.ts`,
+`codex/{process,app-server}.ts`,
+`cursor/{process,session}.ts`). Marked with a `// FR-L33` traceability
+comment at every call site.
+
+`Deno.Command({cwd, env})` updates the kernel-level cwd via `chdir(2)`
+but leaves `env.PWD` inherited from the parent process. Tools inside
+the spawned IDE binary that resolve relative paths against `$PWD`
+(instead of `getcwd(2)`) then operate on the wrong directory. The
+helper closes that gap at the spawn boundary without mutating
+`Deno.env` (would race across concurrent sessions).
 
 ### 3.13 `e2e/` — Real-Binary Test Suite (FR-L31)
 

@@ -27,6 +27,7 @@ import {
   type FetchCapabilitiesOptions,
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
+import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -238,12 +239,14 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
         args.push("--append-system-prompt", opts.systemPrompt);
       }
 
+      // FR-L33: sync env.PWD with cwd at the spawn boundary.
+      const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;
       const cmd = new Deno.Command("claude", {
         args,
         stdin: "inherit",
         stdout: "inherit",
         stderr: "inherit",
-        env,
+        env: syncedEnv,
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
       });
 

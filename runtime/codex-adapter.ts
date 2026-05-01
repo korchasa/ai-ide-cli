@@ -16,6 +16,7 @@ import {
 } from "./capabilities.ts";
 import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
+import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -176,12 +177,14 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
         );
       }
 
+      // FR-L33: sync env.PWD with cwd at the spawn boundary.
+      const syncedEnv = withSyncedPWD(opts.env, opts.cwd);
       const cmd = new Deno.Command("codex", {
         args,
         stdin: "inherit",
         stdout: "inherit",
         stderr: "inherit",
-        ...(opts.env ? { env: opts.env } : {}),
+        ...(syncedEnv ? { env: syncedEnv } : {}),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
       });
 
