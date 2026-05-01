@@ -34,6 +34,10 @@ import this package to invoke IDE CLIs uniformly.
 - `types.ts` — shared runtime identifiers and value types.
 - `runtime/` — runtime adapter abstraction (`getRuntimeAdapter`, per-runtime
   adapters for Claude / OpenCode / Cursor / Codex), plus:
+  - `runtime/argv.ts` — cycle-free leaf module exporting `expandExtraArgs`;
+    every `<runtime>/process.ts` and `<runtime>/session.ts` imports the
+    helper from here so the `runtime/index.ts` ↔ `*-adapter.ts` cycle stays
+    broken (`runtime/index.ts` re-exports it for the public API).
   - `runtime/event-queue.ts` — shared `SessionEventQueue<T>` backing every
     `session.events` iterable.
   - `runtime/session-adapter.ts` — shared `adaptRuntimeSession` /

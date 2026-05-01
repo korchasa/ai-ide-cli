@@ -16,7 +16,7 @@ import type { ProcessRegistry } from "../process-registry.ts";
 /**
  * Map-shaped extra CLI arguments.
  *
- * Value semantics (matches {@link import("./index").expandExtraArgs}):
+ * Value semantics (matches {@link import("./argv").expandExtraArgs}):
  * - `""` (empty string) emits a bare boolean flag — `--key`.
  * - any other string emits a key/value pair — `--key value`.
  * - `null` suppresses the flag (useful when a downstream cascade level
@@ -156,7 +156,7 @@ export interface RuntimeInvokeOptions {
    * Map-shape: `{ "--flag": "value" }`, `{ "--bool": "" }` (boolean flag),
    * `{ "--inherited": null }` (suppress a flag set by a parent cascade
    * level). See {@link ExtraArgsMap} for exact semantics and
-   * {@link import("./index").expandExtraArgs} for the expansion rules.
+   * {@link import("./argv").expandExtraArgs} for the expansion rules.
    *
    * Each runtime reserves the flags it emits itself (e.g. Claude reserves
    * `--output-format`, `--verbose`, `-p`, `--resume`, …). Passing a

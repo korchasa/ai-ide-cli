@@ -17,7 +17,7 @@
 
 import type { CliRunOutput, Verbosity } from "../types.ts";
 import type { ExtraArgsMap, RuntimeInvokeResult } from "../runtime/types.ts";
-import { expandExtraArgs } from "../runtime/index.ts";
+import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import {
   type ReasoningEffort,

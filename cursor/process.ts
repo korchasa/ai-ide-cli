@@ -15,7 +15,7 @@ import type {
   RuntimeLifecycleHooks,
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
-import { expandExtraArgs } from "../runtime/index.ts";
+import { expandExtraArgs } from "../runtime/argv.ts";
 import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import {
   type CursorAssistantEvent,

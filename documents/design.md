@@ -223,9 +223,19 @@ embedder.
   `runtime_args` from all cascade levels last-writer-wins. `null` survives
   the merge and suppresses the flag at expansion time. Model and
   `permissionMode` use first-defined-wins (node > parent > defaults).
+- Re-exports `expandExtraArgs` from `runtime/argv.ts` to preserve the
+  long-standing public API surface in `mod.ts`.
+
+**`runtime/argv.ts`:**
+
 - `expandExtraArgs(map, reserved?)` — flattens `ExtraArgsMap` into argv.
   Value semantics: `""` → bare flag; any other string → `--key value`;
   `null` → drop. Throws synchronously on reserved keys.
+- Cycle-free leaf module: imports only `ExtraArgsMap` from `./types.ts`,
+  nothing from `<runtime>/*` or `*-adapter.ts`. Exists so adapter
+  `process.ts` / `session.ts` modules can pull the helper without
+  re-entering `runtime/index.ts` and tripping a TDZ on `ADAPTERS` when
+  any `*-adapter.ts` is loaded as the direct entry point.
 
 **`runtime/setting-sources.ts`:**
 

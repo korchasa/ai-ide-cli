@@ -10,6 +10,11 @@ import { codexRuntimeAdapter } from "./codex-adapter.ts";
 import { cursorRuntimeAdapter } from "./cursor-adapter.ts";
 import { opencodeRuntimeAdapter } from "./opencode-adapter.ts";
 
+// `expandExtraArgs` lives in `argv.ts` (cycle-free leaf module) so adapter
+// modules can import it without re-entering this file's `ADAPTERS` record.
+// Re-exported here to preserve the long-standing public API surface.
+export { expandExtraArgs } from "./argv.ts";
+
 const ADAPTERS: Record<RuntimeId, RuntimeAdapter> = {
   claude: claudeRuntimeAdapter,
   opencode: opencodeRuntimeAdapter,
@@ -20,42 +25,6 @@ const ADAPTERS: Record<RuntimeId, RuntimeAdapter> = {
 /** Return the adapter implementation for the given runtime ID. */
 export function getRuntimeAdapter(runtime: RuntimeId): RuntimeAdapter {
   return ADAPTERS[runtime];
-}
-
-/**
- * Expand an {@link ExtraArgsMap} into a flat argv array.
- *
- * Value semantics:
- * - `""` (empty string) emits a bare boolean flag: `--key`.
- * - any other string emits a key/value pair: `--key value`.
- * - `null` suppresses the flag entirely — useful when a downstream cascade
- *   level wants to override a parent-provided value.
- *
- * Insertion order follows `Object.entries()` which in turn reflects the
- * insertion order of the source map — stable across runs for fixed inputs.
- *
- * When `reserved` is supplied and the map contains any of the reserved
- * keys, the helper throws synchronously: those flags are emitted by the
- * runtime adapter itself and must not be duplicated or overridden via
- * `extraArgs`.
- */
-export function expandExtraArgs(
-  map?: ExtraArgsMap,
-  reserved?: readonly string[],
-): string[] {
-  if (!map) return [];
-  if (reserved) {
-    for (const key of reserved) {
-      if (key in map) {
-        throw new Error(
-          `extraArgs key "${key}" is reserved by the runtime adapter`,
-        );
-      }
-    }
-  }
-  return Object.entries(map).flatMap(([k, v]) =>
-    v === null ? [] : v === "" ? [k] : [k, v]
-  );
 }
 
 /**

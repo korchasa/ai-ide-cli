@@ -40,7 +40,7 @@ import {
   SessionAbortedError,
   SessionInputClosedError,
 } from "../runtime/types.ts";
-import { expandExtraArgs } from "../runtime/index.ts";
+import { expandExtraArgs } from "../runtime/argv.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import { defaultRegistry, type ProcessRegistry } from "../process-registry.ts";
 import { CURSOR_RESERVED_FLAGS } from "./process.ts";

@@ -26,7 +26,7 @@ import type {
   RuntimeLifecycleHooks,
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
-import { expandExtraArgs } from "../runtime/index.ts";
+import { expandExtraArgs } from "../runtime/argv.ts";
 
 /**
  * Flags reserved by {@link buildOpenCodeArgs}. Keys in `extraArgs` that
