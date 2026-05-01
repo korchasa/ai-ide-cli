@@ -101,6 +101,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     capabilityInventory: true,
     toolFilter: true,
     reasoningEffort: true,
+    sessionFidelity: "native",
   },
   async invoke(opts) {
     // Translate runtime-neutral onToolUseObserved into the Claude-specific

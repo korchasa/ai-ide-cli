@@ -114,6 +114,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     capabilityInventory: true,
     toolFilter: false,
     reasoningEffort: true,
+    sessionFidelity: "native",
   },
   invoke(opts) {
     validateToolFilter("opencode", opts);

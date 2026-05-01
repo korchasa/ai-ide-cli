@@ -108,6 +108,12 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     capabilityInventory: true,
     toolFilter: false,
     reasoningEffort: false,
+    // Cursor CLI has no streaming-input transport; `openCursorSession`
+    // emulates a session by spawning a fresh `cursor agent -p --resume`
+    // subprocess per send. See `cursor/session.ts` and the
+    // "Emulated session caveat" block on `RuntimeSession`'s JSDoc for
+    // the contract deviations consumers must handle.
+    sessionFidelity: "emulated",
   },
   invoke(opts) {
     validateToolFilter("cursor", opts);

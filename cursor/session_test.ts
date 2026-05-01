@@ -5,6 +5,7 @@ import {
   type CursorSessionOptions,
   openCursorSession,
 } from "./session.ts";
+import { SessionDeliveryError } from "../runtime/types.ts";
 
 // --- buildCursorSendArgs ---
 
@@ -351,6 +352,78 @@ Deno.test("openCursorSession — first send merges systemPrompt", async () => {
     } finally {
       await Deno.remove(dir, { recursive: true });
     }
+  });
+});
+
+Deno.test("openCursorSession — onSendFailed fires with SessionDeliveryError on subprocess failure", async () => {
+  await withStubCursor(async () => {
+    // Stub script that exits non-zero; the worker should:
+    //   (1) build a SessionDeliveryError
+    //   (2) invoke onSendFailed(err, originalMessage)
+    //   (3) still push the synthetic {type:"error",subtype:"send_failed"} event
+    const sendScript = `
+echo "boom" >&2
+exit 17
+`;
+    const captured: { err: Error; message: string }[] = [];
+    const session = await openCursorSession(makeOpts({
+      env: { STUB_CHAT_ID: "chat-A", STUB_SEND_SCRIPT: sendScript },
+      onSendFailed: (err, message) => {
+        captured.push({ err, message });
+      },
+    }));
+    const events: { type: string; subtype?: unknown }[] = [];
+    const collector = (async () => {
+      for await (const event of session.events) {
+        const evRecord = event as Record<string, unknown>;
+        events.push({ type: event.type, subtype: evRecord.subtype });
+        if (event.type === "error" && evRecord.subtype === "send_failed") break;
+      }
+    })();
+    await session.send("hello");
+    await session.endInput();
+    await collector;
+    await session.done;
+
+    assertEquals(captured.length, 1, "callback must fire exactly once");
+    assert(
+      captured[0].err instanceof SessionDeliveryError,
+      `expected SessionDeliveryError, got ${captured[0].err.constructor.name}`,
+    );
+    assertEquals(captured[0].err.runtime, "cursor");
+    assert(
+      /code 17/.test(captured[0].err.message),
+      `expected exit code in message, got: ${captured[0].err.message}`,
+    );
+    assertEquals(captured[0].message, "hello");
+    // Synthetic event still surfaces — back-compat invariant.
+    assert(
+      events.some((e) => e.type === "error" && e.subtype === "send_failed"),
+      "expected synthetic send_failed event to remain on the stream",
+    );
+  });
+});
+
+Deno.test("openCursorSession — onSendFailed swallows consumer exceptions", async () => {
+  await withStubCursor(async () => {
+    const sendScript = `exit 9`;
+    const session = await openCursorSession(makeOpts({
+      env: { STUB_CHAT_ID: "chat-A", STUB_SEND_SCRIPT: sendScript },
+      onSendFailed: () => {
+        throw new Error("consumer bug");
+      },
+    }));
+    const collector = (async () => {
+      for await (const event of session.events) {
+        const evRecord = event as Record<string, unknown>;
+        if (event.type === "error" && evRecord.subtype === "send_failed") break;
+      }
+    })();
+    await session.send("payload");
+    await session.endInput();
+    await collector;
+    await session.done;
+    // No assertion needed — the test passes iff the worker does not crash.
   });
 });
 

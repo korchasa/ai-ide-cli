@@ -77,6 +77,24 @@ export interface RuntimeCapabilities {
    * `"low"`). See FR-L25.
    */
   reasoningEffort: boolean;
+  /**
+   * Backing-transport fidelity for {@link RuntimeAdapter.openSession}.
+   *
+   * - `"native"` — adapter wraps a real long-lived streaming-input
+   *   transport: stdin pipe (Claude), HTTP server (OpenCode), or
+   *   JSON-RPC over stdio (Codex app-server). One subprocess for the
+   *   whole session.
+   * - `"emulated"` — adapter fakes a session by spawning a fresh
+   *   subprocess per send and queueing requests. Currently only Cursor
+   *   (via `cursor agent -p --resume <chatId> <message>`). The
+   *   {@link RuntimeSession} contract still holds, but the deviations
+   *   listed under "Emulated session caveat" on {@link RuntimeSession}
+   *   apply.
+   *
+   * Omitted ⇒ treat as `"native"` (preserves API stability for any
+   * out-of-tree adapter that has not yet adopted the field).
+   */
+  sessionFidelity?: "native" | "emulated";
 }
 
 /**
@@ -496,6 +514,30 @@ export interface RuntimeSessionStatus {
  * Runtime-specific handles (e.g. `ClaudeSession`, `CursorSession`) may
  * expose additional fields such as `pid` or a runtime-native id alias
  * (`chatId`, `threadId`); cast to the concrete type when you need them.
+ *
+ * ## Emulated session caveat
+ *
+ * Adapters whose {@link RuntimeCapabilities.sessionFidelity} is
+ * `"emulated"` (currently only Cursor — see
+ * {@link import("../cursor/session.ts").CursorSession}) preserve the
+ * neutral lifecycle but deviate from "native" sessions in three ways
+ * that consumers of the neutral handle must be aware of:
+ *
+ * 1. **`send()` returns before the transport accepts the message.** A
+ *    fresh subprocess is spawned per send and the worker queue
+ *    serializes them; `send()` resolves on enqueue, not on subprocess
+ *    spawn. Per-turn delivery failures therefore cannot reject `send`
+ *    after the fact — they surface on the event stream (Cursor:
+ *    synthetic `{type:"error",subtype:"send_failed"}` plus a
+ *    runtime-specific callback such as
+ *    {@link import("../cursor/session.ts").CursorSessionOptions.onSendFailed}).
+ * 2. **`model` is silently ignored.** Cursor's `--resume` does not
+ *    accept `--model`, so any model selection at session-open time has
+ *    no effect on the underlying chat.
+ * 3. **`systemPrompt` only applies to the first message of newly
+ *    created chats.** It is merged into that message's text; resumed
+ *    chats already carry the original system prompt and the field is
+ *    dropped.
  */
 export interface RuntimeSession {
   /** Runtime that owns this session. */

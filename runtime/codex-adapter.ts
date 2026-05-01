@@ -109,6 +109,7 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     capabilityInventory: true,
     toolFilter: false,
     reasoningEffort: true,
+    sessionFidelity: "native",
   },
   invoke(opts) {
     validateToolFilter("codex", opts);

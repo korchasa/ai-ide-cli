@@ -197,6 +197,27 @@ Deno.test("RuntimeSession contract — all four adapters advertise session capab
   }
 });
 
+Deno.test("RuntimeSession contract — sessionFidelity is advertised per adapter", () => {
+  // Cursor is the only emulated session today (per-send subprocess via
+  // `cursor agent -p --resume`); every other adapter wraps a real
+  // streaming-input transport. Consumers branch on this flag instead of
+  // hard-coding runtime names.
+  const expected: Record<string, "native" | "emulated"> = {
+    claude: "native",
+    opencode: "native",
+    codex: "native",
+    cursor: "emulated",
+  };
+  for (const runtime of ["claude", "opencode", "cursor", "codex"] as const) {
+    const adapter = getRuntimeAdapter(runtime);
+    assertEquals(
+      adapter.capabilities.sessionFidelity,
+      expected[runtime],
+      `${runtime} must advertise sessionFidelity=${expected[runtime]}`,
+    );
+  }
+});
+
 Deno.test("RuntimeSession contract — synthetic turn-end is emitted after native result", async () => {
   // FR-L session-turn-end: every adapter emits exactly one synthetic
   // turn-end event after the runtime signals readiness for the next input.

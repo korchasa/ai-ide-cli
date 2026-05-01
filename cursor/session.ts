@@ -19,9 +19,11 @@
  *
  * - `send(content)` returns **immediately** after the message is enqueued.
  *   The actual subprocess spawn happens asynchronously on the worker. Per-turn
- *   failures surface as a synthetic `{type:"error",subtype:"send_failed"}`
- *   event on the event stream and through `done.exitCode`, not as a rejected
- *   `send` promise.
+ *   failures surface (a) as a synthetic
+ *   `{type:"error",subtype:"send_failed"}` event on the event stream,
+ *   (b) through `done.exitCode`, and (c) — when the consumer opts in — via
+ *   {@link CursorSessionOptions.onSendFailed} with a typed
+ *   {@link SessionDeliveryError}; not as a rejected `send` promise.
  * - `endInput()` signals "no more sends" and returns promptly. The worker
  *   drains any remaining queued sends, then closes the event stream. Full
  *   shutdown is observable via `await session.done`.
@@ -38,6 +40,7 @@
 import {
   type ExtraArgsMap,
   SessionAbortedError,
+  SessionDeliveryError,
   SessionInputClosedError,
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
@@ -81,6 +84,24 @@ export interface CursorSessionOptions {
   onEvent?: (event: CursorStreamEvent) => void;
   /** Fires for every decoded stderr line across all send subprocesses. */
   onStderr?: (line: string) => void;
+  /**
+   * Fires once per per-turn subprocess that exits non-zero (and was not
+   * aborted). The `err` argument is a {@link SessionDeliveryError} whose
+   * `cause` carries the underlying spawn/exit-code error and whose
+   * `runtime` is `"cursor"`; `message` is the original text the
+   * consumer passed to {@link CursorSession.send} (correlation hook —
+   * the synthetic event on the stream does not carry it).
+   *
+   * Provided so consumers can opt into a typed `SessionDeliveryError`
+   * notification path without polling the synthetic
+   * `{type:"error",subtype:"send_failed"}` event. The synthetic event
+   * is still pushed afterwards, preserving back-compat for existing
+   * stream-watching consumers.
+   *
+   * Consumer exceptions are swallowed (`onSendFailed` is a notification
+   * hook, mirroring the contract of {@link onEvent} / {@link onStderr}).
+   */
+  onSendFailed?: (err: SessionDeliveryError, message: string) => void;
   /**
    * Optional process registry that owns this session's send subprocesses.
    * When omitted, the module-level default registry is used, preserving
@@ -145,10 +166,11 @@ export interface CursorSession {
    * spawn or complete. Rejects with {@link SessionInputClosedError} after
    * {@link endInput} or {@link SessionAbortedError} after {@link abort}.
    * Per-turn subprocess failures surface as a synthetic
-   * `{type:"error",subtype:"send_failed"}` event on the event stream, not
-   * as a rejected promise — the CLI's exit code is not a
-   * {@link SessionDeliveryError} because the send itself (i.e. enqueueing
-   * the message) already succeeded.
+   * `{type:"error",subtype:"send_failed"}` event on the event stream and,
+   * when supplied, via {@link CursorSessionOptions.onSendFailed} (typed
+   * {@link SessionDeliveryError}). They do NOT reject this promise: the
+   * send itself (i.e. enqueueing the message) already succeeded by the
+   * time `send` returns; only later subprocess execution failed.
    */
   send(content: string): Promise<void>;
   /**
@@ -381,13 +403,29 @@ export async function openCursorSession(
           await runSingleSend(message);
         } catch (err) {
           if (!aborted) {
-            // Surface as a synthetic event so consumers see per-turn failures
-            // without a per-send reject. `done` also reflects last exit code.
+            // Surface the failure two ways:
+            //   1. Typed callback: consumers that opt into the
+            //      `SessionDeliveryError`-shaped contract get a
+            //      synchronous notification with the original message
+            //      for correlation.
+            //   2. Synthetic event: legacy back-compat path — keeps
+            //      stream-watching consumers working unchanged.
+            const cause = err instanceof Error ? err : new Error(String(err));
+            const deliveryErr = new SessionDeliveryError(
+              "cursor",
+              cause.message,
+              { cause },
+            );
+            try {
+              opts.onSendFailed?.(deliveryErr, message);
+            } catch {
+              // Notification hook — swallow consumer errors, same as `onEvent`.
+            }
             queue.push({
               type: "error",
               subtype: "send_failed",
               runtime: "cursor",
-              error: (err as Error).message,
+              error: cause.message,
               synthetic: true,
             });
           }

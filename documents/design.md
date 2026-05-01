@@ -158,7 +158,10 @@ embedder.
 
 - `RuntimeCapabilities` — feature flags per adapter: `permissionMode`, `hitl`,
   `transcript`, `interactive`, `toolUseObservation`, `session`,
-  `capabilityInventory`, `toolFilter`.
+  `capabilityInventory`, `toolFilter`, `reasoningEffort`,
+  `sessionFidelity?: "native" | "emulated"` (omitted ⇒ `"native"`).
+  Cursor advertises `"emulated"` because `openCursorSession` spawns a
+  fresh subprocess per send; every other adapter advertises `"native"`.
 - `RuntimeInvokeOptions` — normalized invocation options: `taskPrompt`,
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
@@ -612,14 +615,24 @@ alias are exposed on the concrete `CursorSession` handle. `send(content)`
 **enqueues and returns immediately** — it does not wait for the
 subprocess to spawn or complete. Rejects with typed `SessionError`
 subclasses: `SessionAbortedError` / `SessionInputClosedError` (no
-`SessionDeliveryError` — per-turn subprocess failures are surfaced as
-synthetic events, not rejected sends). The worker spawns one
-`cursor agent -p --resume <id> <msg>` subprocess per dequeued item,
+`SessionDeliveryError` from `send` itself — per-turn subprocess failures
+are surfaced asynchronously, not as rejected sends). The worker spawns
+one `cursor agent -p --resume <id> <msg>` subprocess per dequeued item,
 streams its NDJSON output into the shared event queue, and waits for exit
-before processing the next. Per-turn subprocess failures emit a synthetic
-`{type:"error", subtype:"send_failed", runtime:"cursor", error:…,
-synthetic:true}` event on the event stream; the last exit code is also
-reflected on `done`. The neutral `adaptRuntimeSession` wrapper adds one
+before processing the next. Per-turn subprocess failures surface three
+ways: (a) a synthetic `{type:"error", subtype:"send_failed",
+runtime:"cursor", error:…, synthetic:true}` event on the event stream;
+(b) the last exit code reflected on `done`; (c) the typed
+`onSendFailed?: (err: SessionDeliveryError, message: string) => void`
+callback on `CursorSessionOptions` — fired once per failed subprocess
+with a `SessionDeliveryError` whose `cause` carries the underlying error
+and whose `runtime` is `"cursor"`. The callback runs before the
+synthetic event is pushed; consumer exceptions are swallowed (mirrors
+the contract of `onEvent` / `onStderr`). The session advertises
+`capabilities.sessionFidelity = "emulated"` so cross-runtime consumers
+can branch on the deviation listed under "Emulated session caveat" on
+`RuntimeSession`'s JSDoc (synchronous `send` enqueue, dropped `model`,
+first-message `systemPrompt` only). The neutral `adaptRuntimeSession` wrapper adds one
 synthetic `turn-end` event after each per-turn subprocess's native
 `result` via the shared `isTurnEnd` predicate (FR-L21). `pid` is a
 getter returning the active subprocess PID or `0` while idle (concrete

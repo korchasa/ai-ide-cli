@@ -65,8 +65,10 @@ stable — never renumber on move.
         `launchInteractive()`, optional `openSession()` (see FR-L19). Evidence:
         `ai-ide-cli/runtime/types.ts`.
   - [x] `RuntimeCapabilities` flags: `permissionMode`, `hitl`, `transcript`,
-        `interactive`, `toolUseObservation`, `session`. Evidence:
-        `ai-ide-cli/runtime/types.ts`.
+        `interactive`, `toolUseObservation`, `session`,
+        `sessionFidelity?: "native" | "emulated"` (omitted ⇒ `"native"`;
+        Cursor advertises `"emulated"`, every other adapter `"native"`).
+        Evidence: `ai-ide-cli/runtime/types.ts`.
   - [x] `getRuntimeAdapter(id)` returns adapter from registry.
         Evidence: `ai-ide-cli/runtime/index.ts:18-20`.
   - [x] `resolveRuntimeConfig()` merges map-shape `runtime_args` across
