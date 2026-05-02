@@ -1497,13 +1497,15 @@ stable — never renumber on move.
         `deno test -A --no-check e2e/` with `E2E=1`. Cursor is
         Linux-headless-unsupported and is expected to skip. Evidence:
         `ai-ide-cli/.github/workflows/e2e.yml`.
-  - [x] `.github/workflows/ci-e2e.yml` triggered on PR + push to
-        main, one parallel job per runtime (claude / opencode /
-        codex), each with `continue-on-error: true` for the soak
-        window — non-blocking advisory checks until promoted to
-        required in branch protection. Cursor excluded (no headless
-        Linux CLI; manual run via `e2e.yml`). Evidence:
-        `ai-ide-cli/.github/workflows/ci-e2e.yml`.
+  - [x] E2E does not run in CI (FR-L34). The
+        `.github/workflows/ci-e2e.yml` soak workflow was removed —
+        running the suite without authenticated CLI sessions
+        produced spurious failures (`"Not logged in"` masquerading
+        as session output) that hid real regressions instead of
+        surfacing them. Manual `workflow_dispatch` trigger via
+        `.github/workflows/e2e.yml` remains for ad-hoc runs from a
+        repo with the appropriate API key secrets configured.
+        Evidence: `ai-ide-cli/.github/workflows/` (no `ci-e2e.yml`).
 
 ### 3.32 FR-L33: Sync `PWD` Env Var With Subprocess `cwd`
 
@@ -1552,6 +1554,68 @@ stable — never renumber on move.
         smoke that spawns `bash -c 'echo "$PWD"'` and asserts the
         child observes the resolved tmpDir. Evidence:
         `ai-ide-cli/runtime/env-cwd-sync_test.ts`.
+
+### 3.33 FR-L34: Auth-Probe Gate For E2E Suite
+
+- **Description:** `e2eEnabled(runtime)` runs an authentication probe
+  after the binary-presence check. The probe issues a one-shot
+  `adapter.invoke({ taskPrompt: "Reply with exactly the word: ok",
+  timeoutSeconds: 25, ... })` and scans the JSON-serialized
+  `CliRunOutput` for known auth-failure substrings (`"not logged in"`,
+  `"please run /login"`, `"invalid api key"`, `"401 unauthorized"`,
+  …). On match the probe **throws** a loud `Error` carrying the
+  runtime, matched pattern, and a 400-byte truncated payload. The
+  throw propagates through `e2eEnabled` (and therefore
+  `resolveEnabledMap`), failing every test file at top-level await
+  time. Probe result is cached per runtime for the lifetime of the
+  Deno process so the four-runtime fan-out in
+  `resolveEnabledMap` pays the cost at most once per runtime.
+- **Motivation:** Before FR-L34 the e2e gate proved only that the
+  binary existed on PATH. An installed-but-unauthenticated CLI (no
+  OAuth login, no API key) returned an error message inside the
+  normal `CliRunOutput.result` envelope (e.g. Claude
+  `"Not logged in · Please run /login"`); session-contract tests
+  treated it as a valid response, so 9 of 11 scenarios passed
+  spuriously while only the two that asserted on assistant text
+  failed — a textbook false-positive layout that hid real
+  regressions. The auth-probe makes "not logged in" a single,
+  loud, actionable error per runtime instead of a noisy mix.
+- **Scope:** E2E does not run in CI (the soak workflow
+  `.github/workflows/ci-e2e.yml` was removed in the same change).
+  Manual `workflow_dispatch` via `.github/workflows/e2e.yml`
+  remains for ad-hoc runs from a repo with API key secrets
+  configured. Locally, every `deno task e2e` / `deno task
+  e2e:<runtime>` invocation depends on a logged-in CLI on the
+  developer machine.
+- **Acceptance:**
+  - [x] `e2e/_auth.ts` exports `assertAuthenticated(runtime)` —
+        cached per runtime via `Map<RuntimeId, Promise<void>>`,
+        runs a one-shot `adapter.invoke("Reply with: ok")` with a
+        25 s `timeoutSeconds` plus a 30 s belt-and-suspenders
+        `AbortSignal.timeout`, then JSON-stringifies and
+        lowercases the result for substring scan against
+        `AUTH_FAIL_PATTERNS`. Evidence: `// FR-L34` traceability
+        comment above the `assertAuthenticated` export.
+  - [x] `AUTH_FAIL_PATTERNS` covers Claude / OpenCode / Codex
+        common auth-failure phrasings (`"not logged in"`,
+        `"please run /login"`, `"please run \`<cli> login\`"`,
+        `"invalid api key"`, `"missing api key"`,
+        `"no api key"`, `"authentication failed"`,
+        `"401 unauthorized"`, `"unauthorized"`,
+        `"api key not found"`). Evidence:
+        `ai-ide-cli/e2e/_auth.ts`.
+  - [x] `e2eEnabled(runtime)` invokes `assertAuthenticated` after
+        the binary probe passes; on auth failure the throw
+        propagates through `resolveEnabledMap` (top-level await
+        in every `*_e2e_test.ts` test file), so a missing login
+        fails the suite at load time instead of producing dozens
+        of spurious assertion failures. Evidence:
+        `ai-ide-cli/e2e/_helpers.ts`.
+  - [x] `_resetAuthProbeCache()` exported for unit-test
+        isolation. Evidence: `ai-ide-cli/e2e/_auth.ts`.
+  - [x] `.github/workflows/ci-e2e.yml` removed (CI no longer
+        runs e2e on PR/push). Evidence:
+        `ai-ide-cli/.github/workflows/` listing.
 
 ## 4. Non-Functional Requirements
 

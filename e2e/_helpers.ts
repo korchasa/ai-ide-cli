@@ -10,9 +10,16 @@
  *   value (or unset) means "all four".
  * - Binary must be present on PATH, otherwise the test is marked ignored
  *   with the probe reason recorded for diagnostics.
+ * - Binary must be authenticated (FR-L34). When `E2E=1`, the runtime is in
+ *   the allow-list, and the binary is on PATH, an auth-probe runs once per
+ *   runtime — a one-shot `adapter.invoke("Reply with: ok")` whose output is
+ *   scanned for known auth-failure patterns. Match → loud `Error` thrown
+ *   from `e2eEnabled`/`resolveEnabledMap` so the test-file fails to load
+ *   instead of producing dozens of spurious assertion failures.
  */
 
 import type { RuntimeId } from "../types.ts";
+import { assertAuthenticated } from "./_auth.ts";
 
 /** Result of probing `$PATH` for a runtime CLI binary. */
 export interface BinaryProbe {
@@ -75,8 +82,11 @@ async function doProbe(runtime: RuntimeId): Promise<BinaryProbe> {
 
 /**
  * Return `true` when the caller opted into e2e runs (`E2E=1`), the runtime
- * passes the `E2E_RUNTIMES` allow-list (or the list is empty), and the
- * runtime's binary is on PATH.
+ * passes the `E2E_RUNTIMES` allow-list (or the list is empty), the
+ * runtime's binary is on PATH, and the binary is authenticated (FR-L34).
+ *
+ * Throws (does not return `false`) when the runtime is enabled and present
+ * on PATH but not logged in — fail-fast, fail-loud at test-file load time.
  *
  * @param runtime Runtime to gate.
  */
@@ -88,7 +98,9 @@ export async function e2eEnabled(runtime: RuntimeId): Promise<boolean> {
     if (!allow.includes(runtime)) return false;
   }
   const probe = await detectBinary(runtime);
-  return probe.present;
+  if (!probe.present) return false;
+  await assertAuthenticated(runtime);
+  return true;
 }
 
 /** Record of enabled runtimes resolved once at test-file load time. */

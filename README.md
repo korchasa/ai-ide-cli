@@ -342,19 +342,18 @@ throws at invocation time with an explicit error.
   dry-run. Runs in CI on every push / PR.
 - `deno task test` — unit tests only; use during TDD iterations.
 - `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L31).
-  Requires Claude / OpenCode / Cursor / Codex CLIs on `$PATH` and spends
-  real tokens. Guarded by `E2E=1`; narrow to one runtime with
+  Requires Claude / OpenCode / Cursor / Codex CLIs on `$PATH`,
+  authenticated (logged in or API key configured), and spends real
+  tokens. Guarded by `E2E=1`; narrow to one runtime with
   `deno task e2e:<claude|opencode|cursor|codex>` (sets `E2E_RUNTIMES`).
-  Missing binaries surface as ignored tests instead of ENOENT. Not wired
-  into `deno task check`. Two CI surfaces:
-  - `.github/workflows/ci-e2e.yml` — runs on every PR + push to main,
-    one parallel job per runtime (claude / opencode / codex).
-    `continue-on-error: true` for the soak window (~1 week);
-    advisory-only until promoted to required in branch protection.
-    Cursor is excluded — no headless Linux CLI; manual run via
-    `e2e.yml` from a macOS workstation.
-  - `.github/workflows/e2e.yml` — manual `workflow_dispatch`,
-    selectable runtime list. Use for ad-hoc runs and Cursor.
+  Missing binaries surface as ignored tests instead of ENOENT.
+  Installed-but-unauthenticated binaries fail loudly via the FR-L34
+  auth-probe at load time — no spurious assertion failures. Not wired
+  into `deno task check`. E2E does not run automatically in CI;
+  `.github/workflows/e2e.yml` is a manual `workflow_dispatch` for
+  ad-hoc runs from a repo with API key secrets configured (and the
+  only Cursor surface — Cursor has no headless Linux CLI, so the
+  Cursor cell of the matrix is run from a macOS workstation).
 
 Iteration tip: for fast fmt/lint/JSDoc feedback, run the cheap sub-steps
 individually first (`deno fmt --check`, `deno lint .`,

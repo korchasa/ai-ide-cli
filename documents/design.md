@@ -7,7 +7,7 @@ Design specification for `@korchasa/ai-ide-cli`.
 - **Purpose:** Design of the `@korchasa/ai-ide-cli` library — thin wrapper
   around agent-CLI binaries providing normalized invocation, stream parsing,
   retry, and HITL wiring.
-- **Relation to SRS:** Implements FR-L1..FR-L31 from
+- **Relation to SRS:** Implements FR-L1..FR-L34 from
   [requirements.md](requirements.md).
 - **Embedding-friendly:** every spawned subprocess is tracked through a
   `ProcessRegistry` that the caller can supply per-call (FR-L3). Standalone
@@ -1040,7 +1040,8 @@ Opt-in Deno-native suite; does not run under `deno task check`. Layered:
   <bin>"` probe, cached per runtime in a module-level `Map`. Returns
   `{ present, path?, reason? }`.
 - `e2eEnabled(runtime): Promise<boolean>` — composes `E2E=1`,
-  `E2E_RUNTIMES` allow-list, and the binary probe.
+  `E2E_RUNTIMES` allow-list, the binary probe, and the FR-L34 auth
+  probe (throws on auth failure rather than returning `false`).
 - `resolveEnabledMap(): Promise<EnabledMap>` — one-shot `Promise.all` of
   all four gates for use at test-file top level (`Deno.test#ignore` is
   boolean-only; the generator pre-resolves once).
@@ -1048,6 +1049,20 @@ Opt-in Deno-native suite; does not run under `deno task check`. Layered:
   per-scenario hard ceiling.
 - `ONE_WORD_OK`, `ONE_WORD_DONE`, `LONG_COUNT_PROMPT` — canonical
   token-minimal prompts shared across scenarios.
+
+**`e2e/_auth.ts` (FR-L34):**
+
+- `assertAuthenticated(runtime): Promise<void>` — one-shot
+  `adapter.invoke({ taskPrompt: "Reply with exactly the word: ok",
+  timeoutSeconds: 25 })` per runtime, JSON-stringifies the
+  `CliRunOutput`, lower-cases it, and scans for
+  `AUTH_FAIL_PATTERNS` (`"not logged in"`, `"please run /login"`,
+  `"invalid api key"`, `"401 unauthorized"`, …). On match throws a
+  loud `Error` carrying the runtime, matched pattern, and a
+  truncated payload. Cached per runtime in a module-level
+  `Map<RuntimeId, Promise<void>>` so the four-runtime fan-out in
+  `resolveEnabledMap` pays the cost at most once.
+- `_resetAuthProbeCache()` — test-only cache reset.
 
 **`e2e/_matrix.ts`:**
 
@@ -1127,19 +1142,18 @@ Publish exclusion: `deno.json:publish.exclude` covers both `e2e` and
 `e2e/**` so the suite is absent from the JSR tarball. CI wiring:
 
 - `.github/workflows/e2e.yml` — manual `workflow_dispatch`,
-  selectable runtime list. Used for ad-hoc runs and Cursor (the only
-  surface where Cursor verification is practical, run from a macOS
+  selectable runtime list. Used for ad-hoc runs from a repo with
+  API key secrets configured, and for Cursor (the only surface
+  where Cursor verification is practical, run from a macOS
   workstation that has the proprietary CLI installed).
-- `.github/workflows/ci-e2e.yml` — automatic on PR + push to main.
-  One parallel job per runtime (claude / opencode / codex), each on
-  `ubuntu-latest`. `continue-on-error: true` during the soak window
-  (~1 week) — checks appear as advisory-only in the PR UI and do
-  NOT block merge. Promotion to a required check is a branch-
-  protection change in the repo admin UI, not a code change.
-  Cursor excluded: no headless Linux CLI, no documented release
-  binary safe to script; an enabled stub job would fail with
-  "binary not found" on every run. The TODO comment in
-  `ci-e2e.yml` documents the rationale.
+- E2E does not run automatically in CI (FR-L34). The previous
+  `.github/workflows/ci-e2e.yml` soak workflow was removed because
+  running the suite without authenticated CLI sessions produced
+  spurious failures (`"Not logged in"` smuggled inside
+  `CliRunOutput.result`) that hid real regressions. Local runs
+  rely on a logged-in CLI; the FR-L34 auth-probe converts a
+  missing login into a single, loud, actionable error per runtime
+  at test-file load time.
 
 
 ## 4. Data
