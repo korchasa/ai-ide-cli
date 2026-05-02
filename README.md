@@ -2,10 +2,15 @@
 
 Thin Deno/TypeScript wrapper around agent-CLI binaries — **Claude Code**,
 **OpenCode**, **Cursor**, and **Codex**. Normalizes invocation, NDJSON event
-parsing, retry, session resume, HITL tool wiring, streaming-input sessions,
-and skill/slash-command enumeration. Runtime-neutral output shape
+parsing, retry, session resume, streaming-input sessions, and
+skill/slash-command enumeration. Runtime-neutral output shape
 (`CliRunOutput`) lets downstream code treat all four runtimes
 interchangeably.
+
+Human-in-the-loop (HITL) is **out of scope** — see
+[ADR-0002](documents/adr/2026-05-02-remove-hitl.md). Build it on top of
+`extraArgs`, `env`, or stream-event observers in your own consumer
+package.
 
 Split out from [`@korchasa/flowai-workflow`](https://jsr.io/@korchasa/flowai-workflow)
 so consumers that need only the CLI wrapper can depend on a small, focused
@@ -45,7 +50,7 @@ support without guessing:
 
 ```ts
 const adapter = getRuntimeAdapter("codex");
-adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
+adapter.capabilities; // { permissionMode, transcript, interactive,
                       //   toolUseObservation, session, capabilityInventory,
                       //   toolFilter, reasoningEffort }
 ```
@@ -55,7 +60,6 @@ adapter.capabilities; // { permissionMode, hitl, transcript, interactive,
 | Feature              | claude         | opencode       | cursor            | codex          |
 |----------------------|----------------|----------------|-------------------|----------------|
 | permissionMode       | yes            | yes            | no (`--yolo` only)| yes            |
-| hitl                 | yes (denials)  | yes (MCP)      | no                | yes (MCP)      |
 | transcript path      | yes            | yes (via `opencode export`) | no  | yes            |
 | interactive TUI      | yes            | yes            | no                | yes            |
 | toolUseObservation   | yes            | yes            | yes (FR-L30, fires on `tool_call/started`) | yes |
@@ -80,10 +84,6 @@ extraction via `extractSessionContent` (FR-L23).
 
 Notes:
 
-- **claude hitl** — no dedicated MCP server; surfaced via
-  `AskUserQuestion` permission denials in `CliRunOutput.permission_denials`.
-- **opencode / codex hitl** — per-invocation stdio MCP server; consumer
-  supplies `hitlMcpCommandBuilder` (see below).
 - **cursor `openSession`** — faux: one `cursor agent -p --resume <id>`
   subprocess per `send()`; emits a synthetic `system.init` event.
 - **codex `openSession`** — uses experimental `codex app-server --listen
@@ -268,72 +268,18 @@ console.log(inventory.commands); // [{name, plugin?}, ...]
 **Expensive**: one full LLM turn per call, seconds-to-minutes, model-priced.
 Callers should cache results — hence the `Slow` suffix.
 
-## HITL MCP self-spawn contract
-
-HITL support per runtime:
-
-- **OpenCode, Codex** — run a stdio MCP server; consumer must supply
-  `hitlMcpCommandBuilder` (described below).
-- **Claude** — no MCP server; HITL surfaces via `AskUserQuestion`
-  permission denials in `CliRunOutput.permission_denials`. No self-spawn
-  setup needed.
-- **Cursor** — no HITL support (`capabilities.hitl === false`). Any
-  `hitlConfig` on a Cursor invocation is ignored.
-
-For OpenCode and Codex, the library does NOT ship a binary — it exposes
-the MCP handlers (`runOpenCodeHitlMcpServer`, `runCodexHitlMcpServer`)
-and requires the consumer to supply a zero-argument callback returning
-the `argv` that spawns that handler in a sub-process.
-
-```ts
-import { runOpenCodeHitlMcpServer } from "jsr:@korchasa/ai-ide-cli/opencode/hitl-mcp";
-import { invokeOpenCodeCli } from "jsr:@korchasa/ai-ide-cli/opencode/process";
-
-// 1. In your CLI entry point, dispatch the internal flag:
-if (Deno.args.includes("--internal-opencode-hitl-mcp")) {
-  await runOpenCodeHitlMcpServer();
-  Deno.exit(0);
-}
-
-// 2. When invoking OpenCode with HITL enabled, pass the builder:
-await invokeOpenCodeCli({
-  taskPrompt: "...",
-  timeoutSeconds: 60,
-  maxRetries: 1,
-  retryDelaySeconds: 1,
-  hitlConfig: {
-    ask_script: "ask.sh",
-    check_script: "check.sh",
-    poll_interval: 60,
-    timeout: 7200,
-  },
-  hitlMcpCommandBuilder: () => [
-    Deno.execPath(),
-    "run",
-    "-A",
-    new URL("./my-cli.ts", import.meta.url).pathname,
-    "--internal-opencode-hitl-mcp",
-  ],
-});
-```
-
-If `hitlConfig` is set but `hitlMcpCommandBuilder` is omitted, the library
-throws at invocation time with an explicit error.
-
 ## Reference consumers
 
 - [`@korchasa/flowai-workflow`](https://jsr.io/@korchasa/flowai-workflow) —
-  a DAG workflow engine. Its `engine/agent.ts` wires
-  `hitlMcpCommandBuilder` to the engine binary's own
-  `--internal-opencode-hitl-mcp` flag and is the recommended reference for
-  building a consumer binary.
+  a DAG workflow engine. Owns its own HITL pipeline on top of this
+  library's stream-event observers.
 - [`korchasa/tg-ide-bridge`](https://github.com/korchasa/tg-ide-bridge) —
   per-project Telegram-to-IDE daemon (Claude Code / OpenCode / Cursor).
   Polls Telegram, forwards messages as prompts via `invoke*Cli`, persists
   the `session_id` for `--resume`, and exposes runtime-scoped settings
   (`model`, `effort`, `permissionMode`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`) as chat commands. Good reference for
-  single-runtime consumers that do not need HITL or a workflow engine.
+  single-runtime consumers.
 
 ## Development
 
@@ -368,8 +314,8 @@ This package is deliberately minimal:
 - No configuration file parsing
 - No domain-specific logic
 
-Runtime-specific stream parsers, session openers, and HITL MCP handlers
-are available via sub-path exports (`./claude/stream`, `./cursor/stream`,
+Runtime-specific stream parsers and session openers are available via
+sub-path exports (`./claude/stream`, `./cursor/stream`,
 `./opencode/session`, `./cursor/session`, `./codex/app-server`, etc.)
 for callers that need typed access beyond the neutral
 `RuntimeAdapter` / `RuntimeSession` interfaces.

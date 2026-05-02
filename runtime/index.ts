@@ -24,9 +24,6 @@ export { expandExtraArgs } from "./argv.ts";
 export type {
   CliRunOutput,
   CliRunUsage,
-  HitlConfig,
-  HumanInputOption,
-  HumanInputRequest,
   PermissionDenial,
   RuntimeId,
   Verbosity,

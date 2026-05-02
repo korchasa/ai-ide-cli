@@ -6,7 +6,7 @@ Design specification for `@korchasa/ai-ide-cli`.
 
 - **Purpose:** Design of the `@korchasa/ai-ide-cli` library — thin wrapper
   around agent-CLI binaries providing normalized invocation, stream parsing,
-  retry, and HITL wiring.
+  and retry. HITL is consumer-owned (ADR-0002).
 - **Relation to SRS:** Implements FR-L1..FR-L34 from
   [requirements.md](requirements.md).
 - **Embedding-friendly:** every spawned subprocess is tracked through a
@@ -19,7 +19,7 @@ Design specification for `@korchasa/ai-ide-cli`.
 
 ```
 ai-ide-cli/
-  types.ts              — shared types (RuntimeId, CliRunOutput, HitlConfig, ...)
+  types.ts              — shared types (RuntimeId, CliRunOutput, ...)
   process-registry.ts   — pure child-process tracker + shutdown callbacks
   mod.ts                — public API barrel (re-exports all sub-paths)
   runtime/
@@ -73,13 +73,12 @@ ai-ide-cli/
   opencode/
     process.ts          — invokeOpenCodeCli runner; re-exports helpers
                           from argv/events/transcript modules
-    argv.ts             — buildOpenCodeArgs, buildOpenCodeConfigContent,
+    argv.ts             — buildOpenCodeArgs,
                           OPENCODE_RESERVED_FLAGS / POSITIONALS /
                           INTENTIONALLY_OPEN_FLAGS
     events.ts           — OpenCodeStreamEvent typed union (canonical
                           home), formatOpenCodeEventForOutput,
-                          extractOpenCodeOutput, openCodeToolUseInfo,
-                          extractHitlRequestFromEvent
+                          extractOpenCodeOutput, openCodeToolUseInfo
     transcript.ts       — exportOpenCodeTranscript,
                           OpenCodeTranscriptResult
     session.ts          — openOpenCodeSession, OpenCodeSession (streaming-input
@@ -91,7 +90,6 @@ ai-ide-cli/
                           extractOpenCodeSessionId, pickFreePort,
                           decodeConcat (SSE-frame parsing helpers split out
                           of session.ts for focused unit tests)
-    hitl-mcp.ts         — runOpenCodeHitlMcpServer (stdio MCP for HITL tool)
     content.ts          — extractOpenCodeContent (per-runtime extractor; FR-L23)
   cursor/
     process.ts          — buildCursorArgs, invokeCursorCli, extractCursorOutput,
@@ -111,18 +109,17 @@ ai-ide-cli/
     process.ts          — invokeCodexCli runner; re-exports helpers from
                           argv/run-state/transcript modules
     argv.ts             — buildCodexArgs, permissionModeToCodexArgs,
-                          buildCodexHitlConfigArgs, CODEX_RESERVED_FLAGS,
+                          CODEX_RESERVED_FLAGS,
                           CODEX_RESERVED_POSITIONALS,
                           CODEX_INTENTIONALLY_OPEN_FLAGS
     run-state.ts        — CodexRunState, applyCodexEvent,
-                          extractCodexOutput, extractCodexHitlRequest,
+                          extractCodexOutput,
                           codexItemToToolUseInfo,
                           formatCodexEventForOutput
     transcript.ts       — defaultCodexSessionsDir, findCodexSessionFile
     exec-events.ts      — CodexExecEvent / CodexExecItem typed unions +
                           parseCodexExecEvent (snake_case NDJSON protocol
                           for `codex exec --experimental-json`)
-    hitl-mcp.ts         — runCodexHitlMcpServer (stdio MCP for HITL tool)
     app-server.ts       — CodexAppServerClient, CodexAppServerError,
                           CodexAppServerNotification (JSON-RPC transport for
                           `codex app-server --listen stdio://`)
@@ -175,16 +172,9 @@ engine or any external workflow package.
 
 `CliRunOutput` — runtime-neutral output shape:
 `result`, `session_id`, `total_cost_usd`, `duration_ms`, `duration_api_ms`,
-`num_turns`, `is_error`, optional `permission_denials`, `hitl_request`,
-`runtime`. All runtime extractors produce this shape.
-
-`HitlConfig` — HITL configuration: `ask_script`, `check_script`,
-`artifact_source`, `poll_interval`, `timeout`, `exclude_login`. Consumed by
-OpenCode's MCP injection; Claude HITL handled engine-side via
-`permission_denials`.
-
-`HumanInputRequest` — normalized HITL question: `question`, `header`,
-`options[]`, `multiSelect`.
+`num_turns`, `is_error`, optional `permission_denials`, `runtime`,
+`transcript_path`, `transcript_error`, `usage`. All runtime extractors
+produce this shape.
 
 ### 3.2 `process-registry.ts` — Process Tracker
 
@@ -219,7 +209,7 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
 
 **`runtime/types.ts`:**
 
-- `RuntimeCapabilities` — feature flags per adapter: `permissionMode`, `hitl`,
+- `RuntimeCapabilities` — feature flags per adapter: `permissionMode`,
   `transcript`, `interactive`, `toolUseObservation`, `session`,
   `capabilityInventory`, `toolFilter`, `reasoningEffort`,
   `sessionFidelity?: "native" | "emulated"` (omitted ⇒ `"native"`).
@@ -228,11 +218,10 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
 - `RuntimeInvokeOptions` — normalized invocation options: `taskPrompt`,
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
-  `hitlConfig`, `hitlMcpCommandBuilder`, `cwd`, `agent`, `systemPrompt`,
-  `env`, `onEvent`, `allowedTools`, `disallowedTools` (FR-L24),
-  `processRegistry` (FR-L3 — **required** `ProcessRegistry` instance for
-  scoping the spawned subprocess; standalone callers pass the module-level
-  `defaultRegistry`).
+  `cwd`, `agent`, `systemPrompt`, `env`, `onEvent`, `allowedTools`,
+  `disallowedTools` (FR-L24), `processRegistry` (FR-L3 — **required**
+  `ProcessRegistry` instance for scoping the spawned subprocess; standalone
+  callers pass the module-level `defaultRegistry`).
 - `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string }`.
 - `InteractiveOptions` — `{ skills?, systemPrompt?, cwd?, env? }`.
 - `InteractiveResult` — `{ exitCode: number }`.
@@ -360,8 +349,8 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
     so adding a kind only touches the two parsers.
   - **OpenCode** (SSE): `message.part.updated` with text part → text
     content; with tool part at terminal state (`completed`/`failed`),
-    non-HITL, with resolvable id → tool content. Mirrors
-    `openCodeToolUseInfo`'s FR-L16 filtering rule.
+    with resolvable id → tool content. Mirrors `openCodeToolUseInfo`'s
+    FR-L16 filtering rule.
 - **Documented gaps** (kept visible in `runtime/CLAUDE.md` too):
   - OpenCode has no native final-text event → consumers flush the
     last `cumulative:true` text on `SYNTHETIC_TURN_END`.
@@ -503,11 +492,11 @@ External `AbortSignal` composed via listener; process-registry
 
 ### 3.7 `opencode/process.ts` — OpenCode Runner
 
-Module split: `argv.ts` owns the argv builder + config-content builder,
-`events.ts` owns the typed `OpenCodeStreamEvent` union + formatter +
-output extractor + HITL extractor + tool-use info, `transcript.ts` owns
-`exportOpenCodeTranscript`. The runner in `process.ts` re-exports every
-helper so existing imports keep working.
+Module split: `argv.ts` owns the argv builder, `events.ts` owns the
+typed `OpenCodeStreamEvent` union + formatter + output extractor +
+tool-use info, `transcript.ts` owns `exportOpenCodeTranscript`. The
+runner in `process.ts` re-exports every helper so existing imports keep
+working.
 
 `buildOpenCodeArgs(opts)` (`opencode/argv.ts`): `run` → `--session` →
 `--model` → `--agent` → `--dangerously-skip-permissions` → `extraArgs` →
@@ -518,17 +507,8 @@ file); without it opencode prints usage and exits with code 1.
 
 `extractOpenCodeOutput(lines)`: parses collected NDJSON lines. Event types:
 `step_start` (increment steps), `text` (accumulate result), `tool_use`
-(HITL detection), `step_finish` (cost), `error` (error message). Returns
+(tool invocation), `step_finish` (cost), `error` (error message). Returns
 `CliRunOutput` with `runtime: "opencode"`.
-
-`buildOpenCodeConfigContent(opts)`: when HITL configured, builds
-`OPENCODE_CONFIG_CONTENT` JSON with local MCP server entry. Requires
-`hitlMcpCommandBuilder` — throws if missing.
-
-HITL interception: `extractHitlRequestFromEvent()` detects
-`hitl_request_human_input` tool_use with `status: "completed"`. Normalizes
-to `HumanInputRequest`. On detection → SIGTERM process → return output with
-`hitl_request` populated.
 
 ### 3.8 `opencode/session.ts` — OpenCode Streaming-Input Session
 
@@ -585,18 +565,7 @@ exported for unit testing. `extractOpenCodeSessionId` checks
 `message.part.*` / `message.updated` variants.
 
 
-### 3.9 `opencode/hitl-mcp.ts` — HITL MCP Server
-
-`runOpenCodeHitlMcpServer()`: stdio MCP server exposing
-`request_human_input` tool. Tool schema: `question` (required string),
-`header`, `options[]`, `multiSelect`. Tool handler returns
-`{ok: true}` — actual question delivery/polling handled by engine's
-HITL pipeline after process termination.
-
-Constants: `OPENCODE_HITL_MCP_SERVER_NAME = "hitl"`,
-`OPENCODE_HITL_MCP_TOOL_NAME = "hitl_request_human_input"`.
-
-### 3.10 `cursor/process.ts` — Cursor Runner
+### 3.9 `cursor/process.ts` — Cursor Runner
 
 `buildCursorArgs(opts)`: `agent` → `-p` → `--resume` → `--model` →
 `--yolo` → `extraArgs` → `--output-format stream-json` → `--trust` →
@@ -850,17 +819,15 @@ to `parseExecItem` in `codex/items.ts` (§3.10.2).
 
 `codex/process.ts` is the runner: `invokeCodexCli` (retry loop, abort
 handling) + `executeCodexProcess` (subprocess driver with stdin prompt
-piping, NDJSON parsing, HITL detection, denial synthesis). Pure helpers
-moved out:
+piping, NDJSON parsing, denial synthesis). Pure helpers moved out:
 
 - `codex/argv.ts` — `buildCodexArgs`, `permissionModeToCodexArgs`,
-  `buildCodexHitlConfigArgs`, reserved-flag sets
-  (`CODEX_RESERVED_FLAGS`, `CODEX_RESERVED_POSITIONALS`,
-  `CODEX_INTENTIONALLY_OPEN_FLAGS`).
+  reserved-flag sets (`CODEX_RESERVED_FLAGS`,
+  `CODEX_RESERVED_POSITIONALS`, `CODEX_INTENTIONALLY_OPEN_FLAGS`).
 - `codex/run-state.ts` — `CodexRunState`, `createCodexRunState`,
   `applyCodexEvent` (snake_case event aggregator),
-  `extractCodexHitlRequest`, `extractCodexOutput`,
-  `codexItemToToolUseInfo`, `formatCodexEventForOutput`.
+  `extractCodexOutput`, `codexItemToToolUseInfo`,
+  `formatCodexEventForOutput`.
 - `codex/transcript.ts` — `defaultCodexSessionsDir`,
   `findCodexSessionFile` (walks
   `<sessionsDir>/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`).
@@ -1207,12 +1174,12 @@ Publish exclusion: `deno.json:publish.exclude` covers both `e2e` and
 
 ### Runtime capability matrix
 
-| Runtime  | permissionMode | hitl  | transcript | interactive | toolUseObservation | session | capabilityInventory | toolFilter |
-|----------|----------------|-------|------------|-------------|--------------------|---------|---------------------|------------|
-| claude   | true           | true  | true       | true        | true               | true    | true                | true       |
-| opencode | true           | true  | true       | true        | true               | true    | true                | false      |
-| cursor   | false          | false | false      | false       | false              | true    | true                | false      |
-| codex    | true           | true  | true       | true        | true               | true    | true                | false      |
+| Runtime  | permissionMode | transcript | interactive | toolUseObservation | session | capabilityInventory | toolFilter |
+|----------|----------------|------------|-------------|--------------------|---------|---------------------|------------|
+| claude   | true           | true       | true        | true               | true    | true                | true       |
+| opencode | true           | true       | true        | true               | true    | true                | false      |
+| cursor   | false          | false      | false       | false              | true    | true                | false      |
+| codex    | true           | true       | true        | true               | true    | true                | false      |
 
 **`session` specifics:**
 
@@ -1281,12 +1248,6 @@ Publish exclusion: `deno.json:publish.exclude` covers both `e2e` and
   `danger-full-access` / `never` / `on-request` / `on-failure` / `untrusted`)
   emit a single matching flag. See `permissionModeToCodexArgs` in
   `codex/process.ts`.
-- `hitl` — the runner registers a per-invocation local stdio MCP server via
-  `--config mcp_servers.hitl.command/args` overrides and intercepts
-  `mcp_tool_call` items targeting `hitl.request_human_input`. Same engine
-  flow as OpenCode; the consumer supplies `hitlMcpCommandBuilder` whose
-  argv must dispatch into `runCodexHitlMcpServer` (alias of the shared
-  NDJSON MCP runner in `hitl-mcp.ts`).
 - `transcript` — Codex persists each session as
   `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`; the runner
   resolves the matching path post-run via `findCodexSessionFile` and
@@ -1315,12 +1276,11 @@ Publish exclusion: `deno.json:publish.exclude` covers both `e2e` and
   `opencode/process.ts`; failures (missing binary, non-zero exit) are
   swallowed best-effort so transcript export never masks the primary
   invocation result.
-- `toolUseObservation` — fires `onToolUseObserved` once per non-HITL
-  `tool_use` event whose `state.status` reaches `completed` or `failed`;
-  an `"abort"` decision SIGTERMs the subprocess and the runner synthesizes
+- `toolUseObservation` — fires `onToolUseObserved` once per `tool_use`
+  event whose `state.status` reaches `completed` or `failed`; an
+  `"abort"` decision SIGTERMs the subprocess and the runner synthesizes
   a `permission_denials[]` entry for the observed tool. Tool id is taken
-  from `part.id`, falling back to `part.callID`. HITL tool events stay on
-  their dedicated detection path (no double-dispatch). See
+  from `part.id`, falling back to `part.callID`. See
   `openCodeToolUseInfo` and `executeOpenCodeProcess` in
   `opencode/process.ts`.
 - `OpenCodeStreamEvent` — exported discriminated union

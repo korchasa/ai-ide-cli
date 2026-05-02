@@ -75,11 +75,6 @@ function codexSkillsDir(): string {
  *   overrides. Codex-native modes (`read-only`, `workspace-write`,
  *   `danger-full-access`, `never`, `on-request`, `on-failure`,
  *   `untrusted`) are accepted as pass-through values.
- * - `hitl: true` — registers a per-invocation local stdio MCP server via
- *   `--config mcp_servers.hitl.command/args` and intercepts `mcp_tool_call`
- *   events for the `request_human_input` tool. Same engine flow as
- *   OpenCode; the consumer must supply `hitlMcpCommandBuilder` returning
- *   an argv that ends in {@link import("../codex/hitl-mcp.ts").runCodexHitlMcpServer}.
  * - `transcript: true` — Codex persists each session as
  *   `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`; the runner
  *   resolves the path post-completion and returns it as
@@ -102,7 +97,6 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
   id: "codex",
   capabilities: {
     permissionMode: true,
-    hitl: true,
     transcript: true,
     interactive: true,
     toolUseObservation: true,

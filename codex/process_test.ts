@@ -1,22 +1,16 @@
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
   applyCodexEvent,
   buildCodexArgs,
-  buildCodexHitlConfigArgs,
   codexItemToToolUseInfo,
   type CodexRunState,
   createCodexRunState,
-  extractCodexHitlRequest,
   extractCodexOutput,
   findCodexSessionFile,
   formatCodexEventForOutput,
   permissionModeToCodexArgs,
 } from "./process.ts";
 import type { CodexExecEvent } from "./exec-events.ts";
-import {
-  CODEX_HITL_MCP_SERVER_NAME,
-  CODEX_HITL_MCP_TOOL_NAME,
-} from "./hitl-mcp.ts";
 import type { RuntimeInvokeOptions } from "../runtime/types.ts";
 import { defaultRegistry } from "../process-registry.ts";
 import { join } from "@std/path";
@@ -324,175 +318,6 @@ Deno.test("formatCodexEventForOutput — turn.failed emits error message", () =>
     error: { message: "boom" },
   });
   assertEquals(line, "[stream] turn.failed: boom");
-});
-
-Deno.test("formatCodexEventForOutput — HITL mcp_tool_call emits hitl_request summary", () => {
-  const line = formatCodexEventForOutput({
-    type: "item.completed",
-    item: {
-      type: "mcp_tool_call",
-      server: CODEX_HITL_MCP_SERVER_NAME,
-      tool: CODEX_HITL_MCP_TOOL_NAME,
-      status: "completed",
-      arguments: { question: "Approve?" },
-    },
-  });
-  assertEquals(line, "[stream] hitl_request: Approve?");
-});
-
-// --- buildCodexHitlConfigArgs ---
-
-Deno.test("buildCodexHitlConfigArgs — no hitlConfig returns empty array", () => {
-  assertEquals(buildCodexHitlConfigArgs(makeInvokeOpts()), []);
-});
-
-Deno.test("buildCodexHitlConfigArgs — single-arg builder emits only command override", () => {
-  const args = buildCodexHitlConfigArgs(makeInvokeOpts({
-    hitlConfig: {
-      ask_script: "ask.sh",
-      check_script: "check.sh",
-      poll_interval: 60,
-      timeout: 7200,
-    },
-    hitlMcpCommandBuilder: () => ["/usr/local/bin/myhitl"],
-  }));
-  assertEquals(args, [
-    "--config",
-    `mcp_servers.${CODEX_HITL_MCP_SERVER_NAME}.command="/usr/local/bin/myhitl"`,
-  ]);
-});
-
-Deno.test("buildCodexHitlConfigArgs — multi-arg builder emits command + args TOML array", () => {
-  const args = buildCodexHitlConfigArgs(makeInvokeOpts({
-    hitlConfig: {
-      ask_script: "ask.sh",
-      check_script: "check.sh",
-      poll_interval: 60,
-      timeout: 7200,
-    },
-    hitlMcpCommandBuilder: () => ["deno", "run", "-A", "cli.ts", "--mcp"],
-  }));
-  assertEquals(args, [
-    "--config",
-    `mcp_servers.${CODEX_HITL_MCP_SERVER_NAME}.command="deno"`,
-    "--config",
-    `mcp_servers.${CODEX_HITL_MCP_SERVER_NAME}.args=["run", "-A", "cli.ts", "--mcp"]`,
-  ]);
-});
-
-Deno.test("buildCodexHitlConfigArgs — missing builder with configured hitl throws", () => {
-  assertThrows(
-    () =>
-      buildCodexHitlConfigArgs(makeInvokeOpts({
-        hitlConfig: {
-          ask_script: "ask.sh",
-          check_script: "check.sh",
-          poll_interval: 60,
-          timeout: 7200,
-        },
-      })),
-    Error,
-    "hitlMcpCommandBuilder",
-  );
-});
-
-Deno.test("buildCodexHitlConfigArgs — builder returning empty argv throws", () => {
-  assertThrows(
-    () =>
-      buildCodexHitlConfigArgs(makeInvokeOpts({
-        hitlConfig: {
-          ask_script: "ask.sh",
-          check_script: "check.sh",
-          poll_interval: 60,
-          timeout: 7200,
-        },
-        hitlMcpCommandBuilder: () => [],
-      })),
-    Error,
-    "empty argv",
-  );
-});
-
-// --- extractCodexHitlRequest ---
-
-Deno.test("extractCodexHitlRequest — populated payload returns normalized request", () => {
-  const req = extractCodexHitlRequest({
-    question: "Continue?",
-    header: "Approval needed",
-    options: [
-      { label: "yes" },
-      { label: "no", description: "stop now" },
-    ],
-    multiSelect: false,
-  });
-  assertEquals(req?.question, "Continue?");
-  assertEquals(req?.header, "Approval needed");
-  assertEquals(req?.options?.length, 2);
-  assertEquals(req?.options?.[1].description, "stop now");
-  assertEquals(req?.multiSelect, false);
-});
-
-Deno.test("extractCodexHitlRequest — missing question returns undefined", () => {
-  assertEquals(extractCodexHitlRequest({ header: "x" }), undefined);
-  assertEquals(extractCodexHitlRequest({ question: "   " }), undefined);
-  assertEquals(extractCodexHitlRequest(undefined), undefined);
-});
-
-// --- applyCodexEvent HITL detection ---
-
-Deno.test("applyCodexEvent — HITL mcp_tool_call captured into state.hitlRequest", () => {
-  const state = createCodexRunState();
-  applyCodexEvent({
-    type: "item.completed",
-    item: {
-      type: "mcp_tool_call",
-      server: CODEX_HITL_MCP_SERVER_NAME,
-      tool: CODEX_HITL_MCP_TOOL_NAME,
-      status: "completed",
-      arguments: { question: "Approve?" },
-    },
-  }, state);
-  assertEquals(state.hitlRequest?.question, "Approve?");
-});
-
-Deno.test("applyCodexEvent — non-HITL mcp_tool_call leaves state.hitlRequest empty", () => {
-  const state = createCodexRunState();
-  applyCodexEvent({
-    type: "item.completed",
-    item: {
-      type: "mcp_tool_call",
-      server: "other",
-      tool: "search",
-      status: "completed",
-      arguments: { q: "test" },
-    },
-  }, state);
-  assertEquals(state.hitlRequest, undefined);
-});
-
-Deno.test("applyCodexEvent — only the first HITL request is captured", () => {
-  const state = createCodexRunState();
-  for (const q of ["first", "second"]) {
-    applyCodexEvent({
-      type: "item.completed",
-      item: {
-        type: "mcp_tool_call",
-        server: CODEX_HITL_MCP_SERVER_NAME,
-        tool: CODEX_HITL_MCP_TOOL_NAME,
-        status: "completed",
-        arguments: { question: q },
-      },
-    }, state);
-  }
-  assertEquals(state.hitlRequest?.question, "first");
-});
-
-Deno.test("extractCodexOutput — propagates hitlRequest into output", () => {
-  const state = createCodexRunState();
-  state.threadId = "thrd_h";
-  state.hitlRequest = { question: "?" };
-  const output = extractCodexOutput(state);
-  assertEquals(output.hitl_request?.question, "?");
 });
 
 // --- codexItemToToolUseInfo ---

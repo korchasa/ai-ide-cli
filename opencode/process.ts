@@ -1,18 +1,15 @@
 /**
  * @module
  * OpenCode runtime adapter runner: spawns the opencode process, parses the
- * JSON event stream, extracts normalized output, and handles HITL
- * interception. Also wires the runtime-neutral
- * `OnRuntimeToolUseObservedCallback` (FR-L16) and surfaces the persisted
- * transcript via `opencode export <sessionId>`.
+ * JSON event stream, extracts normalized output. Also wires the
+ * runtime-neutral `OnRuntimeToolUseObservedCallback` (FR-L16) and surfaces
+ * the persisted transcript via `opencode export <sessionId>`.
  *
  * Module split:
  *
- * - `opencode/argv.ts` — argv builder, reserved flag set, per-invocation
- *   `OPENCODE_CONFIG_CONTENT` builder.
+ * - `opencode/argv.ts` — argv builder, reserved flag set.
  * - `opencode/events.ts` — typed `OpenCodeStreamEvent` union, formatter,
- *   `extractOpenCodeOutput`, `extractHitlRequestFromEvent`,
- *   `openCodeToolUseInfo`.
+ *   `extractOpenCodeOutput`, `openCodeToolUseInfo`.
  * - `opencode/transcript.ts` — `exportOpenCodeTranscript`,
  *   `OpenCodeTranscriptResult`.
  * - `opencode/process.ts` (this file) — runner + re-exports of every
@@ -36,9 +33,8 @@ import {
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
-import { buildOpenCodeArgs, buildOpenCodeConfigContent } from "./argv.ts";
+import { buildOpenCodeArgs } from "./argv.ts";
 import {
-  extractHitlRequestFromEvent,
   extractOpenCodeOutput,
   formatOpenCodeEventForOutput,
   type OpenCodeToolUseEvent,
@@ -51,13 +47,11 @@ import { exportOpenCodeTranscript } from "./transcript.ts";
 // keep working after the split.
 export {
   buildOpenCodeArgs,
-  buildOpenCodeConfigContent,
   OPENCODE_INTENTIONALLY_OPEN_FLAGS,
   OPENCODE_RESERVED_FLAGS,
   OPENCODE_RESERVED_POSITIONALS,
 } from "./argv.ts";
 export {
-  extractHitlRequestFromEvent,
   extractOpenCodeOutput,
   formatOpenCodeEventForOutput,
   openCodeToolUseInfo,
@@ -87,7 +81,6 @@ export async function invokeOpenCodeCli(
     ...opts,
     taskPrompt: mergedTaskPrompt,
   });
-  const configContent = buildOpenCodeConfigContent(opts);
   let lastError = "";
 
   for (let attempt = 1; attempt <= opts.maxRetries; attempt++) {
@@ -100,7 +93,6 @@ export async function invokeOpenCodeCli(
         opts.streamLogPath,
         opts.verbosity,
         opts.cwd,
-        configContent,
         opts.env,
         opts.onEvent,
         opts.signal,
@@ -159,7 +151,6 @@ async function executeOpenCodeProcess(
   streamLogPath?: string,
   verbosity?: Verbosity,
   cwd?: string,
-  configContent?: string,
   env?: Record<string, string>,
   onEvent?: (event: Record<string, unknown>) => void,
   userSignal?: AbortSignal,
@@ -168,9 +159,6 @@ async function executeOpenCodeProcess(
   onCallbackError?: OnCallbackError,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };
-  if (configContent) {
-    processEnv.OPENCODE_CONFIG_CONTENT = configContent;
-  }
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
   const syncedEnv = withSyncedPWD(processEnv, cwd) ?? processEnv;
   const cmd = new Deno.Command("opencode", {
@@ -187,7 +175,6 @@ async function executeOpenCodeProcess(
   registry.register(process);
 
   let timedOut = false;
-  let interruptedForHitl = false;
   let initEmitted = false;
   let denialAbort = false;
   let denial:
@@ -229,14 +216,6 @@ async function executeOpenCodeProcess(
     const stdoutLines: string[] = [];
     const stderrChunks: Uint8Array[] = [];
 
-    const killForHitl = () => {
-      interruptedForHitl = true;
-      try {
-        process.kill("SIGTERM");
-      } catch {
-        // Process may already be gone.
-      }
-    };
     const killForDenial = () => {
       denialAbort = true;
       try {
@@ -265,7 +244,7 @@ async function executeOpenCodeProcess(
       if (event.type === "step_start") stepCount += 1;
 
       // FR-L16: observed-tool-use hook — fires once per tool id, on
-      // non-HITL tool_use events whose state reached a terminal status.
+      // tool_use events whose state reached a terminal status.
       if (onToolUseObserved && event.type === "tool_use") {
         const terminal = event.part?.state?.status === "completed" ||
           event.part?.state?.status === "failed";
@@ -306,7 +285,6 @@ async function executeOpenCodeProcess(
 
       const summary = formatOpenCodeEventForOutput(event, verbosity);
       if (summary) onOutput?.(summary);
-      if (extractHitlRequestFromEvent(event)) killForHitl();
     };
 
     const stdoutReader = process.stdout.getReader();
@@ -409,16 +387,10 @@ async function executeOpenCodeProcess(
 
     if (jsonLines.length > 0) {
       const output = extractOpenCodeOutput(jsonLines);
-      if (interruptedForHitl && output.hitl_request) {
-        output.is_error = false;
-      }
-      if (timedOut && !output.hitl_request) {
+      if (timedOut) {
         throw new Error("OpenCode timed out");
       }
-      if (
-        !status.success && !output.is_error && !interruptedForHitl &&
-        !denialAbort
-      ) {
+      if (!status.success && !output.is_error && !denialAbort) {
         throw new Error(
           `OpenCode exited with code ${status.code}${
             stderr ? `: ${stderr}` : ""

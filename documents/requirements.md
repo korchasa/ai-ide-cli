@@ -12,25 +12,25 @@ stable — never renumber on move.
   (`@korchasa/flowai-workflow`). Engine depends on library, not vice versa.
 - **No shipped binary:** Library exposes functions and types. Consumers
   (engine, standalone tools) own the binary entry point.
-- **HITL MCP contract:** OpenCode HITL requires a consumer-provided
-  `hitlMcpCommandBuilder` callback. Library ships the MCP handler
-  (`runOpenCodeHitlMcpServer`) but NOT the subprocess argv — consumer
-  supplies it. Fail-fast error if omitted.
 - **claude_args removed:** Single universal `runtime_args` field for all
   runtimes. No runtime-specific arg fields.
+- **HITL out of scope** (ADR-0002): the library does not own
+  human-in-the-loop. No `HitlConfig`, no `hitl_request` output field,
+  no `hitl` capability flag, no MCP servers. Consumers (e.g.
+  `@korchasa/flowai-workflow`) own the orchestration loop and inject
+  any HITL transport via `extraArgs`, `env`, or stream-event observers.
 
 ## 1. Introduction
 
 - **Purpose:** Normalize invocation of agent-CLI binaries (Claude Code,
   OpenCode, Cursor) behind a uniform interface. Parse NDJSON event streams,
-  handle retry/backoff, session resume, and HITL tool wiring.
+  handle retry/backoff, session resume.
 - **Scope:** Subprocess spawning, stream parsing, output normalization,
   process lifecycle tracking. No workflow orchestration.
 - **Audience:** Engine developers, standalone CLI tool authors, MCP proxy
   builders.
 - **Abbreviations:**
   - **NDJSON:** Newline-delimited JSON event stream.
-  - **HITL:** Human-in-the-loop — agent requests human input mid-task.
   - **MCP:** Model Context Protocol — tool interface for agent runtimes.
 
 ## 2. General Description
@@ -64,7 +64,7 @@ stable — never renumber on move.
   - [x] `RuntimeAdapter` interface with `id`, `capabilities`, `invoke()`,
         `launchInteractive()`, optional `openSession()` (see FR-L19). Evidence:
         `ai-ide-cli/runtime/types.ts`.
-  - [x] `RuntimeCapabilities` flags: `permissionMode`, `hitl`, `transcript`,
+  - [x] `RuntimeCapabilities` flags: `permissionMode`, `transcript`,
         `interactive`, `toolUseObservation`, `session`,
         `sessionFidelity?: "native" | "emulated"` (omitted ⇒ `"native"`;
         Cursor advertises `"emulated"`, every other adapter `"native"`).
@@ -84,9 +84,9 @@ stable — never renumber on move.
 
 - **Description:** All runtimes normalize their output into `CliRunOutput`:
   `result`, `session_id`, `total_cost_usd`, `duration_ms`, `duration_api_ms`,
-  `num_turns`, `is_error`, optional `permission_denials`, `hitl_request`,
-  `runtime`. Downstream code (engine state, logging, continuation) consumes
-  this shape without runtime branching.
+  `num_turns`, `is_error`, optional `permission_denials`, `runtime`.
+  Downstream code (engine state, logging, continuation) consumes this
+  shape without runtime branching.
 - **Motivation:** Runtime-neutral output enables uniform state persistence,
   cost aggregation, and log formatting.
 - **Acceptance:**
@@ -164,10 +164,8 @@ stable — never renumber on move.
 
 - **Description:** `invokeOpenCodeCli(opts)` spawns `opencode run --format json`,
   parses NDJSON events, normalizes to `CliRunOutput`. System prompt prepended
-  to task prompt (no dedicated flag). HITL interception: detects
-  `hitl_request_human_input` tool_use events, kills process, returns
-  `hitl_request` in output. MCP injection via `OPENCODE_CONFIG_CONTENT` env.
-  Surfaces a typed event union `OpenCodeStreamEvent` for consumers narrowing
+  to task prompt (no dedicated flag). Surfaces a typed event union
+  `OpenCodeStreamEvent` for consumers narrowing
   `RuntimeInvokeOptions.onEvent`. Observes tool invocations via FR-L16.
   Post-run transcript exported with `opencode export <sessionId>` and
   written to a temp file, path returned as `CliRunOutput.transcript_path`.
@@ -178,11 +176,6 @@ stable — never renumber on move.
         not misinterpret a `-`-prefixed prompt (typical when a system
         prompt begins with YAML frontmatter `---`) as an unknown flag.
         Evidence: `ai-ide-cli/opencode/process.ts:buildOpenCodeArgs`.
-  - [x] `buildOpenCodeConfigContent()` injects MCP server when HITL configured;
-        throws when `hitlMcpCommandBuilder` missing.
-        Evidence: `ai-ide-cli/opencode/process.ts:buildOpenCodeConfigContent`.
-  - [x] HITL request extraction from `tool_use` events.
-        Evidence: `ai-ide-cli/opencode/process.ts:extractHitlRequestFromEvent`.
   - [x] `OpenCodeStreamEvent` union exported
         (`OpenCodeStepStartEvent | OpenCodeTextEvent | OpenCodeToolUseEvent
         | OpenCodeStepFinishEvent | OpenCodeErrorEvent`).
@@ -191,8 +184,8 @@ stable — never renumber on move.
         and writes stdout to a temp file; failures return `undefined`.
         Evidence: `ai-ide-cli/opencode/process.ts:exportOpenCodeTranscript`,
         `ai-ide-cli/opencode/process_test.ts` transcript-export cases.
-  - [x] Tests: args, output extraction, HITL, config content, tool-use abort,
-        transcript export. Evidence: `ai-ide-cli/opencode/process_test.ts`.
+  - [x] Tests: args, output extraction, tool-use abort, transcript export.
+        Evidence: `ai-ide-cli/opencode/process_test.ts`.
 
 ### 3.6 FR-L6: Cursor CLI Wrapper
 
@@ -382,7 +375,7 @@ stable — never renumber on move.
   - [x] Retry loop with exponential backoff (same policy as other runtimes).
         Evidence: `ai-ide-cli/codex/process.ts`.
   - [x] Adapter registered with capabilities
-        `{ permissionMode: true, hitl: true, transcript: true, interactive: true, toolUseObservation: true }`;
+        `{ permissionMode: true, transcript: true, interactive: true, toolUseObservation: true }`;
         `launchInteractive()` spawns the Codex TUI with skill injection at
         `~/.agents/skills/<name>/`. Evidence:
         `ai-ide-cli/runtime/codex-adapter.ts`, `ai-ide-cli/runtime/index.ts`.
@@ -391,11 +384,6 @@ stable — never renumber on move.
         Codex-native pass-through values. Evidence:
         `ai-ide-cli/codex/process.ts:permissionModeToCodexArgs`,
         `ai-ide-cli/codex/process_test.ts`.
-  - [x] HITL via `--config mcp_servers.hitl.command/args` overrides;
-        `mcp_tool_call` items targeting `hitl.request_human_input` are
-        intercepted and surfaced as `CliRunOutput.hitl_request`. Evidence:
-        `ai-ide-cli/codex/process.ts:buildCodexHitlConfigArgs`,
-        `ai-ide-cli/codex/hitl-mcp.ts`.
   - [x] Transcript path resolved post-run from
         `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` and
         surfaced as `CliRunOutput.transcript_path`. Evidence:
@@ -405,8 +393,7 @@ stable — never renumber on move.
         synthesizes `permission_denials[]`. Evidence:
         `ai-ide-cli/codex/process.ts:codexItemToToolUseInfo` and
         `executeCodexProcess`.
-  - [x] Sub-path exports `@korchasa/ai-ide-cli/codex/process` and
-        `@korchasa/ai-ide-cli/codex/hitl-mcp`. Evidence:
+  - [x] Sub-path export `@korchasa/ai-ide-cli/codex/process`. Evidence:
         `ai-ide-cli/deno.json` exports.
 
 ### 3.14 FR-L14: Map-shaped `extraArgs` / `runtime_args`
@@ -478,10 +465,10 @@ stable — never renumber on move.
   - **Claude** — fires for every `tool_use` block inside an `assistant` event.
   - **Codex** — fires for `item.completed` items of kind
     `command_execution` / `file_change` / `mcp_tool_call` / `web_search`.
-  - **OpenCode** — fires for every non-HITL `tool_use` event once the
-    tool reaches a terminal `state.status` (`completed` or `failed`).
+  - **OpenCode** — fires for every `tool_use` event once the tool
+    reaches a terminal `state.status` (`completed` or `failed`).
   Capability advertised via `RuntimeCapabilities.toolUseObservation`.
-- **Motivation:** First-class audit / HITL pre-hook that the SDK inspired.
+- **Motivation:** First-class audit / pre-hook that the SDK inspired.
 - **Acceptance:**
   - [x] `onToolUseObserved` callback receives `{id, name, input, turn}`.
         Evidence: `ai-ide-cli/claude/stream.ts`,
@@ -930,8 +917,8 @@ stable — never renumber on move.
     `runtime/CLAUDE.md`.
   - **OpenCode** (SSE): `message.part.updated` with text part →
     `{kind:"text", cumulative:true}`; with tool part at terminal
-    state (`completed`/`failed`), non-HITL → `{kind:"tool", …}`
-    (mirrors `openCodeToolUseInfo`'s filtering rule, FR-L16).
+    state (`completed`/`failed`) → `{kind:"tool", …}` (mirrors
+    `openCodeToolUseInfo`'s filtering rule, FR-L16).
 - **Documented gaps:**
   - OpenCode has no native final-text event — consumers build `final`
     by keeping the last `cumulative:true` text and flushing on
@@ -970,8 +957,8 @@ stable — never renumber on move.
         `ai-ide-cli/cursor/content_test.ts`
         (`cursor synthetic init`, `cursor synthetic send_failed` cases).
   - [x] Unit tests cover each runtime × each content kind, including
-        edge cases (empty final, mixed blocks, HITL filter, non-terminal
-        OpenCode tool states, Codex item types without ids). Evidence:
+        edge cases (empty final, mixed blocks, non-terminal OpenCode
+        tool states, Codex item types without ids). Evidence:
         `ai-ide-cli/claude/content_test.ts`,
         `ai-ide-cli/cursor/content_test.ts`,
         `ai-ide-cli/codex/content_test.ts`,
@@ -1803,8 +1790,7 @@ never throws on malformed payloads.
 | codex          | `item/completed` with `item.type === "mcpToolCall"`        | `{kind:"tool", name: "<server>.<tool>", input}`              | `server.tool` composed from `item.server`/`item.tool`                      |
 | codex          | `item/completed` with `item.type === "dynamicToolCall"`    | `{kind:"tool", name: item.tool, input}`                      | dynamic tool name comes from `item.tool`                                   |
 | opencode       | `message.part.updated` with `part.type === "text"`         | `{kind:"text", text: part.text, cumulative: true}`            | OpenCode has no native `final` — consumer flushes last cumulative text on `SYNTHETIC_TURN_END` |
-| opencode       | `message.part.updated` with `part.type === "tool"` at terminal `state.status` (`completed`/`failed`), non-HITL | `{kind:"tool", id, name, input?}` | mirrors FR-L16 terminal-state rule; id falls back `part.id → part.callID` |
-| opencode       | HITL tool (`OPENCODE_HITL_MCP_TOOL_NAME`)                 | — (skipped)                                                 | HITL detection uses its own dedicated path                                |
+| opencode       | `message.part.updated` with `part.type === "tool"` at terminal `state.status` (`completed`/`failed`) | `{kind:"tool", id, name, input?}` | mirrors FR-L16 terminal-state rule; id falls back `part.id → part.callID` |
 | opencode       | non-terminal tool states (`part.type === "tool"` mid-run)  | — (skipped)                                                 | only terminal states surface to `kind:"tool"`                             |
 | all            | any synthetic event (`synthetic: true`)                   | `[]`                                                         | consumers observe turn boundaries via the envelope flag, not content      |
 | all            | unrecognised `type` / malformed `raw`                     | `[]`                                                         | extractor is stateless and never throws                                   |

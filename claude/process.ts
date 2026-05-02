@@ -10,7 +10,7 @@
  * the `stream-json` event shape changes:
  * https://github.com/anthropics/claude-agent-sdk-typescript
  * (Anthropic's TypeScript SDK for Claude Code headless mode — source of
- * truth for CLI flags, NDJSON event types, permission/HITL semantics).
+ * truth for CLI flags, NDJSON event types, and permission semantics).
  *
  * Entry point: {@link invokeClaudeCli}.
  */

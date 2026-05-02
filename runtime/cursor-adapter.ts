@@ -93,12 +93,6 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
   id: "cursor",
   capabilities: {
     permissionMode: false,
-    // Unsupported by design: Cursor reads `mcp.json` only from `~/.cursor/`
-    // or `<workspace>/.cursor/` (the latter `chdir`s the agent), with no
-    // per-invocation config flag. Delivering HITL would require mutating
-    // user data or staging a sandbox workspace — both forbidden by root
-    // AGENTS.md. See `cursor/AGENTS.md` for the full rationale.
-    hitl: false,
     transcript: false,
     interactive: false,
     // FR-L30: Cursor's stream-json emits `tool_call/started` events,

@@ -1,9 +1,4 @@
-import type {
-  CliRunOutput,
-  HitlConfig,
-  RuntimeId,
-  Verbosity,
-} from "../types.ts";
+import type { CliRunOutput, RuntimeId, Verbosity } from "../types.ts";
 import type { SkillDef } from "../skill/types.ts";
 import type { ProcessRegistry } from "../process-registry.ts";
 import type { OnCallbackError } from "./callback-safety.ts";
@@ -117,29 +112,6 @@ export interface RuntimeInvokeOptions {
   streamLogPath?: string;
   /** Terminal verbosity level used by stream formatting. */
   verbosity?: Verbosity;
-  /** Workflow HITL configuration used by runtimes that need extra tool wiring. */
-  hitlConfig?: HitlConfig;
-  /**
-   * HITL MCP sub-process command builder for runtimes that host an auxiliary
-   * stdio MCP server (currently only OpenCode).
-   *
-   * Consumer (engine) supplies a zero-argument function that returns an
-   * `argv` array the runtime spawns to run the MCP HITL server. The spawned
-   * process MUST call `runOpenCodeHitlMcpServer`.
-   *
-   * Example:
-   * ```ts
-   * hitlMcpCommandBuilder: () => [
-   *   Deno.execPath(), "run", "-A",
-   *   import.meta.resolve("./cli.ts"),
-   *   "--internal-opencode-hitl-mcp",
-   * ]
-   * ```
-   *
-   * Fail-fast: if omitted and `hitlConfig` is set for a runtime that needs
-   * the MCP helper, the runner throws with a clear error.
-   */
-  hitlMcpCommandBuilder?: () => string[];
   /** Working directory for the runtime subprocess. */
   cwd?: string;
   /** Extra environment variables merged into the subprocess env. */
@@ -252,7 +224,7 @@ export interface InteractiveResult {
 export interface RuntimeAdapter {
   /** Stable runtime identifier. */
   id: RuntimeId;
-  /** Capability metadata used by config validation and HITL flow. */
+  /** Capability metadata used by config validation and feature gating. */
   capabilities: RuntimeCapabilities;
   /** Invoke the runtime with normalized options. */
   invoke(opts: RuntimeInvokeOptions): Promise<RuntimeInvokeResult>;

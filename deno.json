@@ -20,13 +20,10 @@
     "./cursor/session": "./cursor/session.ts",
     "./cursor/stream": "./cursor/stream.ts",
     "./codex/process": "./codex/process.ts",
-    "./codex/hitl-mcp": "./codex/hitl-mcp.ts",
     "./codex/app-server": "./codex/app-server.ts",
     "./codex/session": "./codex/session.ts",
     "./opencode/process": "./opencode/process.ts",
     "./opencode/session": "./opencode/session.ts",
-    "./opencode/hitl-mcp": "./opencode/hitl-mcp.ts",
-    "./hitl-mcp": "./hitl-mcp.ts",
     "./skill": "./skill/mod.ts"
   },
   "tasks": {

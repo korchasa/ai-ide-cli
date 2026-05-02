@@ -2,7 +2,6 @@ import { assert, assertEquals } from "@std/assert";
 import { defaultRegistry } from "../process-registry.ts";
 import {
   buildOpenCodeArgs,
-  buildOpenCodeConfigContent,
   exportOpenCodeTranscript,
   extractOpenCodeOutput,
   formatOpenCodeEventForOutput,
@@ -162,104 +161,12 @@ Deno.test("extractOpenCodeOutput — error event maps to is_error output", () =>
   assertEquals(output.is_error, true);
 });
 
-Deno.test("extractOpenCodeOutput — tool_use HITL event maps to hitl_request", () => {
-  const output = extractOpenCodeOutput([
-    JSON.stringify({
-      type: "step_start",
-      timestamp: 1000,
-      sessionID: "ses_123",
-      part: { type: "step-start" },
-    }),
-    JSON.stringify({
-      type: "tool_use",
-      timestamp: 1200,
-      sessionID: "ses_123",
-      part: {
-        tool: "hitl_request_human_input",
-        state: {
-          status: "completed",
-          input: {
-            question: "Which deployment target?",
-            header: "HITL",
-            options: [{ label: "prod" }, { label: "staging" }],
-          },
-          output: '{"ok":true}',
-        },
-      },
-    }),
-  ]);
-
-  assertEquals(output.session_id, "ses_123");
-  assertEquals(output.hitl_request?.question, "Which deployment target?");
-  assertEquals(output.hitl_request?.header, "HITL");
-  assertEquals(output.hitl_request?.options?.length, 2);
-  assertEquals(output.is_error, false);
-});
-
 Deno.test("formatOpenCodeEventForOutput — text event emits stream summary", () => {
   const line = formatOpenCodeEventForOutput({
     type: "text",
     part: { type: "text", text: "hello" },
   });
   assertEquals(line, "[stream] text: hello");
-});
-
-Deno.test("buildOpenCodeConfigContent — injects local MCP config when HITL configured", () => {
-  const raw = buildOpenCodeConfigContent(
-    makeInvokeOpts({
-      hitlConfig: {
-        ask_script: "ask.sh",
-        check_script: "check.sh",
-        poll_interval: 60,
-        timeout: 120,
-      },
-      hitlMcpCommandBuilder: () => ["deno", "run", "-A", "./cli.ts", "--mcp"],
-    }),
-  );
-  const config = JSON.parse(raw ?? "{}") as {
-    mcp?: Record<
-      string,
-      { type?: string; command?: string[]; enabled?: boolean }
-    >;
-  };
-
-  assertEquals(config.mcp?.hitl?.type, "local");
-  assertEquals(config.mcp?.hitl?.enabled, true);
-  assertEquals(config.mcp?.hitl?.command, [
-    "deno",
-    "run",
-    "-A",
-    "./cli.ts",
-    "--mcp",
-  ]);
-});
-
-Deno.test("buildOpenCodeConfigContent — throws when HITL is set but no hitlMcpCommandBuilder", () => {
-  let caught: Error | undefined;
-  try {
-    buildOpenCodeConfigContent(
-      makeInvokeOpts({
-        hitlConfig: {
-          ask_script: "ask.sh",
-          check_script: "check.sh",
-          poll_interval: 60,
-          timeout: 120,
-        },
-      }),
-    );
-  } catch (err) {
-    caught = err as Error;
-  }
-  assertEquals(caught !== undefined, true);
-  assertEquals(
-    caught?.message.includes("hitlMcpCommandBuilder"),
-    true,
-  );
-});
-
-Deno.test("buildOpenCodeConfigContent — returns undefined when HITL not configured", () => {
-  const raw = buildOpenCodeConfigContent(makeInvokeOpts());
-  assertEquals(raw, undefined);
 });
 
 // --- FR-L16: observed-tool-use hook + --------------------------------------
@@ -280,18 +187,6 @@ Deno.test("openCodeToolUseInfo — extracts id/name/input from completed tool ev
   assertEquals(info?.id, "tool_abc");
   assertEquals(info?.name, "bash");
   assertEquals(info?.input, { command: "ls" });
-});
-
-Deno.test("openCodeToolUseInfo — skips HITL tool", () => {
-  const event: OpenCodeToolUseEvent = {
-    type: "tool_use",
-    part: {
-      tool: "hitl_request_human_input",
-      id: "tool_h",
-      state: { status: "completed", input: { question: "ok?" } },
-    },
-  };
-  assertEquals(openCodeToolUseInfo(event), undefined);
 });
 
 Deno.test("openCodeToolUseInfo — skips events without a usable id", () => {

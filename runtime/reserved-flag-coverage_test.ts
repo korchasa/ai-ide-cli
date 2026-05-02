@@ -242,20 +242,13 @@ Deno.test("reserved-flag coverage — Cursor (one-shot + session send)", () => {
 
 Deno.test("reserved-flag coverage — Codex one-shot", () => {
   // Fresh run hits every branch (model, cwd, sandbox via permission
-  // mode, HITL config, reasoning effort).
+  // mode, reasoning effort).
   const fresh = buildCodexArgs({
     taskPrompt: "task",
     model: "gpt-5",
     cwd: "/tmp/scratch",
     permissionMode: "bypassPermissions",
     reasoningEffort: "high",
-    hitlConfig: {
-      ask_script: "a",
-      check_script: "b",
-      poll_interval: 1,
-      timeout: 1,
-    },
-    hitlMcpCommandBuilder: () => ["my-bin", "--flag"],
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,

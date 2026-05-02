@@ -19,7 +19,8 @@
 # AGENTS.md — @korchasa/ai-ide-cli
 
 Thin Deno/TypeScript wrapper library around agent-CLI runtimes
-(Claude Code, OpenCode, Cursor, Codex) plus a HITL MCP server and skill parser.
+(Claude Code, OpenCode, Cursor, Codex) plus a skill parser. HITL is
+out of scope (ADR-0002).
 Published on JSR as [`@korchasa/ai-ide-cli`](https://jsr.io/@korchasa/ai-ide-cli).
 
 ## Scope
@@ -83,17 +84,16 @@ import this package to invoke IDE CLIs uniformly.
     consumed by the `runtime/content.ts` dispatcher (FR-L23).
 - `opencode/process.ts`, `opencode/argv.ts`, `opencode/events.ts`,
   `opencode/transcript.ts`, `opencode/session.ts`, `opencode/sse.ts`,
-  `opencode/hitl-mcp.ts`, `opencode/content.ts` — OpenCode invocation
-  split into argv builder (+ `OPENCODE_CONFIG_CONTENT`), typed
-  `OpenCodeStreamEvent` union with formatter / output extractor /
-  tool-use info / HITL extractor, the `opencode export` transcript
-  wrapper, and `extractOpenCodeContent` for the `runtime/content.ts`
-  dispatcher (FR-L23); the runner in `process.ts` re-exports every
-  helper for backwards compatibility. Server-backed streaming-input
-  session in `session.ts`, with SSE-frame parsing helpers
+  `opencode/content.ts` — OpenCode invocation split into argv builder,
+  typed `OpenCodeStreamEvent` union with formatter / output extractor /
+  tool-use info, the `opencode export` transcript wrapper, and
+  `extractOpenCodeContent` for the `runtime/content.ts` dispatcher
+  (FR-L23); the runner in `process.ts` re-exports every helper for
+  backwards compatibility. Server-backed streaming-input session in
+  `session.ts`, with SSE-frame parsing helpers
   (`parseOpenCodeSseFrame`, `extractOpenCodeSessionId`, `pickFreePort`,
   `decodeConcat`) extracted into `sse.ts` and re-exported from
-  `session.ts` for back-compat. HITL MCP handler in `hitl-mcp.ts`.
+  `session.ts` for back-compat.
 - `cursor/process.ts`, `cursor/session.ts`, `cursor/argv.ts`,
   `cursor/chat.ts`, `cursor/pumps.ts`, `cursor/stream.ts`,
   `cursor/content.ts` — Cursor CLI invocation, the faux streaming-input
@@ -106,16 +106,15 @@ import this package to invoke IDE CLIs uniformly.
   `pumpCursorStderr`, `decodeConcat`), and the lifecycle runner
   (`session.ts`, which re-exports `buildCursorSendArgs` /
   `createCursorChat` / `CreateCursorChatOptions` for back-compat).
-  See `cursor/AGENTS.md` for HITL-not-supported rationale.
 - `codex/process.ts`, `codex/argv.ts`, `codex/run-state.ts`,
-  `codex/transcript.ts`, `codex/hitl-mcp.ts`, `codex/app-server.ts`,
+  `codex/transcript.ts`, `codex/app-server.ts`,
   `codex/app-server-internals.ts`, `codex/session.ts`,
   `codex/permission-mode.ts`, `codex/items.ts`,
   `codex/exec-events.ts`, `codex/events.ts`, `codex/content.ts` — Codex
   (`codex exec --experimental-json`) invocation split into argv builder
   + permission-mode serializer (`argv.ts`), NDJSON event aggregator +
-  output projector + formatter + HITL request parser + tool-use info
-  extractor (`run-state.ts`), and persisted-rollout discovery
+  output projector + formatter + tool-use info extractor
+  (`run-state.ts`), and persisted-rollout discovery
   (`transcript.ts`). Runner in `process.ts` re-exports every helper for
   backwards compatibility. Streaming-input session in `session.ts` is
   backed by the experimental `codex app-server --listen stdio://`
@@ -128,10 +127,8 @@ import this package to invoke IDE CLIs uniformly.
   (`items.ts`) bridging both. `permission-mode.ts` shares the
   `decidePermissionMode` mapping across both transports.
   `content.ts` provides `extractCodexContent` for the dispatcher
-  (FR-L23). HITL MCP server in `hitl-mcp.ts`.
+  (FR-L23).
 - `skill/` — SKILL.md parser and typed skill model.
-- `hitl-mcp.ts` — top-level shared HITL MCP request/response NDJSON runner
-  reused by Codex and OpenCode adapters.
 - `process-registry.ts` — cross-runtime child-process registry with graceful
   shutdown hooks. Exports the `ProcessRegistry` class for instance-scoped
   use plus a module-level default singleton with backward-compatible free
@@ -227,7 +224,7 @@ Runtime-neutral adapter pattern:
 - `runtime/index.ts` exposes `getRuntimeAdapter(name)` returning a uniform
   `invoke(...)` API with the same `CliRunOutput` shape for every backend.
 - Per-runtime directories (`claude/`, `opencode/`, `cursor/`, `codex/`) own
-  process invocation, event streaming, session resume, and HITL MCP wiring.
+  process invocation, event streaming, and session resume.
 - `process-registry.ts` tracks spawned children for graceful shutdown on
   SIGINT/SIGTERM. Embedders that host multiple independent runtimes in
   one process can pass a private `ProcessRegistry` via
@@ -235,17 +232,14 @@ Runtime-neutral adapter pattern:
   `RuntimeSessionOptions.processRegistry` to scope `killAll()` per
   subsystem. Standalone use keeps the module-level default singleton.
 - `skill/` parses SKILL.md files into a typed skill model.
-- HITL MCP servers (`opencode/hitl-mcp.ts`, `codex/hitl-mcp.ts`,
-  `hitl-mcp.ts`) are exposed as handlers; consumers supply a
-  `hitlMcpCommandBuilder` to re-spawn them as a sub-process. The library
-  does not ship a binary.
+- HITL is consumer-owned (ADR-0002). Build it on top of `extraArgs`,
+  `env`, or stream-event observers — the library ships no MCP servers.
 
 ## Key Decisions
 
 - Deno-native; no Node runtime. Published on JSR, not npm.
 - Runtime-neutral `CliRunOutput` — consumers never branch on runtime name.
-- HITL MCP via consumer-provided `hitlMcpCommandBuilder` (fail-fast if a
-  `hitlConfig` is set but the builder is omitted).
+- HITL is out of scope (ADR-0002).
 - Module-level `AGENTS.md` allowed (e.g. `runtime/AGENTS.md`) for
   adapter-specific guidance.
 - FR numbering scoped to library: `FR-L<N>`.

@@ -4,8 +4,7 @@
  * the user prompt piped on stdin, processes NDJSON events in real-time,
  * and returns normalized {@link CliRunOutput}. Includes retry logic with
  * exponential backoff, AbortSignal cancellation, runtime-neutral lifecycle
- * hooks, observed tool-use callback, HITL interception via local stdio
- * MCP, and persisted transcript discovery.
+ * hooks, observed tool-use callback, and persisted transcript discovery.
  *
  * **Parallel protocol warning.** This file parses the `codex exec
  * --experimental-json` NDJSON stream — item types are **snake_case**
@@ -23,10 +22,9 @@
  * Module split:
  *
  * - `codex/argv.ts` — argv builder, reserved-flag set, permission-mode
- *   serializer, HITL config-override builder.
+ *   serializer.
  * - `codex/run-state.ts` — `CodexRunState`, NDJSON event aggregator,
- *   output projector, formatter, tool-use info extractor, HITL request
- *   parser.
+ *   output projector, formatter, tool-use info extractor.
  * - `codex/transcript.ts` — persisted-rollout path discovery.
  * - `codex/process.ts` (this file) — `invokeCodexCli` retry/abort loop +
  *   `executeCodexProcess` subprocess driver. Re-exports the helpers from
@@ -90,7 +88,6 @@ import { findCodexSessionFile } from "./transcript.ts";
 // after the split.
 export {
   buildCodexArgs,
-  buildCodexHitlConfigArgs,
   CODEX_INTENTIONALLY_OPEN_FLAGS,
   CODEX_RESERVED_FLAGS,
   CODEX_RESERVED_POSITIONALS,
@@ -101,7 +98,6 @@ export {
   codexItemToToolUseInfo,
   type CodexRunState,
   createCodexRunState,
-  extractCodexHitlRequest,
   extractCodexOutput,
   formatCodexEventForOutput,
 } from "./run-state.ts";
@@ -138,11 +134,6 @@ export async function invokeCodexCli(
         opts.onToolUseObserved,
         opts.onCallbackError,
       );
-      // HITL request: surface output, do not retry.
-      if (output.hitl_request) {
-        opts.hooks?.onResult?.(output);
-        return { output };
-      }
       if (output.is_error) {
         lastError = `Codex CLI returned error: ${output.result}`;
         if (attempt < opts.maxRetries) {
@@ -221,7 +212,6 @@ async function executeCodexProcess(
   const registry = processRegistry;
   registry.register(process);
 
-  let interruptedForHitl = false;
   let denialAbort = false;
 
   try {
@@ -330,17 +320,6 @@ async function executeCodexProcess(
         const termSummary = formatCodexEventForOutput(event, verbosity);
         if (termSummary) onOutput(termSummary);
       }
-
-      // HITL request detected — SIGTERM and let the run terminate so the
-      // engine can resume the session after the human responds.
-      if (state.hitlRequest && !interruptedForHitl) {
-        interruptedForHitl = true;
-        try {
-          process.kill("SIGTERM");
-        } catch {
-          // Process may have already exited.
-        }
-      }
     };
 
     const stdoutReader = process.stdout.getReader();
@@ -412,12 +391,9 @@ async function executeCodexProcess(
 
     const stderr = decodeChunks(stderrChunks).trim();
 
-    // SIGTERM caused by HITL detection or denial is expected — only treat
-    // a failed exit as an error if neither path interrupted us.
-    if (
-      !status.success && !state.errorMessage && !interruptedForHitl &&
-      !denialAbort
-    ) {
+    // SIGTERM caused by a denial decision is expected — only treat a
+    // failed exit as an error if the denial path did not interrupt us.
+    if (!status.success && !state.errorMessage && !denialAbort) {
       throw new Error(
         `Codex CLI exited with code ${status.code}${
           stderr ? `: ${stderr}` : ""
@@ -426,9 +402,6 @@ async function executeCodexProcess(
     }
 
     const output = extractCodexOutput(state);
-    if (interruptedForHitl) {
-      output.is_error = false;
-    }
     if (state.threadId) {
       output.transcript_path = await findCodexSessionFile(
         state.threadId,

@@ -11,7 +11,6 @@
 import { assertEquals } from "@std/assert";
 import { extractSessionContent } from "../runtime/content.ts";
 import type { RuntimeSessionEvent } from "../runtime/types.ts";
-import { OPENCODE_HITL_MCP_TOOL_NAME } from "./hitl-mcp.ts";
 
 function event(
   type: string,
@@ -98,21 +97,6 @@ Deno.test("extractSessionContent — opencode tool at pending state → []", () 
         tool: "bash",
         id: "x",
         state: { status: "pending" },
-      },
-    },
-  });
-  assertEquals(extractSessionContent(ev), []);
-});
-
-Deno.test("extractSessionContent — opencode HITL tool → [] (filtered)", () => {
-  const ev = event("message.part.updated", {
-    type: "message.part.updated",
-    properties: {
-      part: {
-        type: "tool",
-        tool: OPENCODE_HITL_MCP_TOOL_NAME,
-        id: "hitl_1",
-        state: { status: "completed", input: {} },
       },
     },
   });

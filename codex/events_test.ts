@@ -122,10 +122,10 @@ Deno.test("item/started narrows mcpToolCall item", () => {
       item: {
         type: "mcpToolCall",
         id: "mcp-1",
-        server: "hitl",
-        tool: "request_human_input",
+        server: "search",
+        tool: "web",
         status: "inProgress",
-        arguments: { question: "?" },
+        arguments: { query: "?" },
       },
     },
   };
@@ -133,8 +133,8 @@ Deno.test("item/started narrows mcpToolCall item", () => {
     isCodexNotification(note, "item/started") &&
     note.params.item.type === "mcpToolCall"
   ) {
-    assertEquals(note.params.item.server, "hitl");
-    assertEquals(note.params.item.tool, "request_human_input");
+    assertEquals(note.params.item.server, "search");
+    assertEquals(note.params.item.tool, "web");
   } else {
     throw new Error("expected mcpToolCall narrow to succeed");
   }

@@ -13,12 +13,7 @@
  * `codex/session.ts` has its own helpers — do NOT cross-reference.
  */
 
-import type {
-  CliRunOutput,
-  CliRunUsage,
-  HumanInputRequest,
-  Verbosity,
-} from "../types.ts";
+import type { CliRunOutput, CliRunUsage, Verbosity } from "../types.ts";
 import type {
   CodexExecAgentMessageItem,
   CodexExecCommandExecutionItem,
@@ -36,10 +31,6 @@ import type {
   CodexExecTurnFailedEvent,
   CodexExecWebSearchItem,
 } from "./exec-events.ts";
-import {
-  CODEX_HITL_MCP_SERVER_NAME,
-  CODEX_HITL_MCP_TOOL_NAME,
-} from "./hitl-mcp.ts";
 import { parseExecItem } from "./items.ts";
 
 /** Accumulator of Codex NDJSON events collected during a single run. */
@@ -60,11 +51,6 @@ export interface CodexRunState {
   errorMessage?: string;
   /** Wall-clock start time in milliseconds since epoch, for duration reporting. */
   startMs: number;
-  /**
-   * HITL request extracted from a `mcp_tool_call` item targeting the
-   * `hitl.request_human_input` tool. Set once on first detection.
-   */
-  hitlRequest?: HumanInputRequest;
   /**
    * Set when the consumer's `onToolUseObserved` callback returned
    * `"abort"` for a tool item. The runner SIGTERMs the subprocess and
@@ -134,64 +120,12 @@ export function applyCodexEvent(
       if (item.type === "agent_message") {
         const m = item as CodexExecAgentMessageItem;
         if (typeof m.text === "string") state.finalResponse = m.text;
-        return;
-      }
-      if (item.type === "mcp_tool_call" && !state.hitlRequest) {
-        const m = item as CodexExecMcpToolCallItem;
-        if (
-          m.status === "completed" &&
-          m.server === CODEX_HITL_MCP_SERVER_NAME &&
-          m.tool === CODEX_HITL_MCP_TOOL_NAME
-        ) {
-          const extracted = extractCodexHitlRequest(m.arguments);
-          if (extracted) state.hitlRequest = extracted;
-        }
       }
       return;
     }
     default:
       return;
   }
-}
-
-/**
- * Parse the `arguments` payload of a `hitl.request_human_input` MCP tool
- * call into a runtime-neutral {@link HumanInputRequest}. Returns
- * `undefined` when the payload is missing or has an empty `question`.
- *
- * Exported for testing.
- */
-export function extractCodexHitlRequest(
-  args: Record<string, unknown> | undefined,
-): HumanInputRequest | undefined {
-  if (!args) return undefined;
-  const question = typeof args.question === "string"
-    ? args.question.trim()
-    : "";
-  if (!question) return undefined;
-
-  const options = Array.isArray(args.options)
-    ? args.options
-      .filter((entry): entry is Record<string, unknown> =>
-        typeof entry === "object" && entry !== null
-      )
-      .map((entry) => ({
-        label: typeof entry.label === "string" ? entry.label : "",
-        description: typeof entry.description === "string"
-          ? entry.description
-          : undefined,
-      }))
-      .filter((entry) => entry.label)
-    : undefined;
-
-  return {
-    question,
-    header: typeof args.header === "string" ? args.header : undefined,
-    options: options && options.length > 0 ? options : undefined,
-    multiSelect: typeof args.multiSelect === "boolean"
-      ? args.multiSelect
-      : undefined,
-  };
 }
 
 /**
@@ -209,7 +143,6 @@ export function extractCodexOutput(state: CodexRunState): CliRunOutput {
     num_turns: state.turnCount,
     is_error: state.errorMessage !== undefined,
     usage: extractCodexUsage(state),
-    hitl_request: state.hitlRequest,
   };
 }
 
@@ -310,13 +243,6 @@ export function formatCodexEventForOutput(
         case "mcp_tool_call": {
           if (verbosity === "semi-verbose") return "";
           const m = item as CodexExecMcpToolCallItem;
-          if (
-            m.server === CODEX_HITL_MCP_SERVER_NAME &&
-            m.tool === CODEX_HITL_MCP_TOOL_NAME
-          ) {
-            const q = m.arguments?.question;
-            return `[stream] hitl_request: ${typeof q === "string" ? q : "?"}`;
-          }
           return `[stream] mcp: ${m.server ?? "?"}.${m.tool ?? "?"} (${
             m.status ?? "?"
           })`;

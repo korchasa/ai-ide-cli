@@ -1,22 +1,16 @@
 /**
  * @module
  * OpenCode `run --format json` typed event union + pure aggregators
- * (formatter, output extractor, HITL request extractor, tool-use info
- * extractor). The runner (`opencode/process.ts`) imports these helpers
- * to fold each parsed NDJSON line into a normalized {@link CliRunOutput}.
+ * (formatter, output extractor, tool-use info extractor). The runner
+ * (`opencode/process.ts`) imports these helpers to fold each parsed
+ * NDJSON line into a normalized {@link CliRunOutput}.
  *
  * The canonical home for `OpenCodeStreamEvent` and its variants — every
  * companion module re-exports from here. See `runtime/AGENTS.md` "Single
  * canonical home for stream-event types".
  */
 
-import type {
-  CliRunOutput,
-  HumanInputOption,
-  HumanInputRequest,
-  Verbosity,
-} from "../types.ts";
-import { OPENCODE_HITL_MCP_TOOL_NAME } from "./hitl-mcp.ts";
+import type { CliRunOutput, Verbosity } from "../types.ts";
 
 // --- Typed event shapes (discriminated union) ---
 //
@@ -80,7 +74,7 @@ export interface OpenCodeToolUseEvent {
   part?: {
     /** Native sub-discriminator. */
     type?: string;
-    /** Tool name (e.g. `"bash"`, `"edit"`, `"hitl_request_human_input"`). */
+    /** Tool name (e.g. `"bash"`, `"edit"`). */
     tool?: string;
     /** Primary tool-invocation id used by the adapter for de-duplication. */
     id?: string;
@@ -182,10 +176,6 @@ export function formatOpenCodeEventForOutput(
       return `[stream] text: ${preview.replaceAll("\n", "↵")}`;
     }
     case "tool_use": {
-      const hitlRequest = extractHitlRequestFromEvent(event);
-      if (hitlRequest) {
-        return `[stream] hitl_request: ${hitlRequest.question}`;
-      }
       const tool = event.part?.tool ?? "unknown";
       return `[stream] tool: ${tool}`;
     }
@@ -212,7 +202,6 @@ export function extractOpenCodeOutput(lines: string[]): CliRunOutput {
   let cost = 0;
   let isError = false;
   let errorMessage = "";
-  let hitlRequest: HumanInputRequest | undefined;
 
   for (const event of events) {
     sessionId = event.sessionID ?? sessionId;
@@ -230,9 +219,6 @@ export function extractOpenCodeOutput(lines: string[]): CliRunOutput {
         if (event.part?.text) {
           textParts.push(String(event.part.text));
         }
-        break;
-      case "tool_use":
-        hitlRequest = hitlRequest ?? extractHitlRequestFromEvent(event);
         break;
       case "step_finish":
         cost = Number(event.part?.cost ?? cost ?? 0);
@@ -254,15 +240,13 @@ export function extractOpenCodeOutput(lines: string[]): CliRunOutput {
     num_turns: steps,
     is_error: isError,
     usage: { cost_usd: cost },
-    hitl_request: hitlRequest,
   };
 }
 
 /**
  * Extract a tool-use info payload from a parsed OpenCode `tool_use` event
  * suitable for dispatch through `OnRuntimeToolUseObservedCallback`.
- * Returns `undefined` for HITL interception events (they have their own
- * flow) or for events lacking the required `tool` / `id` fields.
+ * Returns `undefined` for events lacking the required `tool` / `id` fields.
  *
  * The callback is expected to fire once per tool invocation when the tool
  * reaches terminal state (`status === "completed"` or `"failed"`).
@@ -276,7 +260,6 @@ export function openCodeToolUseInfo(
   if (!part) return undefined;
   const tool = typeof part.tool === "string" ? part.tool : "";
   if (!tool) return undefined;
-  if (tool === OPENCODE_HITL_MCP_TOOL_NAME) return undefined;
   const id = typeof part.id === "string" && part.id
     ? part.id
     : typeof part.callID === "string" && part.callID
@@ -287,59 +270,4 @@ export function openCodeToolUseInfo(
     ? part.state.input as Record<string, unknown>
     : undefined;
   return { id, name: tool, input };
-}
-
-/**
- * Extract a runtime-neutral HITL request from a parsed OpenCode event
- * targeting the `hitl_request_human_input` MCP tool. Returns `undefined`
- * for non-HITL events or those with an empty / non-string `question`.
- *
- * Exported for testing.
- */
-export function extractHitlRequestFromEvent(
-  // deno-lint-ignore no-explicit-any
-  event: Record<string, any>,
-): HumanInputRequest | undefined {
-  if (event.type !== "tool_use") return undefined;
-  if (event.part?.tool !== OPENCODE_HITL_MCP_TOOL_NAME) return undefined;
-  if (event.part?.state?.status !== "completed") return undefined;
-
-  const input = event.part?.state?.input;
-  if (!input || typeof input.question !== "string" || !input.question.trim()) {
-    return undefined;
-  }
-
-  const options = Array.isArray(input.options)
-    ? input.options
-      .filter((entry: unknown) => typeof entry === "object" && entry !== null)
-      .map((entry: unknown) => normalizeHumanInputOption(entry))
-      .filter(
-        (entry: HumanInputOption | undefined): entry is HumanInputOption =>
-          entry !== undefined,
-      )
-    : undefined;
-
-  return {
-    question: String(input.question).trim(),
-    header: typeof input.header === "string" ? input.header : undefined,
-    options: options && options.length > 0 ? options : undefined,
-    multiSelect: typeof input.multiSelect === "boolean"
-      ? input.multiSelect
-      : undefined,
-  };
-}
-
-function normalizeHumanInputOption(
-  entry: unknown,
-): HumanInputOption | undefined {
-  const record = entry as Record<string, unknown>;
-  if (typeof record.label !== "string" || !record.label) {
-    return undefined;
-  }
-  return {
-    label: record.label,
-    description: typeof record.description === "string"
-      ? record.description
-      : undefined,
-  };
 }

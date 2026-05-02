@@ -107,7 +107,6 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   id: "opencode",
   capabilities: {
     permissionMode: true,
-    hitl: true,
     transcript: true,
     interactive: true,
     toolUseObservation: true,

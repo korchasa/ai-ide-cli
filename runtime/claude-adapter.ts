@@ -94,7 +94,6 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
   id: "claude",
   capabilities: {
     permissionMode: true,
-    hitl: true,
     transcript: true,
     interactive: true,
     toolUseObservation: true,

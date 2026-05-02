@@ -2,7 +2,7 @@
  * @module
  * Public API of `@korchasa/ai-ide-cli` — a thin wrapper around agent-CLI
  * binaries (Claude Code, OpenCode) that normalizes invocation, streaming
- * NDJSON event parsing, retry, session resume, and HITL tool wiring.
+ * NDJSON event parsing, retry, and session resume.
  *
  * Claude-specific stream parsers (`processStreamEvent`, `FileReadTracker`,
  * `extractClaudeOutput`) are intentionally NOT re-exported here — they are
@@ -14,9 +14,6 @@
 export type {
   CliRunOutput,
   CliRunUsage,
-  HitlConfig,
-  HumanInputOption,
-  HumanInputRequest,
   PermissionDenial,
   RuntimeId,
   Verbosity,
@@ -199,14 +196,12 @@ export type {
 export {
   applyCodexEvent,
   buildCodexArgs,
-  buildCodexHitlConfigArgs,
   CODEX_INTENTIONALLY_OPEN_FLAGS,
   CODEX_RESERVED_FLAGS,
   CODEX_RESERVED_POSITIONALS,
   codexItemToToolUseInfo,
   createCodexRunState,
   defaultCodexSessionsDir,
-  extractCodexHitlRequest,
   extractCodexOutput,
   findCodexSessionFile,
   formatCodexEventForOutput,
@@ -320,18 +315,9 @@ export {
 } from "./codex/session.ts";
 export type { CodexSession } from "./codex/session.ts";
 
-// --- Codex HITL MCP entry (required for consumer sub-process dispatch) ---
-export {
-  CODEX_HITL_MCP_SERVER_NAME,
-  CODEX_HITL_MCP_TOOL_NAME,
-  INTERNAL_CODEX_HITL_MCP_ARG,
-  runCodexHitlMcpServer,
-} from "./codex/hitl-mcp.ts";
-
 // --- OpenCode runner ---
 export {
   buildOpenCodeArgs,
-  buildOpenCodeConfigContent,
   exportOpenCodeTranscript,
   extractOpenCodeOutput,
   formatOpenCodeEventForOutput,
@@ -357,21 +343,6 @@ export type {
   OpenCodeSessionOptions,
   OpenCodeSessionStatus,
 } from "./opencode/session.ts";
-
-// --- OpenCode HITL MCP entry (required for consumer sub-process dispatch) ---
-export {
-  INTERNAL_OPENCODE_HITL_MCP_ARG,
-  OPENCODE_HITL_MCP_SERVER_NAME,
-  OPENCODE_HITL_MCP_TOOL_NAME,
-  runOpenCodeHitlMcpServer,
-} from "./opencode/hitl-mcp.ts";
-
-// --- Shared HITL MCP server primitives ---
-export {
-  normalizeHumanInputRequest,
-  REQUEST_HUMAN_INPUT_TOOL,
-  runHitlMcpServer,
-} from "./hitl-mcp.ts";
 
 // --- Skill model ---
 export type { SkillDef, SkillFrontmatter } from "./skill/types.ts";

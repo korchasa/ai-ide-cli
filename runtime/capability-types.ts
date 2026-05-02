@@ -4,8 +4,6 @@ import type { CliRunOutput, RuntimeId } from "../types.ts";
 export interface RuntimeCapabilities {
   /** Whether the runtime supports a first-class permission mode flag. */
   permissionMode: boolean;
-  /** Whether the runtime supports engine-managed HITL resume flow. */
-  hitl: boolean;
   /** Whether the runtime provides an external transcript file the engine can copy. */
   transcript: boolean;
   /** Whether the runtime supports interactive CLI mode (stdin-based REPL). */

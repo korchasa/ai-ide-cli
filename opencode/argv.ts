@@ -1,16 +1,13 @@
 /**
  * @module
- * OpenCode CLI argv builder + per-invocation config-content builder.
+ * OpenCode CLI argv builder.
  *
  * Pure functions: no subprocess spawning, no event aggregation. The runner
- * (`opencode/process.ts`) composes these into the `Deno.Command` argv +
- * `OPENCODE_CONFIG_CONTENT` env var.
+ * (`opencode/process.ts`) composes these into the `Deno.Command` argv.
  */
 
-import type { HitlConfig } from "../types.ts";
 import type { RuntimeInvokeOptions } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
-import { OPENCODE_HITL_MCP_SERVER_NAME } from "./hitl-mcp.ts";
 
 /**
  * Flags reserved by {@link buildOpenCodeArgs}. Keys in `extraArgs` that
@@ -80,35 +77,4 @@ export function buildOpenCodeArgs(opts: RuntimeInvokeOptions): string[] {
   args.push("--", opts.taskPrompt);
 
   return args;
-}
-
-/** Build per-invocation OpenCode config content used to inject local MCP servers. */
-export function buildOpenCodeConfigContent(
-  opts: RuntimeInvokeOptions,
-): string | undefined {
-  if (!hasConfiguredHitl(opts.hitlConfig)) {
-    return undefined;
-  }
-
-  if (!opts.hitlMcpCommandBuilder) {
-    throw new Error(
-      "OpenCode HITL requires hitlMcpCommandBuilder — consumer must supply " +
-        "a sub-process entry point for the HITL MCP server. See " +
-        "RuntimeInvokeOptions.hitlMcpCommandBuilder JSDoc.",
-    );
-  }
-
-  return JSON.stringify({
-    mcp: {
-      [OPENCODE_HITL_MCP_SERVER_NAME]: {
-        type: "local",
-        command: opts.hitlMcpCommandBuilder(),
-        enabled: true,
-      },
-    },
-  });
-}
-
-function hasConfiguredHitl(config?: HitlConfig): config is HitlConfig {
-  return Boolean(config?.ask_script && config?.check_script);
 }

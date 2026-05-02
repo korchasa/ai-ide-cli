@@ -12,9 +12,7 @@
 
 import type { RuntimeInvokeOptions } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
-import { CODEX_HITL_MCP_SERVER_NAME } from "./hitl-mcp.ts";
 import { decidePermissionMode } from "./permission-mode.ts";
-import type { HitlConfig } from "../types.ts";
 
 /**
  * Flags reserved by {@link buildCodexArgs}. Keys in `extraArgs` that match
@@ -44,12 +42,12 @@ export const CODEX_RESERVED_POSITIONALS: readonly string[] = [
  */
 export const CODEX_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
   // The adapter emits `--config <key=value>` for several purposes
-  // (approval policy via permission mode, MCP server registration via
-  // HITL, FR-L25 reasoning effort). Reserving `--config` would block
-  // legitimate consumer uses of repeatable `--config k=v` overrides
-  // (model_reasoning_effort, web_search, sandbox_workspace_write,
-  // openai_base_url, etc. — see the SDK reference list at the top of
-  // codex/process.ts). Repetition is expected.
+  // (approval policy via permission mode, FR-L25 reasoning effort).
+  // Reserving `--config` would block legitimate consumer uses of
+  // repeatable `--config k=v` overrides (model_reasoning_effort,
+  // web_search, sandbox_workspace_write, openai_base_url, etc. — see
+  // the SDK reference list at the top of codex/process.ts). Repetition
+  // is expected.
   "--config",
 ];
 
@@ -78,45 +76,6 @@ export function permissionModeToCodexArgs(mode?: string): string[] {
 }
 
 /**
- * Build the `--config mcp_servers.<name>.command/args` overrides that
- * register a per-invocation local stdio MCP server with Codex. Returns
- * `[]` when no HITL command is configured.
- *
- * The serialization mirrors the TOML overrides emitted by
- * `@openai/codex-sdk`: scalar strings are JSON-quoted, arrays are TOML
- * literal arrays of JSON-quoted strings.
- *
- * Exported for testing.
- */
-export function buildCodexHitlConfigArgs(
-  opts: RuntimeInvokeOptions,
-): string[] {
-  if (!hasConfiguredHitl(opts.hitlConfig)) return [];
-  if (!opts.hitlMcpCommandBuilder) {
-    throw new Error(
-      "Codex HITL requires hitlMcpCommandBuilder — consumer must supply " +
-        "a sub-process entry point for the HITL MCP server. See " +
-        "RuntimeInvokeOptions.hitlMcpCommandBuilder JSDoc.",
-    );
-  }
-  const argv = opts.hitlMcpCommandBuilder();
-  if (!argv.length) {
-    throw new Error("hitlMcpCommandBuilder returned an empty argv");
-  }
-  const [command, ...rest] = argv;
-  const serverPrefix = `mcp_servers.${CODEX_HITL_MCP_SERVER_NAME}`;
-  const args: string[] = [
-    "--config",
-    `${serverPrefix}.command=${JSON.stringify(command)}`,
-  ];
-  if (rest.length > 0) {
-    const renderedArgs = rest.map((a) => JSON.stringify(a)).join(", ");
-    args.push("--config", `${serverPrefix}.args=[${renderedArgs}]`);
-  }
-  return args;
-}
-
-/**
  * Build CLI arguments for the `codex` command.
  * Exported for testing.
  *
@@ -125,7 +84,6 @@ export function buildCodexHitlConfigArgs(
  *
  * - Session resume: `resume <threadId>` positional subcommand.
  * - Permissions: see {@link permissionModeToCodexArgs}.
- * - HITL injection: see {@link buildCodexHitlConfigArgs}.
  */
 export function buildCodexArgs(opts: RuntimeInvokeOptions): string[] {
   const args: string[] = ["exec", "--experimental-json"];
@@ -139,7 +97,6 @@ export function buildCodexArgs(opts: RuntimeInvokeOptions): string[] {
   }
 
   args.push(...permissionModeToCodexArgs(opts.permissionMode));
-  args.push(...buildCodexHitlConfigArgs(opts));
   // FR-L25: abstract reasoning effort → native Codex config override.
   if (opts.reasoningEffort) {
     args.push(
@@ -154,8 +111,4 @@ export function buildCodexArgs(opts: RuntimeInvokeOptions): string[] {
   }
 
   return args;
-}
-
-function hasConfiguredHitl(config?: HitlConfig): config is HitlConfig {
-  return Boolean(config?.ask_script && config?.check_script);
 }
