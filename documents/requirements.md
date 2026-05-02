@@ -1506,6 +1506,36 @@ stable — never renumber on move.
         `.github/workflows/e2e.yml` remains for ad-hoc runs from a
         repo with the appropriate API key secrets configured.
         Evidence: `ai-ide-cli/.github/workflows/` (no `ci-e2e.yml`).
+  - [x] Cross-runtime `invoke()` abort symmetry (FR-L15): one
+        triple of `pre-start abort` / `mid-run abort` /
+        `timeout-without-signal` per runtime drives
+        `getRuntimeAdapter(runtime).invoke(...)` against every
+        binary, so the `"Aborted before start"` /
+        `"Aborted: <reason>"` contract is asserted on Claude,
+        OpenCode, Cursor, and Codex live binaries — not just
+        Claude. Evidence:
+        `ai-ide-cli/e2e/invoke_abort_e2e_test.ts`.
+  - [x] Cross-runtime `onToolUseObserved` symmetry (FR-L16): one
+        scenario per runtime in the Claude / OpenCode / Codex
+        triple invokes a tool-emitting prompt under
+        `permissionMode: "bypassPermissions"` in a
+        `Deno.makeTempDir()` cwd and asserts the observer fires
+        with non-empty `id`, `name`, and a `runtime` field
+        matching the dispatching adapter. Cursor is excluded —
+        covered by the dedicated FR-L30 test
+        (`cursor_typed_stream_e2e_test.ts`). Evidence:
+        `ai-ide-cli/e2e/tool_use_observed_e2e_test.ts`.
+  - [x] `allowedTools` / `disallowedTools` argv-propagation
+        smoke on Claude (FR-L24): `allowedTools: ["Read"]` +
+        `disallowedTools: ["WebSearch"]` plus a one-word prompt
+        complete without a flag-parse error from the binary,
+        confirming the typed fields reach `--allowedTools` /
+        `--disallowedTools` argv intact. Behavioural blocking
+        depends on `--permission-mode` and Claude's internal
+        policy and is deliberately NOT asserted (Claude-CLI
+        concern, not an adapter concern; covered in unit tests
+        of `runtime/tool-filter.ts`). Evidence:
+        `ai-ide-cli/e2e/tool_filter_e2e_test.ts`.
 
 ### 3.32 FR-L33: Sync `PWD` Env Var With Subprocess `cwd`
 

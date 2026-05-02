@@ -144,11 +144,15 @@ import this package to invoke IDE CLIs uniformly.
   (probe + gate), `_auth.ts` (FR-L34 auth-probe — fail-fast on
   installed-but-unauthenticated CLI), `_matrix.ts` (shared
   session-contract catalog), `session_matrix_e2e_test.ts`
-  (generator), plus standalone `invoke_abort_e2e_test.ts` and
-  `claude_settings_e2e_test.ts`. Driven by `deno task e2e` /
-  `deno task e2e:<runtime>`. Gated by `E2E=1` + `E2E_RUNTIMES` +
-  per-runtime binary probe + auth probe. E2E does NOT run in CI
-  (FR-L34) — `.github/workflows/e2e.yml` is manual
+  (generator), plus standalone test files: `invoke_abort_e2e_test.ts`
+  (cross-runtime invoke-abort triple, FR-L15),
+  `tool_use_observed_e2e_test.ts` (FR-L16 across
+  claude/opencode/codex), `tool_filter_e2e_test.ts` (FR-L24
+  argv-propagation smoke on Claude), `claude_settings_e2e_test.ts`,
+  `cursor_typed_stream_e2e_test.ts` (FR-L30). Driven by
+  `deno task e2e` / `deno task e2e:<runtime>`. Gated by `E2E=1` +
+  `E2E_RUNTIMES` + per-runtime binary probe + auth probe. E2E does
+  NOT run in CI (FR-L34) — `.github/workflows/e2e.yml` is manual
   `workflow_dispatch` only.
 - `scripts/smoke.ts` — ad-hoc real-binary capture script for adding
   typed stream-event unions to a new runtime (e.g. `cursor-events`).

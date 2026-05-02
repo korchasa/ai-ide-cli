@@ -1114,9 +1114,30 @@ SESSION_CONTRACT_MATRIX`, filters via `only`/`skip`, and registers one
 is pre-resolved via top-level `await resolveEnabledMap()` — the
 `ignore` field must be a synchronous boolean.
 
-**`e2e/invoke_abort_e2e_test.ts`:** Claude-only `invokeClaudeCli`
-scenarios — pre-start abort (`"Aborted before start"`), mid-run abort
-(< 15 s), short-timeout without external signal.
+**`e2e/invoke_abort_e2e_test.ts`:** Cross-runtime `invoke()` abort
+symmetry (FR-L15). Generates one `pre-start abort` /
+`mid-run abort` / `timeout-without-signal` triple per runtime via
+`getRuntimeAdapter(runtime).invoke(...)`, asserting the uniform
+`"Aborted before start"` / `"Aborted: <reason>"` contract on every
+live binary. Mid-run upper bound is 25 s (Cursor's per-turn
+subprocess teardown is slower than Claude's; still well below the
+60 s `timeoutSeconds` ceiling).
+
+**`e2e/tool_use_observed_e2e_test.ts`:** Cross-runtime
+`onToolUseObserved` (FR-L16) for Claude / OpenCode / Codex. One
+short tool-emitting prompt per runtime under
+`permissionMode: "bypassPermissions"` in a `Deno.makeTempDir()`
+scratch dir; asserts the observer fires with `runtime`, `id`,
+`name`, and `turn` populated. Cursor is excluded (covered by the
+FR-L30 standalone test).
+
+**`e2e/tool_filter_e2e_test.ts`:** Claude-only argv-propagation
+smoke for the typed `allowedTools` / `disallowedTools` fields
+(FR-L24). One short invoke with both fields set; asserts the
+binary accepts the flags (no parse error). Behavioural blocking
+of disallowed tools depends on `--permission-mode` and Claude's
+internal policy and is deliberately NOT asserted — that is a
+Claude-CLI concern, not an adapter concern.
 
 **`e2e/claude_settings_e2e_test.ts`:** Claude-only `settingSources: []`
 cleanroom scenario.
