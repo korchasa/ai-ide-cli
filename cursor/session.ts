@@ -47,11 +47,17 @@ import {
   type OnCallbackError,
   safeInvokeCallback,
 } from "../runtime/callback-safety.ts";
-import { expandExtraArgs } from "../runtime/argv.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import type { ProcessRegistry } from "../process-registry.ts";
-import { CURSOR_RESERVED_FLAGS } from "./process.ts";
+import { buildCursorSendArgs } from "./argv.ts";
+import { createCursorChat } from "./chat.ts";
+import { decodeConcat, pumpCursorStderr, pumpCursorStdout } from "./pumps.ts";
+
+// Back-compat re-exports: tests and downstream consumers continue to import
+// these from `./session.ts`.
+export { buildCursorSendArgs } from "./argv.ts";
+export { createCursorChat, type CreateCursorChatOptions } from "./chat.ts";
 
 /** Options for {@link openCursorSession}. */
 export interface CursorSessionOptions {
@@ -210,99 +216,6 @@ export interface CursorSession {
   readonly done: Promise<CursorSessionStatus>;
 }
 
-/** Options for {@link createCursorChat}. */
-export interface CreateCursorChatOptions {
-  /** Working directory for the subprocess. */
-  cwd?: string;
-  /** Extra env merged into the subprocess env. */
-  env?: Record<string, string>;
-  /**
-   * Optional timeout in seconds for the create-chat call.
-   * Default: 30 seconds.
-   */
-  timeoutSeconds?: number;
-  /**
-   * Optional process registry that owns the spawned subprocess. When
-   * omitted, the module-level default registry is used.
-   */
-  processRegistry: ProcessRegistry;
-}
-
-/**
- * Invoke `cursor agent create-chat`, returning the new chat ID.
- * Exported for callers that want to create a chat ahead of time (e.g. to
- * pass to {@link invokeCursorCli} via `resumeSessionId`).
- */
-export async function createCursorChat(
-  opts: CreateCursorChatOptions,
-): Promise<string> {
-  const timeoutMs = (opts.timeoutSeconds ?? 30) * 1000;
-  // FR-L33: sync env.PWD with cwd at the spawn boundary.
-  const syncedEnv = withSyncedPWD(opts.env, opts.cwd);
-  const cmd = new Deno.Command("cursor", {
-    args: ["agent", "create-chat"],
-    stdin: "null",
-    stdout: "piped",
-    stderr: "piped",
-    ...(opts.cwd ? { cwd: opts.cwd } : {}),
-    ...(syncedEnv ? { env: syncedEnv } : {}),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const proc = cmd.spawn();
-  const registry = opts.processRegistry;
-  registry.register(proc);
-  try {
-    const [status, stdoutBuf, stderrBuf] = await Promise.all([
-      proc.status,
-      readAll(proc.stdout),
-      readAll(proc.stderr),
-    ]);
-    if (!status.success) {
-      const stderr = new TextDecoder().decode(stderrBuf).trim();
-      throw new Error(
-        `cursor agent create-chat exited with code ${status.code}${
-          stderr ? `: ${stderr}` : ""
-        }`,
-      );
-    }
-    const id = parseChatId(new TextDecoder().decode(stdoutBuf));
-    if (!id) {
-      throw new Error(
-        "cursor agent create-chat returned empty output (expected chat ID)",
-      );
-    }
-    return id;
-  } finally {
-    registry.unregister(proc);
-  }
-}
-
-/**
- * Build the argv for a single `cursor agent -p --resume <chatId> <message>`
- * invocation used by {@link openCursorSession}'s worker loop. Exported for
- * unit testing.
- */
-export function buildCursorSendArgs(opts: {
-  /** Target chat ID for `--resume`. */
-  chatId: string;
-  /** The user message passed as the positional prompt. */
-  message: string;
-  /** Cursor permission mode. `"bypassPermissions"` maps to `--yolo`. */
-  permissionMode?: string;
-  /** Extra CLI flags (see {@link ExtraArgsMap}). */
-  cursorArgs?: ExtraArgsMap;
-}): string[] {
-  const args: string[] = ["agent", "-p", "--resume", opts.chatId];
-  if (opts.permissionMode === "bypassPermissions") {
-    args.push("--yolo");
-  }
-  args.push(...expandExtraArgs(opts.cursorArgs, CURSOR_RESERVED_FLAGS));
-  args.push("--output-format", "stream-json");
-  args.push("--trust");
-  args.push(opts.message);
-  return args;
-}
-
 /**
  * Open a faux streaming-input Cursor session. See the module header for the
  * create-chat + resume-per-send emulation strategy.
@@ -384,13 +297,13 @@ export async function openCursorSession(
       }
     }
 
-    const stdoutPump = pumpStdout(
+    const stdoutPump = pumpCursorStdout(
       proc.stdout,
       queue,
       opts.onEvent,
       opts.onCallbackError,
     );
-    const stderrPump = pumpStderr(
+    const stderrPump = pumpCursorStderr(
       proc.stderr,
       stderrChunks,
       opts.onStderr,
@@ -529,131 +442,4 @@ export async function openCursorSession(
     abort,
     done,
   };
-}
-
-// -- Internals --
-
-async function pumpStdout(
-  stream: ReadableStream<Uint8Array>,
-  queue: SessionEventQueue<CursorStreamEvent>,
-  onEvent: CursorSessionOptions["onEvent"],
-  onCallbackError: OnCallbackError | undefined,
-): Promise<void> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const event = safeParse(line);
-        if (!event) continue;
-        queue.push(event);
-        // FR-L32: route consumer-callback throws to onCallbackError.
-        safeInvokeCallback(onEvent, [event], "onEvent", onCallbackError);
-      }
-    }
-    if (buffer.trim()) {
-      const event = safeParse(buffer);
-      if (event) {
-        queue.push(event);
-        // FR-L32: same routing for the trailing partial line.
-        safeInvokeCallback(onEvent, [event], "onEvent", onCallbackError);
-      }
-    }
-  } catch {
-    // Reader closed mid-read — worker loop handles finalization.
-  }
-}
-
-async function pumpStderr(
-  stream: ReadableStream<Uint8Array>,
-  sink: Uint8Array[],
-  onStderr: CursorSessionOptions["onStderr"],
-  onCallbackError: OnCallbackError | undefined,
-): Promise<void> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      sink.push(value);
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        // FR-L32: route consumer-callback throws to onCallbackError.
-        safeInvokeCallback(onStderr, [line], "onStderr", onCallbackError);
-      }
-    }
-    if (buffer.length > 0) {
-      // FR-L32: same routing for the trailing partial line.
-      safeInvokeCallback(onStderr, [buffer], "onStderr", onCallbackError);
-    }
-  } catch {
-    // stream closed
-  }
-}
-
-function safeParse(line: string): CursorStreamEvent | undefined {
-  try {
-    return JSON.parse(line) as CursorStreamEvent;
-  } catch {
-    return undefined;
-  }
-}
-
-async function readAll(
-  stream: ReadableStream<Uint8Array>,
-): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = [];
-  const reader = stream.getReader();
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const total = chunks.reduce((n, c) => n + c.length, 0);
-  const buf = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) {
-    buf.set(c, offset);
-    offset += c.length;
-  }
-  return buf;
-}
-
-function decodeConcat(chunks: Uint8Array[]): string {
-  const total = chunks.reduce((n, c) => n + c.length, 0);
-  const buf = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) {
-    buf.set(c, offset);
-    offset += c.length;
-  }
-  return new TextDecoder().decode(buf).trim();
-}
-
-/**
- * Extract a chat ID from `cursor agent create-chat` stdout.
- *
- * The CLI may wrap the ID in surrounding log noise depending on version; we
- * pick the last non-empty whitespace-separated token to be resilient.
- */
-function parseChatId(stdout: string): string {
-  const trimmed = stdout.trim();
-  if (!trimmed) return "";
-  const tokens = trimmed.split(/\s+/).filter(Boolean);
-  return tokens[tokens.length - 1] ?? "";
 }

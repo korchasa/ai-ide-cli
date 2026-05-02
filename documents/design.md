@@ -83,15 +83,29 @@ ai-ide-cli/
     transcript.ts       — exportOpenCodeTranscript,
                           OpenCodeTranscriptResult
     session.ts          — openOpenCodeSession, OpenCodeSession (streaming-input
-                          session backed by `opencode serve` + HTTP + SSE)
+                          session backed by `opencode serve` + HTTP + SSE);
+                          re-exports parseOpenCodeSseFrame /
+                          extractOpenCodeSessionId / OpenCodeSessionEvent
+                          for back-compat
+    sse.ts              — OpenCodeSessionEvent, parseOpenCodeSseFrame,
+                          extractOpenCodeSessionId, pickFreePort,
+                          decodeConcat (SSE-frame parsing helpers split out
+                          of session.ts for focused unit tests)
     hitl-mcp.ts         — runOpenCodeHitlMcpServer (stdio MCP for HITL tool)
     content.ts          — extractOpenCodeContent (per-runtime extractor; FR-L23)
   cursor/
     process.ts          — buildCursorArgs, invokeCursorCli, extractCursorOutput,
                           formatCursorEventForOutput
-    session.ts          — openCursorSession, createCursorChat,
-                          buildCursorSendArgs, CursorSession (faux streaming
-                          session: create-chat + resume-per-send)
+    session.ts          — openCursorSession, CursorSession (faux streaming
+                          session: create-chat + resume-per-send); re-exports
+                          buildCursorSendArgs / createCursorChat /
+                          CreateCursorChatOptions for back-compat
+    argv.ts             — buildCursorSendArgs (per-send `cursor agent -p
+                          --resume` argv builder)
+    chat.ts             — createCursorChat, CreateCursorChatOptions
+                          (`cursor agent create-chat` invocation)
+    pumps.ts            — pumpCursorStdout, pumpCursorStderr, decodeConcat
+                          (per-send subprocess stdout/stderr pumps)
     content.ts          — extractCursorContent (per-runtime extractor; FR-L23/FR-L30)
   codex/
     process.ts          — invokeCodexCli runner; re-exports helpers from
@@ -112,6 +126,9 @@ ai-ide-cli/
     app-server.ts       — CodexAppServerClient, CodexAppServerError,
                           CodexAppServerNotification (JSON-RPC transport for
                           `codex app-server --listen stdio://`)
+    app-server-internals.ts — NotificationQueue (private async-iterable
+                          queue backing CodexAppServerClient.notifications),
+                          decodeConcat, abortReason
     session.ts          — openCodexSession, CodexSession,
                           permissionModeToThreadStartFields,
                           expandCodexSessionExtraArgs, updateActiveTurnId
@@ -644,15 +661,21 @@ fires once per `assistant` event, closing the matrix row
 ### 3.10.1 `cursor/session.ts` — Cursor Faux Session
 
 Cursor CLI has no streaming-input transport, so the session is emulated.
+Internals are split across four files for focused unit tests:
+`session.ts` (lifecycle + worker loop), `argv.ts` (`buildCursorSendArgs`),
+`chat.ts` (`createCursorChat` + `CreateCursorChatOptions`), and `pumps.ts`
+(stdout/stderr pumps). `session.ts` re-exports `buildCursorSendArgs`,
+`createCursorChat`, and `CreateCursorChatOptions` for back-compat — every
+existing `from "./session.ts"` import keeps working.
 
-`createCursorChat(opts)`: runs `cursor agent create-chat`, trims stdout,
-returns the chat ID. Throws on non-zero exit or empty output. 30 s default
-timeout via `AbortSignal.timeout`.
+`createCursorChat(opts)` (`cursor/chat.ts`): runs `cursor agent
+create-chat`, trims stdout, returns the chat ID. Throws on non-zero exit or
+empty output. 30 s default timeout via `AbortSignal.timeout`.
 
-`buildCursorSendArgs({chatId, message, permissionMode?, cursorArgs?})`:
-`agent -p --resume <chatId>` → optional `--yolo` → expanded `cursorArgs`
-→ `--output-format stream-json` → `--trust` → message. Reuses
-`CURSOR_RESERVED_FLAGS` from `cursor/process.ts`.
+`buildCursorSendArgs({chatId, message, permissionMode?, cursorArgs?})`
+(`cursor/argv.ts`): `agent -p --resume <chatId>` → optional `--yolo` →
+expanded `cursorArgs` → `--output-format stream-json` → `--trust` →
+message. Reuses `CURSOR_RESERVED_FLAGS` from `cursor/process.ts`.
 
 `openCursorSession(opts)`: resolves chat ID (create-chat or
 `resumeSessionId`), pushes a synthetic `{type:"system", subtype:"init",
@@ -842,7 +865,10 @@ production code, tests, and `mod.ts`.
 
 `CodexAppServerClient.spawn(opts)` starts `codex app-server --listen
 stdio://` with piped stdin/stdout/stderr. Pure transport layer — knows
-nothing about threads or turns. Line-delimited JSON-RPC 2.0:
+nothing about threads or turns. The private `NotificationQueue`
+async-iterable plus the `decodeConcat` / `abortReason` byte/abort helpers
+live in `codex/app-server-internals.ts`, keeping `app-server.ts` focused on
+the client class. Line-delimited JSON-RPC 2.0:
 
 - `request<T>(method, params)` — monotonic numeric id, registers a
   resolver, rejects with `CodexAppServerError` on server error response,

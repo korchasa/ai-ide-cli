@@ -82,24 +82,35 @@ import this package to invoke IDE CLIs uniformly.
   - `claude/content.ts` — `extractClaudeContent` per-runtime extractor
     consumed by the `runtime/content.ts` dispatcher (FR-L23).
 - `opencode/process.ts`, `opencode/argv.ts`, `opencode/events.ts`,
-  `opencode/transcript.ts`, `opencode/session.ts`, `opencode/hitl-mcp.ts`,
-  `opencode/content.ts` — OpenCode invocation split into argv builder (+
-  `OPENCODE_CONFIG_CONTENT`), typed `OpenCodeStreamEvent` union with
-  formatter / output extractor / tool-use info / HITL extractor, the
-  `opencode export` transcript wrapper, and `extractOpenCodeContent` for
-  the `runtime/content.ts` dispatcher (FR-L23); the runner in
-  `process.ts` re-exports every helper for backwards compatibility.
-  Server-backed streaming-input session in `session.ts`, HITL MCP
-  handler in `hitl-mcp.ts`.
-- `cursor/process.ts`, `cursor/session.ts`, `cursor/stream.ts`,
+  `opencode/transcript.ts`, `opencode/session.ts`, `opencode/sse.ts`,
+  `opencode/hitl-mcp.ts`, `opencode/content.ts` — OpenCode invocation
+  split into argv builder (+ `OPENCODE_CONFIG_CONTENT`), typed
+  `OpenCodeStreamEvent` union with formatter / output extractor /
+  tool-use info / HITL extractor, the `opencode export` transcript
+  wrapper, and `extractOpenCodeContent` for the `runtime/content.ts`
+  dispatcher (FR-L23); the runner in `process.ts` re-exports every
+  helper for backwards compatibility. Server-backed streaming-input
+  session in `session.ts`, with SSE-frame parsing helpers
+  (`parseOpenCodeSseFrame`, `extractOpenCodeSessionId`, `pickFreePort`,
+  `decodeConcat`) extracted into `sse.ts` and re-exported from
+  `session.ts` for back-compat. HITL MCP handler in `hitl-mcp.ts`.
+- `cursor/process.ts`, `cursor/session.ts`, `cursor/argv.ts`,
+  `cursor/chat.ts`, `cursor/pumps.ts`, `cursor/stream.ts`,
   `cursor/content.ts` — Cursor CLI invocation, the faux streaming-input
   session (`create-chat` + per-send subprocess), the `CursorStreamEvent`
   discriminated union (FR-L30), and `extractCursorContent` for the
-  dispatcher (FR-L23). See `cursor/AGENTS.md` for HITL-not-supported
-  rationale.
+  dispatcher (FR-L23). The faux session is split into the per-send
+  argv builder (`argv.ts` — `buildCursorSendArgs`), the create-chat
+  call (`chat.ts` — `createCursorChat`, `CreateCursorChatOptions`),
+  the stdout/stderr pumps (`pumps.ts` — `pumpCursorStdout`,
+  `pumpCursorStderr`, `decodeConcat`), and the lifecycle runner
+  (`session.ts`, which re-exports `buildCursorSendArgs` /
+  `createCursorChat` / `CreateCursorChatOptions` for back-compat).
+  See `cursor/AGENTS.md` for HITL-not-supported rationale.
 - `codex/process.ts`, `codex/argv.ts`, `codex/run-state.ts`,
   `codex/transcript.ts`, `codex/hitl-mcp.ts`, `codex/app-server.ts`,
-  `codex/session.ts`, `codex/permission-mode.ts`, `codex/items.ts`,
+  `codex/app-server-internals.ts`, `codex/session.ts`,
+  `codex/permission-mode.ts`, `codex/items.ts`,
   `codex/exec-events.ts`, `codex/events.ts`, `codex/content.ts` — Codex
   (`codex exec --experimental-json`) invocation split into argv builder
   + permission-mode serializer (`argv.ts`), NDJSON event aggregator +
@@ -108,7 +119,9 @@ import this package to invoke IDE CLIs uniformly.
   (`transcript.ts`). Runner in `process.ts` re-exports every helper for
   backwards compatibility. Streaming-input session in `session.ts` is
   backed by the experimental `codex app-server --listen stdio://`
-  JSON-RPC transport (`app-server.ts`). Two parallel typed-event
+  JSON-RPC transport (`app-server.ts`); the private
+  `NotificationQueue` plus `decodeConcat` / `abortReason` helpers live
+  in `app-server-internals.ts`. Two parallel typed-event
   surfaces: `exec-events.ts` for the snake_case `codex exec` NDJSON
   protocol and `events.ts` for the camelCase `codex app-server`
   JSON-RPC notifications, with the conceptual tool-item layer
