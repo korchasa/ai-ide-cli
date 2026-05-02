@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.7.0](https://github.com/korchasa/ai-ide-cli/compare/v0.6.0...v0.7.0) (2026-05-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **e2e:** add auth-probe gate (FR-L34); disable e2e in CI
+
+### Features
+
+* **e2e:** add auth-probe gate (FR-L34); disable e2e in CI ([ab9b09a](https://github.com/korchasa/ai-ide-cli/commit/ab9b09a3e8aaa644b875eeead59ebc1aa481c89e))
+
 ## [0.6.0](https://github.com/korchasa/ai-ide-cli/compare/v0.5.11...v0.6.0) (2026-05-02)
 
 
