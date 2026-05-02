@@ -529,6 +529,10 @@ stable — never renumber on move.
         Evidence: `ai-ide-cli/claude/stream_test.ts`.
   - [x] Typed hook sees pre-increment `turnCount`. Evidence:
         `ai-ide-cli/claude/stream_test.ts`.
+  - [x] Real-binary verification: `onInit` fires with the correct
+        `info.runtime` and `onResult` fires exactly once with a defined
+        `CliRunOutput` for every adapter. Evidence:
+        `ai-ide-cli/e2e/lifecycle_hooks_e2e_test.ts`.
 
 ### 3.18 FR-L18: Setting-Source Isolation (Claude)
 
@@ -1139,6 +1143,13 @@ stable — never renumber on move.
     `ai-ide-cli/claude/process.ts:buildClaudeArgs`,
     `ai-ide-cli/claude/process_test.ts`
     ("buildClaudeArgs — resume path suppresses --effort").
+  - [x] Real-binary verification: `reasoningEffort: "low"` produces
+    `--effort low` (Claude) / `--config model_reasoning_effort="low"`
+    (Codex) that the binary accepts without flag-parse / unknown-config
+    error. OpenCode is excluded (provider-specific `--variant` may not
+    have `low` configured on a fresh install — argv propagation is
+    unit-tested instead); Cursor is excluded (capability is `false`).
+    Evidence: `ai-ide-cli/e2e/reasoning_effort_e2e_test.ts`.
 
 ### 3.26 FR-L26: Typed Codex App-Server Notifications
 
@@ -1536,6 +1547,23 @@ stable — never renumber on move.
         concern, not an adapter concern; covered in unit tests
         of `runtime/tool-filter.ts`). Evidence:
         `ai-ide-cli/e2e/tool_filter_e2e_test.ts`.
+  - [x] Runtime-neutral lifecycle hooks (FR-L17) on the live
+        binary of every adapter: one short prompt per runtime
+        with `hooks: { onInit, onResult }` asserts that
+        `onInit` fires with the correct `info.runtime` and
+        `onResult` fires exactly once with a defined
+        `CliRunOutput`. Evidence:
+        `ai-ide-cli/e2e/lifecycle_hooks_e2e_test.ts`.
+  - [x] Typed `reasoningEffort` argv-propagation smoke
+        (FR-L25) on Claude / Codex: `reasoningEffort: "low"`
+        produces `--effort low` (Claude) /
+        `--config model_reasoning_effort="low"` (Codex) that
+        the binary accepts without flag-parse / unknown-config
+        error. OpenCode is excluded (provider-specific
+        `--variant` may lack a `low` configuration on a fresh
+        install — argv propagation is unit-tested instead);
+        Cursor is excluded (capability is `false`). Evidence:
+        `ai-ide-cli/e2e/reasoning_effort_e2e_test.ts`.
 
 ### 3.32 FR-L33: Sync `PWD` Env Var With Subprocess `cwd`
 

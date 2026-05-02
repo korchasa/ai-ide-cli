@@ -148,7 +148,10 @@ import this package to invoke IDE CLIs uniformly.
   (cross-runtime invoke-abort triple, FR-L15),
   `tool_use_observed_e2e_test.ts` (FR-L16 across
   claude/opencode/codex), `tool_filter_e2e_test.ts` (FR-L24
-  argv-propagation smoke on Claude), `claude_settings_e2e_test.ts`,
+  argv-propagation smoke on Claude), `lifecycle_hooks_e2e_test.ts`
+  (FR-L17 cross-runtime onInit + onResult),
+  `reasoning_effort_e2e_test.ts` (FR-L25 argv-propagation smoke on
+  Claude / Codex), `claude_settings_e2e_test.ts`,
   `cursor_typed_stream_e2e_test.ts` (FR-L30). Driven by
   `deno task e2e` / `deno task e2e:<runtime>`. Gated by `E2E=1` +
   `E2E_RUNTIMES` + per-runtime binary probe + auth probe. E2E does

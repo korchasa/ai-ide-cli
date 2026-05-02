@@ -146,7 +146,15 @@ ai-ide-cli/
                           RUNTIME_SPECS (per-runtime turn-end predicates),
                           DEFAULT_CEILING_MS, CURSOR_CEILING_MS
     session_matrix_e2e_test.ts — Deno.test generator: RuntimeId × matrix
-    invoke_abort_e2e_test.ts   — Claude one-shot AbortSignal scenarios
+    invoke_abort_e2e_test.ts   — Cross-runtime invoke abort triple (FR-L15)
+    tool_use_observed_e2e_test.ts — Cross-runtime onToolUseObserved
+                          (FR-L16) on Claude / OpenCode / Codex
+    tool_filter_e2e_test.ts    — Claude argv-propagation smoke for
+                          allowedTools / disallowedTools (FR-L24)
+    lifecycle_hooks_e2e_test.ts — Cross-runtime RuntimeLifecycleHooks
+                          (FR-L17) onInit + onResult check
+    reasoning_effort_e2e_test.ts — Claude / Codex argv-propagation smoke
+                          for typed reasoningEffort (FR-L25)
     claude_settings_e2e_test.ts — Claude settingSources: [] cleanroom
     cursor_typed_stream_e2e_test.ts — Cursor --yolo + Read tool, asserts
                           parseCursorStreamEvent / unwrapCursorToolCall /
@@ -1141,6 +1149,24 @@ Claude-CLI concern, not an adapter concern.
 
 **`e2e/claude_settings_e2e_test.ts`:** Claude-only `settingSources: []`
 cleanroom scenario.
+
+**`e2e/lifecycle_hooks_e2e_test.ts`:** Cross-runtime
+`RuntimeLifecycleHooks` (FR-L17) check across Claude / OpenCode /
+Cursor / Codex. One short prompt per runtime with
+`hooks: { onInit, onResult }`; asserts `onInit` fires with
+`info.runtime === <runtime>` and `onResult` fires exactly once with
+a defined `CliRunOutput`. Pins the live binary against an
+init-event-translation regression in any adapter.
+
+**`e2e/reasoning_effort_e2e_test.ts`:** Real-binary smoke for the
+typed `reasoningEffort` field (FR-L25) on Claude and Codex.
+`reasoningEffort: "low"` produces `--effort low` (Claude) /
+`--config model_reasoning_effort="low"` (Codex); the test asserts
+the binary accepts the resulting argv without flag-parse /
+unknown-config error. OpenCode is excluded (`--variant` is
+provider-specific and may lack a `low` configuration on a fresh
+install — argv propagation is unit-tested instead); Cursor is
+excluded (`capabilities.reasoningEffort = false`).
 
 **`e2e/cursor_typed_stream_e2e_test.ts`:** Cursor-only FR-L30 check.
 One-shot `invokeCursorCli` with `permissionMode: "bypassPermissions"`
