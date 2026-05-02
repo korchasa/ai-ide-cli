@@ -2,6 +2,87 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.6.0](https://github.com/korchasa/ai-ide-cli/compare/v0.5.11...v0.6.0) (2026-05-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** pass processRegistry through every test/e2e/script call site
+* **runtime:** RuntimeInvokeOptions.processRegistry and RuntimeSessionOptions.processRegistry are now required. Per-runtime options (ClaudeInvokeOptions, ClaudeSessionOptions, CursorSessionOptions, OpenCodeSessionOptions, CodexAppServerClientOptions, etc.) follow suit. The defaultRegistry singleton remains exported for standalone callers; embedded callers MUST pass per-scope ProcessRegistry instances.
+
+Tests still pending fixes — type errors expected on this commit.
+* **types:** total_cost_usd and duration_api_ms on CliRunOutput are now optional. Use the new CliRunOutput.usage field for per-runtime token counts. Cursor and Codex no longer emit total_cost_usd: 0 when the runtime reports no cost — the field is undefined to truthfully signal "not reported".
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+* **runtime:** onToolUseObserved callback throws no longer auto-abort the run; they default to "allow" and surface via onCallbackError. exportOpenCodeTranscript returns OpenCodeTranscriptResult instead of string|undefined.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+* **runtime:** `RuntimeSession.events` and the per-runtime equivalents
+are typed `AsyncIterableIterator` (one-shot). Code that called
+`Symbol.asyncIterator` on the events twice — or passed the field to a
+helper that did — fails at compile time instead of at the runtime guard.
+Single-iteration consumers are unaffected.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+* **claude:** `PermissionMode` and `VALID_PERMISSION_MODES` moved from
+`types.ts` to `claude/permission-mode.ts`. The root `mod.ts` re-export
+stays as a `@deprecated` shim for one release. Dead values `"dontAsk"`
+and `"auto"` are removed from the enum and the new validator rejects
+them at argv-build time.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+### Features
+
+* **cursor:** expose sessionFidelity capability and surface per-turn send failures ([c45d047](https://github.com/korchasa/ai-ide-cli/commit/c45d047a784524de5b57935994c0c761a47d6c3c))
+* **runtime:** add onCallbackError option and surface transcript export failures ([0692dbb](https://github.com/korchasa/ai-ide-cli/commit/0692dbb89e8f9d9b60ae8dc888a95717b0ead032))
+* **runtime:** make processRegistry required on invoke and session options (source) ([4ce4e8a](https://github.com/korchasa/ai-ide-cli/commit/4ce4e8a373bf8d11e908c6126b0931350154def3))
+* **runtime:** sync env.PWD with subprocess cwd at every spawn boundary ([8f57be7](https://github.com/korchasa/ai-ide-cli/commit/8f57be794d9888ff6358b0af4e7568e5679b69b3))
+* **types:** optional cost fields and new usage telemetry on CliRunOutput ([19513ff](https://github.com/korchasa/ai-ide-cli/commit/19513ff5bab631c9d60ee69a217f40edd6e567ae))
+
+
+### Bug Fixes
+
+* **jsr:** re-export types referenced from runtime/index.ts public API ([ed793da](https://github.com/korchasa/ai-ide-cli/commit/ed793da279bb718d6627f63113560c30039d4be7))
+
+
+### Continuous Integration
+
+* add per-runtime e2e workflow with soak window ([db3d1dd](https://github.com/korchasa/ai-ide-cli/commit/db3d1dd768a0a008f41ec4abe2907c3d25d8df74))
+
+
+### Tests
+
+* **runtime:** coverage test for reserved-flag completeness ([4453dd9](https://github.com/korchasa/ai-ide-cli/commit/4453dd9b297517d4166061b5149c138e8d47d74e))
+* **runtime:** pass processRegistry through every test/e2e/script call site ([2e01a96](https://github.com/korchasa/ai-ide-cli/commit/2e01a96dfe7e701e7b07723ddd5647c87e8be539))
+
+
+### Chores
+
+* update .gitignore to include .worktrees/ and remove obsolete subproject ([0cab0d5](https://github.com/korchasa/ai-ide-cli/commit/0cab0d5a45865e761292204b4d0199ce32a059bd))
+
+
+### Documentation
+
+* reflect runtime/types and codex/opencode/process module splits ([3df5904](https://github.com/korchasa/ai-ide-cli/commit/3df5904b3a6c4f998107d8b14e23d9e8546e5c7c))
+* refresh AGENTS.md Layout and relax module-AGENTS rule ([aeff0ae](https://github.com/korchasa/ai-ide-cli/commit/aeff0aee1bfd9ce2cc5608295b860776e03d2ec1))
+
+
+### Code Refactoring
+
+* **autonomous-task:** standardize tool list formatting and add spacing for clarity ([d9728db](https://github.com/korchasa/ai-ide-cli/commit/d9728db616f6057b66eede411752b633eb333f63))
+* **claude:** move PermissionMode to claude submodule and drop dead values ([9b3bca6](https://github.com/korchasa/ai-ide-cli/commit/9b3bca6e323edc45bc7c04b6fc574c3f4c7797c2))
+* **codex:** extract permission-mode decision and tool-item conceptual model ([a622e46](https://github.com/korchasa/ai-ide-cli/commit/a622e465f7417c5a5f7a5a26641081ba221802a4))
+* **codex:** split codex/process.ts into argv / run-state / transcript ([e6ad9bf](https://github.com/korchasa/ai-ide-cli/commit/e6ad9bf5a2a483d4b85e2d336471a54e47a63919))
+* **codex:** type the exec --experimental-json NDJSON event stream ([2557daf](https://github.com/korchasa/ai-ide-cli/commit/2557daf6b73a005b5fffdf7f44dbf3e11f7f61e6))
+* **content:** split runtime/content.ts into per-runtime extractors ([fb40e86](https://github.com/korchasa/ai-ide-cli/commit/fb40e8665f5916f7a77844eb6f2e87888e533468))
+* **opencode:** split opencode/process.ts into argv / events / transcript ([de99dd5](https://github.com/korchasa/ai-ide-cli/commit/de99dd5b8013d65af2c808dff5cd1f94f8452f2f))
+* **runtime:** extract expandExtraArgs into cycle-free runtime/argv.ts ([a385100](https://github.com/korchasa/ai-ide-cli/commit/a3851009ba01e2853e8c9eed824191d2e7683c89))
+* **runtime:** split positional subcommand names out of reserved-flag lists ([c896d9e](https://github.com/korchasa/ai-ide-cli/commit/c896d9e16058a2d5dc7ba5e193dd8c553a6e3a64))
+* **runtime:** split runtime/types.ts into focused modules ([d9a430c](https://github.com/korchasa/ai-ide-cli/commit/d9a430cfdd8060b463e4aa31360000b0f5002b43))
+* **runtime:** type RuntimeSession.events as AsyncIterableIterator ([a1b6001](https://github.com/korchasa/ai-ide-cli/commit/a1b600173f10feafb125f637544518c2859b6eec))
+* split files over 600 LOC into focused modules ([37d7b07](https://github.com/korchasa/ai-ide-cli/commit/37d7b0729993f3d29c93c7420561f38c4bf88e9f))
+
 ### [0.5.11](https://github.com/korchasa/ai-ide-cli/compare/v0.5.10...v0.5.11) (2026-04-30)
 
 
