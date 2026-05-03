@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.8.0](https://github.com/korchasa/ai-ide-cli/compare/v0.7.0...v0.8.0) (2026-05-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* removes HitlConfig, HumanInputRequest,
+HumanInputOption, hitlConfig + hitlMcpCommandBuilder on
+RuntimeInvokeOptions / RuntimeSessionOptions, hitl_request field on
+CliRunOutput, hitl flag on RuntimeCapabilities, and the sub-path
+exports ./hitl-mcp, ./opencode/hitl-mcp, ./codex/hitl-mcp.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+
+### Features
+
+* remove HITL from library scope (ADR-0002) ([1053b6c](https://github.com/korchasa/ai-ide-cli/commit/1053b6ccdcb59b958ebb3cdbb61f500de6127907))
+
+
+### Tests
+
+* **e2e:** cover lifecycle hooks (FR-L17) and reasoning effort (FR-L25) ([32577c8](https://github.com/korchasa/ai-ide-cli/commit/32577c8589904b0efcbcfcdb2c73c5ffa09ef987))
+* **e2e:** expand FR coverage — invoke-abort symmetry, tool-use, tool-filter ([542f795](https://github.com/korchasa/ai-ide-cli/commit/542f795701695c8485a8ea9bd325d90891a3986a))
+
 ## [0.7.0](https://github.com/korchasa/ai-ide-cli/compare/v0.6.0...v0.7.0) (2026-05-02)
 
 
