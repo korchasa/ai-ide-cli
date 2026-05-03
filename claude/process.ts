@@ -25,6 +25,11 @@ import {
   validateReasoningEffort,
 } from "../runtime/reasoning-effort.ts";
 import {
+  type McpServers,
+  validateMcpServers,
+} from "../runtime/mcp-injection.ts";
+import { prepareMcpConfigFile } from "./mcp.ts";
+import {
   defaultClaudeConfigDir,
   prepareSettingSourcesDir,
   type SettingSource,
@@ -79,6 +84,17 @@ export const CLAUDE_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
   // FR-L25: typed `reasoningEffort` is preferred, but legacy
   // `claudeArgs: { "--effort": "high" }` is still accepted.
   "--effort",
+  // FR-L35: typed `mcpServers` is preferred, but legacy
+  // `claudeArgs: { "--mcp-config": "/path" }` is still accepted when
+  // the typed field is unset. Collision is detected by
+  // `validateMcpServers` (uniform error message), not by reserving
+  // the flag — mirrors the FR-L24 / FR-L25 reserved-flag-non-extension
+  // rule.
+  "--mcp-config",
+  // FR-L35: typed `strictMcpConfig: true` is preferred, but legacy
+  // `claudeArgs: { "--strict-mcp-config": "" }` keeps working when
+  // the typed field is unset.
+  "--strict-mcp-config",
 ];
 
 /** Low-level options for a single claude CLI invocation (initial or resume). */
@@ -171,6 +187,21 @@ export interface ClaudeInvokeOptions {
    * `"low"` with a one-time warning. See FR-L25.
    */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Per-invocation MCP server registration (FR-L35). Rendered to a tmp
+   * `mcp.json` and emitted as `--mcp-config <path>`; the tmp file is
+   * cleaned up in `finally`. Mutually exclusive with
+   * `claudeArgs: { "--mcp-config": "..." }` (collision throws via
+   * `validateMcpServers`).
+   */
+  mcpServers?: McpServers;
+  /**
+   * Pair with `mcpServers` to also emit `--strict-mcp-config`. The
+   * Claude CLI then ignores `~/.claude.json` and the project's
+   * `.mcp.json`, so only the typed spec applies. Default `false` for
+   * back-compat. See FR-L35.
+   */
+  strictMcpConfig?: boolean;
 }
 
 /**
@@ -308,6 +339,16 @@ export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
     args.push("--effort", mapReasoningEffortToClaude(effort));
   }
 
+  // FR-L35: validate the typed mcpServers field synchronously (catches
+  // empty record / blank name / unknown type / collision with the legacy
+  // extraArgs `--mcp-config` key). Argv emission for the typed field
+  // happens in `executeClaudeProcess` because the tmp-file path is only
+  // known there.
+  validateMcpServers("claude", {
+    mcpServers: opts.mcpServers,
+    extraArgs: opts.claudeArgs,
+  });
+
   // Extra CLI args go next (expanded from the map shape).
   args.push(...expandExtraArgs(opts.claudeArgs, CLAUDE_RESERVED_FLAGS));
 
@@ -358,13 +399,28 @@ async function executeClaudeProcess(
     env = { ...env, CLAUDE_CONFIG_DIR: prepared.tmpDir };
   }
 
+  // FR-L35: per-attempt mcp-config tmp file. Written here (not in the
+  // pure builder) because the path is allocated per attempt and reaped
+  // in this function's `finally` chain — `invokeClaudeCli` may call us
+  // multiple times under retry, and per-attempt allocation keeps cleanup
+  // atomic across success / retry / abort / crash.
+  let mcpCleanup: (() => Promise<void>) | undefined;
+  let resolvedArgs = args;
+  if (opts.mcpServers) {
+    const prepared = await prepareMcpConfigFile(opts.mcpServers);
+    mcpCleanup = prepared.cleanup;
+    const extra = ["--mcp-config", prepared.path];
+    if (opts.strictMcpConfig) extra.push("--strict-mcp-config");
+    resolvedArgs = [...args, ...extra];
+  }
+
   // Unset CLAUDECODE to allow nested claude CLI invocations.
   // Claude Code checks this variable and refuses to launch inside another session.
   // Deno.Command merges env with parent, so setting empty string overrides it.
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
   const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;
   const cmd = new Deno.Command("claude", {
-    args,
+    args: resolvedArgs,
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
@@ -537,6 +593,11 @@ async function executeClaudeProcess(
     registry.unregister(process);
     if (settingCleanup) {
       await settingCleanup();
+    }
+    // FR-L35: reap the per-attempt mcp-config tmp file regardless of
+    // exit path (success / retry / abort / crash all converge here).
+    if (mcpCleanup) {
+      await mcpCleanup();
     }
   }
 }

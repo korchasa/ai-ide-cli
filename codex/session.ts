@@ -75,6 +75,10 @@ import {
 import { safeInvokeCallback } from "../runtime/callback-safety.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
+  buildCodexMcpServersArgs,
+  validateMcpServers,
+} from "../runtime/mcp-injection.ts";
+import {
   CodexAppServerClient,
   CodexAppServerError,
   type CodexAppServerNotification,
@@ -173,6 +177,13 @@ export async function openCodexSession(
       `model_reasoning_effort="${opts.reasoningEffort}"`,
     );
   }
+  // FR-L35: typed mcpServers → repeated `--config mcp_servers.<name>.*`
+  // overrides on the app-server argv. Validate first so http-on-codex
+  // throws synchronously; prepend so consumer extraArgs can still
+  // override on duplication.
+  validateMcpServers("codex", { mcpServers: opts.mcpServers });
+  const mcpArgv = buildCodexMcpServersArgs(opts.mcpServers);
+  if (mcpArgv.length > 0) extraArgv.unshift(...mcpArgv);
 
   const client = CodexAppServerClient.spawn({
     binary: opts.binary,

@@ -45,6 +45,14 @@ export interface RuntimeCapabilities {
    */
   reasoningEffort: boolean;
   /**
+   * Whether the adapter renders `mcpServers` into a runtime-native
+   * MCP-server registration mechanism for the duration of one
+   * invocation. Adapters with `false` accept the typed field, validate
+   * it uniformly, emit one `console.warn` on first set-value call per
+   * process, and otherwise drop it on the wire. See FR-L35.
+   */
+  mcpInjection: boolean;
+  /**
    * Backing-transport fidelity for `RuntimeAdapter.openSession`.
    *
    * - `"native"` — adapter wraps a real long-lived streaming-input

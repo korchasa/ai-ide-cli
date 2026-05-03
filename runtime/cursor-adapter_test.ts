@@ -2,9 +2,11 @@ import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import { defaultRegistry } from "../process-registry.ts";
 import { getRuntimeAdapter } from "./index.ts";
 import {
+  _resetMcpInjectionWarning,
   _resetReasoningEffortWarning,
   _resetToolFilterWarning,
 } from "./cursor-adapter.ts";
+import type { McpServers } from "./mcp-injection.ts";
 
 const cursorRuntimeAdapter = getRuntimeAdapter("cursor");
 
@@ -166,6 +168,101 @@ Deno.test("cursorRuntimeAdapter.invoke — malformed reasoningEffort throws sync
     Error,
     "reasoningEffort must be one of",
   );
+});
+
+// --- mcp injection (FR-L35) ---
+
+Deno.test("cursorRuntimeAdapter — mcpInjection capability is false", () => {
+  assertEquals(cursorRuntimeAdapter.capabilities.mcpInjection, false);
+});
+
+Deno.test("cursorRuntimeAdapter.invoke — mcpServers warns once per process, resettable", async () => {
+  _resetMcpInjectionWarning();
+  const servers: McpServers = {
+    hitl: { type: "stdio", command: "deno" },
+  };
+  await withWarnSpy(async (calls) => {
+    try {
+      await cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
+        taskPrompt: "ignored",
+        timeoutSeconds: 1,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+        mcpServers: servers,
+      });
+    } catch {
+      // ignore — warn fires before subprocess spawn
+    }
+    try {
+      await cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
+        taskPrompt: "ignored",
+        timeoutSeconds: 1,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+        mcpServers: servers,
+      });
+    } catch {
+      // ignore
+    }
+    const warnCount = calls.filter((c) =>
+      String(c[0]).includes("mcpServers")
+    ).length;
+    assertEquals(warnCount, 1);
+    _resetMcpInjectionWarning();
+    try {
+      await cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
+        taskPrompt: "ignored",
+        timeoutSeconds: 1,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+        mcpServers: servers,
+      });
+    } catch {
+      // ignore
+    }
+    const warnCount2 =
+      calls.filter((c) => String(c[0]).includes("mcpServers")).length;
+    assertEquals(warnCount2, 2);
+  });
+});
+
+Deno.test("cursorRuntimeAdapter.invoke — malformed mcpServers throws synchronously without warn", () => {
+  _resetMcpInjectionWarning();
+  assertThrows(
+    () =>
+      cursorRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
+        taskPrompt: "ignored",
+        timeoutSeconds: 1,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+        mcpServers: {},
+      }),
+    Error,
+    "must be non-empty",
+  );
+});
+
+Deno.test("cursorRuntimeAdapter.openSession — malformed mcpServers rejects without flipping warn latch", async () => {
+  _resetMcpInjectionWarning();
+  await withWarnSpy(async (calls) => {
+    await assertRejects(
+      () =>
+        cursorRuntimeAdapter.openSession!({
+          processRegistry: defaultRegistry,
+          mcpServers: {},
+        }),
+      Error,
+      "must be non-empty",
+    );
+    assertEquals(
+      calls.filter((c) => String(c[0]).includes("mcpServers")).length,
+      0,
+    );
+  });
 });
 
 Deno.test("cursorRuntimeAdapter.openSession — malformed reasoningEffort rejects without flipping warn latch", async () => {

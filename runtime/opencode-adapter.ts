@@ -20,6 +20,7 @@ import {
 } from "./capabilities.ts";
 import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
+import { validateMcpServers } from "./mcp-injection.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
@@ -114,6 +115,8 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     capabilityInventory: true,
     toolFilter: false,
     reasoningEffort: true,
+    // FR-L35
+    mcpInjection: true,
     sessionFidelity: "native",
   },
   invoke(opts) {
@@ -121,6 +124,10 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     warnToolFilterOnce(opts);
     validateReasoningEffort("opencode", opts);
     warnReasoningEffortOnce(opts.reasoningEffort);
+    // FR-L35: validate at the adapter boundary too — keeps malformed
+    // input throwing uniformly even if a refactor moves env injection
+    // out of `invokeOpenCodeCli`.
+    validateMcpServers("opencode", opts);
     return invokeOpenCodeCli(opts);
   },
 
@@ -139,12 +146,16 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     warnToolFilterOnce(opts);
     validateReasoningEffort("opencode", opts);
     warnReasoningEffortOnce(opts.reasoningEffort);
+    // FR-L35
+    validateMcpServers("opencode", opts);
     const inner = await openOpenCodeSession({
       agent: opts.agent,
       systemPrompt: opts.systemPrompt,
       model: opts.model,
       resumeSessionId: opts.resumeSessionId,
       reasoningEffort: opts.reasoningEffort,
+      // FR-L35
+      mcpServers: opts.mcpServers,
       cwd: opts.cwd,
       env: opts.env,
       signal: opts.signal,

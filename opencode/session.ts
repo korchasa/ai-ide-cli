@@ -31,6 +31,11 @@ import {
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import type { ReasoningEffort } from "../runtime/reasoning-effort.ts";
 import {
+  buildOpenCodeConfigContent,
+  type McpServers,
+  validateMcpServers,
+} from "../runtime/mcp-injection.ts";
+import {
   decodeConcat,
   extractOpenCodeSessionId,
   type OpenCodeSessionEvent,
@@ -66,6 +71,13 @@ export interface OpenCodeSessionOptions {
    * interpretation may differ from the requested depth — see FR-L25.
    */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Per-session MCP server registration (FR-L35). Serialized into the
+   * `OPENCODE_CONFIG_CONTENT` env var of the spawned `opencode serve`
+   * subprocess. Replacement, not merge: overrides the user's full
+   * OpenCode config for the lifetime of the session.
+   */
+  mcpServers?: McpServers;
   /** Working directory for the `opencode serve` subprocess. */
   cwd?: string;
   /** Extra env merged into the subprocess env. */
@@ -181,7 +193,17 @@ export async function openOpenCodeSession(
   const port = opts.port ?? await pickFreePort(hostname);
   const baseUrl = `http://${hostname}:${port}`;
 
+  // FR-L35: validate and inject the OPENCODE_CONFIG_CONTENT env before
+  // spawning the server. Collision with non-empty pre-existing
+  // OPENCODE_CONFIG_CONTENT throws synchronously.
+  validateMcpServers("opencode", {
+    mcpServers: opts.mcpServers,
+    env: opts.env,
+  });
   const env: Record<string, string> = { ...(opts.env ?? {}) };
+  if (opts.mcpServers) {
+    env.OPENCODE_CONFIG_CONTENT = buildOpenCodeConfigContent(opts.mcpServers);
+  }
 
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
   const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;

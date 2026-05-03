@@ -3,6 +3,7 @@ import type { ProcessRegistry } from "../process-registry.ts";
 import type { OnCallbackError } from "./callback-safety.ts";
 import type { SettingSource } from "./setting-sources.ts";
 import type { ReasoningEffort } from "./reasoning-effort.ts";
+import type { McpServers } from "./mcp-injection.ts";
 import type { ExtraArgsMap } from "./adapter-types.ts";
 
 /**
@@ -77,6 +78,18 @@ export interface RuntimeSessionOptions {
    * `RuntimeInvokeOptions.reasoningEffort` — see that field's JSDoc.
    */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Per-invocation MCP server registration. Same contract as
+   * {@link RuntimeInvokeOptions.mcpServers} — see that field's JSDoc.
+   * See FR-L35.
+   */
+  mcpServers?: McpServers;
+  /**
+   * Claude-only opt-in. Same contract as
+   * {@link RuntimeInvokeOptions.strictMcpConfig} — see that field's
+   * JSDoc. See FR-L35.
+   */
+  strictMcpConfig?: boolean;
   /** Fires for every parsed event from the runtime's event stream, in order. */
   onEvent?: (event: RuntimeSessionEvent) => void;
   /** Fires for every decoded stderr chunk (may be empty on a flush). */

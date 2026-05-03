@@ -273,6 +273,28 @@ Deno.test("exportOpenCodeTranscript — writes stdout of opencode export to a te
   });
 });
 
+// --- FR-L35 mcp injection ---
+
+Deno.test(
+  "invokeOpenCodeCli — non-empty OPENCODE_CONFIG_CONTENT collision throws",
+  async () => {
+    let threw = false;
+    try {
+      await invokeOpenCodeCli(makeInvokeOpts({
+        mcpServers: { hitl: { type: "stdio", command: "deno" } },
+        env: { OPENCODE_CONFIG_CONTENT: '{"existing":true}' },
+      }));
+    } catch (err) {
+      threw = true;
+      assert(
+        (err as Error).message.includes("collides with typed mcpServers"),
+        `unexpected: ${(err as Error).message}`,
+      );
+    }
+    assert(threw, "expected env collision to throw");
+  },
+);
+
 // --- invokeOpenCodeCli: tool-use observation + transcript ------------------
 
 Deno.test(

@@ -12,6 +12,10 @@
 
 import type { RuntimeInvokeOptions } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
+import {
+  buildCodexMcpServersArgs,
+  validateMcpServers,
+} from "../runtime/mcp-injection.ts";
 import { decidePermissionMode } from "./permission-mode.ts";
 
 /**
@@ -104,6 +108,12 @@ export function buildCodexArgs(opts: RuntimeInvokeOptions): string[] {
       `model_reasoning_effort="${opts.reasoningEffort}"`,
     );
   }
+  // FR-L35: typed mcpServers → repeated `--config mcp_servers.<name>.*`
+  // overrides. Validated synchronously (rejects http on codex). Emitted
+  // before consumer-supplied extraArgs so explicit `--config
+  // mcp_servers.*` overrides in extraArgs win on duplication.
+  validateMcpServers("codex", { mcpServers: opts.mcpServers });
+  args.push(...buildCodexMcpServersArgs(opts.mcpServers));
   args.push(...expandExtraArgs(opts.extraArgs, CODEX_RESERVED_FLAGS));
 
   if (opts.resumeSessionId) {

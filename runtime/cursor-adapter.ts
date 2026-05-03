@@ -19,6 +19,7 @@ import {
 } from "./capabilities.ts";
 import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
+import { validateMcpServers } from "./mcp-injection.ts";
 
 // FR-L24: see runtime/opencode-adapter.ts for the shared rationale.
 let warnedToolFilter = false;
@@ -68,6 +69,30 @@ export function _resetReasoningEffortWarning(): void {
   warnedReasoningEffort = false;
 }
 
+// FR-L35: Cursor CLI has no per-invocation MCP injection flag yet.
+// Validate uniformly (so malformed input still throws), warn once per
+// process on first set-value call, then ignore on the wire.
+let warnedMcpInjection = false;
+
+function warnMcpInjectionOnce(value: unknown): void {
+  if (warnedMcpInjection) return;
+  if (value === undefined) return;
+  warnedMcpInjection = true;
+  console.warn(
+    "[cursor] mcpServers ignored — runtime does not support per-invocation MCP injection (capabilities.mcpInjection === false). See FR-L35.",
+  );
+}
+
+// FR-L35
+/**
+ * Test-only: reset the one-time MCP-injection warning latch.
+ *
+ * @internal
+ */
+export function _resetMcpInjectionWarning(): void {
+  warnedMcpInjection = false;
+}
+
 function cursorEventToRuntime(event: CursorStreamEvent): RuntimeSessionEvent {
   const raw = event as Record<string, unknown>;
   const typeField = raw["type"];
@@ -102,6 +127,8 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     capabilityInventory: true,
     toolFilter: false,
     reasoningEffort: false,
+    // FR-L35
+    mcpInjection: false,
     // Cursor CLI has no streaming-input transport; `openCursorSession`
     // emulates a session by spawning a fresh `cursor agent -p --resume`
     // subprocess per send. See `cursor/session.ts` and the
@@ -114,6 +141,10 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     warnToolFilterOnce(opts);
     validateReasoningEffort("cursor", opts);
     warnReasoningEffortOnce(opts.reasoningEffort);
+    // FR-L35: validate first so malformed input throws BEFORE the
+    // warn-once latch fires.
+    validateMcpServers("cursor", opts);
+    warnMcpInjectionOnce(opts.mcpServers);
     return invokeCursorCli(opts);
   },
 
@@ -132,6 +163,10 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     warnToolFilterOnce(opts);
     validateReasoningEffort("cursor", opts);
     warnReasoningEffortOnce(opts.reasoningEffort);
+    // FR-L35: validate first so malformed input throws BEFORE the
+    // warn-once latch fires.
+    validateMcpServers("cursor", opts);
+    warnMcpInjectionOnce(opts.mcpServers);
     const inner = await openCursorSession({
       systemPrompt: opts.systemPrompt,
       permissionMode: opts.permissionMode,

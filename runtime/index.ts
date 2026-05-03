@@ -54,6 +54,15 @@ export type {
   FetchCapabilitiesOptions,
 } from "./capabilities.ts";
 export type { ReasoningEffort } from "./reasoning-effort.ts";
+// FR-L35: per-invocation MCP server registration types are reachable
+// from this sub-path entry too — required by JSR slow-types because
+// `RuntimeInvokeOptions.mcpServers` references `McpServers`.
+export type {
+  McpHttpServer,
+  McpServers,
+  McpServerSpec,
+  McpStdioServer,
+} from "./mcp-injection.ts";
 export type {
   CallbackErrorSource,
   OnCallbackError,

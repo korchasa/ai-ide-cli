@@ -95,6 +95,20 @@ export type {
   ReasoningEffort,
   ReasoningEffortInput,
 } from "./runtime/reasoning-effort.ts";
+// FR-L35: per-invocation MCP server registration.
+export {
+  buildCodexMcpServersArgs,
+  buildOpenCodeConfigContent,
+  renderClaudeMcpServers,
+  validateMcpServers,
+} from "./runtime/mcp-injection.ts";
+export type {
+  McpHttpServer,
+  McpServers,
+  McpServerSpec,
+  McpStdioServer,
+  ValidateMcpServersInput,
+} from "./runtime/mcp-injection.ts";
 export {
   CAPABILITY_INVENTORY_PROMPT,
   CAPABILITY_INVENTORY_SCHEMA,
@@ -134,6 +148,9 @@ export type {
 } from "./claude/stream.ts";
 export { parseClaudeStreamEvent } from "./claude/stream.ts";
 export { buildClaudeSessionArgs, openClaudeSession } from "./claude/session.ts";
+// FR-L35: per-invocation Claude tmp-file lifecycle for `--mcp-config`.
+export { prepareMcpConfigFile } from "./claude/mcp.ts";
+export type { PrepareMcpConfigResult } from "./claude/mcp.ts";
 export type {
   ClaudeSession,
   ClaudeSessionOptions,

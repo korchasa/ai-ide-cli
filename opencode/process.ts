@@ -33,6 +33,10 @@ import {
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import {
+  buildOpenCodeConfigContent,
+  validateMcpServers,
+} from "../runtime/mcp-injection.ts";
 import { buildOpenCodeArgs } from "./argv.ts";
 import {
   extractOpenCodeOutput,
@@ -81,6 +85,20 @@ export async function invokeOpenCodeCli(
     ...opts,
     taskPrompt: mergedTaskPrompt,
   });
+  // FR-L35: validate the typed mcpServers field synchronously and merge
+  // the rendered config into env.OPENCODE_CONFIG_CONTENT. Replacement,
+  // not merge — overrides any caller-supplied empty-string sentinel,
+  // throws on a non-empty pre-existing value (collision).
+  validateMcpServers("opencode", {
+    mcpServers: opts.mcpServers,
+    env: opts.env,
+  });
+  const env = opts.mcpServers
+    ? {
+      ...(opts.env ?? {}),
+      OPENCODE_CONFIG_CONTENT: buildOpenCodeConfigContent(opts.mcpServers),
+    }
+    : opts.env;
   let lastError = "";
 
   for (let attempt = 1; attempt <= opts.maxRetries; attempt++) {
@@ -93,7 +111,7 @@ export async function invokeOpenCodeCli(
         opts.streamLogPath,
         opts.verbosity,
         opts.cwd,
-        opts.env,
+        env,
         opts.onEvent,
         opts.signal,
         opts.hooks,

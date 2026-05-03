@@ -4,6 +4,7 @@ import type { ProcessRegistry } from "../process-registry.ts";
 import type { OnCallbackError } from "./callback-safety.ts";
 import type { SettingSource } from "./setting-sources.ts";
 import type { ReasoningEffort } from "./reasoning-effort.ts";
+import type { McpServers } from "./mcp-injection.ts";
 import type {
   CapabilityInventory,
   FetchCapabilitiesOptions,
@@ -175,6 +176,38 @@ export interface RuntimeInvokeOptions {
    * interpretation may differ). See FR-L25.
    */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Per-invocation MCP server registration (FR-L35). Each adapter renders
+   * the typed spec into its native plumbing — Claude `--mcp-config <tmp>`,
+   * OpenCode `OPENCODE_CONFIG_CONTENT` env var, Codex repeated
+   * `--config mcp_servers.<name>.*` overrides; Cursor warns once and
+   * drops the spec.
+   *
+   * **Transport support.** Adapters with
+   * `RuntimeCapabilities.mcpInjection === true` (Claude / OpenCode /
+   * Codex) accept both `stdio` and `http` server shapes — Codex's HTTP
+   * support requires `codex-cli >= 0.124`. Adapters with `false`
+   * (Cursor) validate the field uniformly so malformed input still
+   * throws, emit one `console.warn` per process, and otherwise ignore
+   * the field on the wire.
+   *
+   * **Merge semantics on OpenCode.** `OPENCODE_CONFIG_CONTENT` is
+   * merged with the user's existing config sources (global, project,
+   * `OPENCODE_CONFIG`) per upstream — entries with the same `<name>`
+   * win on conflict, but siblings (auth providers, agents, model
+   * routing, user-configured MCP servers under different names) are
+   * preserved.
+   */
+  mcpServers?: McpServers;
+  /**
+   * Claude-only opt-in: when `true` and `mcpServers` is set, the adapter
+   * also emits `--strict-mcp-config` so the CLI ignores the user's
+   * `~/.claude.json` and the project `.mcp.json` for the duration of the
+   * call — only the typed `mcpServers` (and any explicit `--mcp-config`
+   * paths in `extraArgs`) apply. Other adapters ignore the field. See
+   * FR-L35.
+   */
+  strictMcpConfig?: boolean;
   /**
    * Routed error sink for consumer-supplied notification callbacks
    * (`onEvent`, `onOutput`, `onToolUseObserved`, lifecycle hooks). Fires

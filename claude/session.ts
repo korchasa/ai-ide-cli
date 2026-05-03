@@ -33,6 +33,11 @@ import {
   type ReasoningEffort,
   validateReasoningEffort,
 } from "../runtime/reasoning-effort.ts";
+import {
+  type McpServers,
+  validateMcpServers,
+} from "../runtime/mcp-injection.ts";
+import { prepareMcpConfigFile } from "./mcp.ts";
 import { mapReasoningEffortToClaude } from "./process.ts";
 import { validateClaudePermissionMode } from "./permission-mode.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
@@ -90,6 +95,18 @@ export interface ClaudeSessionOptions {
    * See FR-L25 and {@link mapReasoningEffortToClaude}.
    */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * Per-invocation MCP server registration (FR-L35). Rendered to a tmp
+   * `mcp.json` and emitted as `--mcp-config <path>`; the tmp file is
+   * cleaned up after the session exits.
+   */
+  mcpServers?: McpServers;
+  /**
+   * Pair with `mcpServers` to also emit `--strict-mcp-config`. See FR-L35
+   * and the field's JSDoc on
+   * {@link import("../runtime/types.ts").RuntimeInvokeOptions.strictMcpConfig}.
+   */
+  strictMcpConfig?: boolean;
   /** Fires for every parsed stream-json event in stdout order. */
   onEvent?: (event: ClaudeStreamEvent) => void;
   /** Fires for every decoded stderr line (trimmed, may be empty). */
@@ -227,6 +244,14 @@ export function buildClaudeSessionArgs(opts: ClaudeSessionOptions): string[] {
     args.push("--effort", mapReasoningEffortToClaude(effort));
   }
 
+  // FR-L35: validate the typed mcpServers field. Argv emission for the
+  // typed field happens in `openClaudeSession` because the tmp-file path
+  // is only known there.
+  validateMcpServers("claude", {
+    mcpServers: opts.mcpServers,
+    extraArgs: opts.claudeArgs,
+  });
+
   args.push(...expandExtraArgs(opts.claudeArgs, CLAUDE_RESERVED_FLAGS));
 
   if (opts.resumeSessionId) {
@@ -279,10 +304,22 @@ export async function openClaudeSession(
     env = { ...env, CLAUDE_CONFIG_DIR: prepared.tmpDir };
   }
 
+  // FR-L35: render mcpServers to a tmp file and emit `--mcp-config <path>`.
+  // Cleanup runs in the same finalizer as `settingCleanup`.
+  let mcpCleanup: (() => Promise<void>) | undefined;
+  let resolvedArgs = args;
+  if (opts.mcpServers) {
+    const prepared = await prepareMcpConfigFile(opts.mcpServers);
+    mcpCleanup = prepared.cleanup;
+    const extra = ["--mcp-config", prepared.path];
+    if (opts.strictMcpConfig) extra.push("--strict-mcp-config");
+    resolvedArgs = [...args, ...extra];
+  }
+
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
   const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;
   const cmd = new Deno.Command("claude", {
-    args,
+    args: resolvedArgs,
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
@@ -447,6 +484,10 @@ export async function openClaudeSession(
       registry.unregister(process);
       if (settingCleanup) {
         await settingCleanup();
+      }
+      // FR-L35: reap the per-session mcp-config tmp file.
+      if (mcpCleanup) {
+        await mcpCleanup();
       }
     }
   })();

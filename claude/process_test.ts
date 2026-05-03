@@ -220,6 +220,54 @@ Deno.test("buildClaudeArgs — legacy extraArgs --effort path still works withou
   assertEquals(args[idx + 1], "xhigh");
 });
 
+// --- FR-L35 mcp injection ---
+
+Deno.test("buildClaudeArgs — mcpServers + extraArgs --mcp-config collide and throw", () => {
+  assertThrows(
+    () =>
+      buildClaudeArgs(
+        makeOpts({
+          mcpServers: { hitl: { type: "stdio", command: "deno" } },
+          claudeArgs: { "--mcp-config": "/tmp/legacy.json" },
+        }),
+      ),
+    Error,
+    `extraArgs key "--mcp-config" collides`,
+  );
+});
+
+Deno.test("buildClaudeArgs — legacy extraArgs --mcp-config still works without mcpServers", () => {
+  const args = buildClaudeArgs(
+    makeOpts({ claudeArgs: { "--mcp-config": "/tmp/legacy.json" } }),
+  );
+  const idx = args.indexOf("--mcp-config");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "/tmp/legacy.json");
+});
+
+Deno.test("buildClaudeArgs — mcpServers does NOT emit --mcp-config (runner does)", () => {
+  // The pure builder validates only — actual --mcp-config emission
+  // happens in `executeClaudeProcess` because it owns the tmp-file path.
+  const args = buildClaudeArgs(
+    makeOpts({
+      mcpServers: { hitl: { type: "stdio", command: "deno" } },
+    }),
+  );
+  assertEquals(args.indexOf("--mcp-config"), -1);
+  // strictMcpConfig is also runner-only — pure builder never emits it.
+  assertEquals(args.indexOf("--strict-mcp-config"), -1);
+});
+
+Deno.test("buildClaudeArgs — http mcpServers does NOT throw on Claude (validator-permissive)", () => {
+  const args = buildClaudeArgs(
+    makeOpts({
+      mcpServers: { api: { type: "http", url: "https://x" } },
+    }),
+  );
+  // Same runner-only emission rule — builder validates, runner emits.
+  assertEquals(args.indexOf("--mcp-config"), -1);
+});
+
 Deno.test("buildClaudeArgs — typed field + --allowedTools in extraArgs throws", () => {
   assertThrows(
     () =>

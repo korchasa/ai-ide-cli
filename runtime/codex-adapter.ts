@@ -16,6 +16,7 @@ import {
 } from "./capabilities.ts";
 import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
+import { validateMcpServers } from "./mcp-injection.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
@@ -104,18 +105,24 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     capabilityInventory: true,
     toolFilter: false,
     reasoningEffort: true,
+    // FR-L35
+    mcpInjection: true,
     sessionFidelity: "native",
   },
   invoke(opts) {
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);
+    // FR-L35
+    validateMcpServers("codex", opts);
     return invokeCodexCli(opts);
   },
   openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);
+    // FR-L35
+    validateMcpServers("codex", opts);
     return openCodexSession(opts);
   },
 

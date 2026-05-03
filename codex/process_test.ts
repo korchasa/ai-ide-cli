@@ -425,3 +425,49 @@ Deno.test("buildCodexArgs — reasoningEffort precedes expandExtraArgs (caller c
   assert(effortIdx >= 0 && fooIdx >= 0);
   assert(effortIdx < fooIdx, "expected reasoning-effort config before extras");
 });
+
+// --- FR-L35 mcp injection ---
+
+Deno.test("buildCodexArgs — mcpServers emits --config mcp_servers overrides", () => {
+  const args = buildCodexArgs(makeInvokeOpts({
+    mcpServers: {
+      hitl: {
+        type: "stdio",
+        command: "deno",
+        args: ["run", "-A", "hitl.ts"],
+      },
+    },
+  }));
+  const cmdIdx = args.findIndex((a, i) =>
+    a === "--config" && args[i + 1] === `mcp_servers.hitl.command="deno"`
+  );
+  const argsIdx = args.findIndex((a, i) =>
+    a === "--config" &&
+    args[i + 1] === `mcp_servers.hitl.args=["run", "-A", "hitl.ts"]`
+  );
+  assert(cmdIdx >= 0, "missing mcp_servers.hitl.command override");
+  assert(argsIdx >= 0, "missing mcp_servers.hitl.args override");
+});
+
+Deno.test("buildCodexArgs — mcpServers http emits --config mcp_servers.<name>.url", () => {
+  const args = buildCodexArgs(makeInvokeOpts({
+    mcpServers: {
+      api: {
+        type: "http",
+        url: "https://example.com/mcp",
+        headers: { Authorization: "Bearer x" },
+      },
+    },
+  }));
+  const urlIdx = args.findIndex((a, i) =>
+    a === "--config" &&
+    args[i + 1] === `mcp_servers.api.url="https://example.com/mcp"`
+  );
+  const headersIdx = args.findIndex((a, i) =>
+    a === "--config" &&
+    args[i + 1] ===
+      `mcp_servers.api.http_headers={"Authorization" = "Bearer x"}`
+  );
+  assert(urlIdx >= 0, "missing mcp_servers.api.url override");
+  assert(headersIdx >= 0, "missing mcp_servers.api.http_headers override");
+});

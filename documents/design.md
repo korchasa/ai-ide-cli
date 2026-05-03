@@ -1348,6 +1348,99 @@ some scenario's argv (catches stale reservations after refactors).
 Adding a flag to a builder without updating one of the two lists fails
 the test loudly.
 
+### 3.x MCP-server injection (FR-L35)
+
+Typed `mcpServers?: McpServers` field on `RuntimeInvokeOptions` /
+`RuntimeSessionOptions` registers a custom MCP server for one
+invocation. Discriminated union:
+
+- `McpStdioServer = { type: "stdio"; command: string; args?: string[]; env?: Record<string, string> }`
+- `McpHttpServer = { type: "http"; url: string; headers?: Record<string, string> }`
+- `McpServers = Record<string, McpStdioServer | McpHttpServer>`
+
+`runtime/mcp-injection.ts` owns the union, the
+`validateMcpServers(runtime, opts)` synchronous validator, and the
+three per-runtime renderers consumed by adapters.
+
+- **Claude (`capabilities.mcpInjection: true`)** —
+  `claude/mcp.ts:prepareMcpConfigFile(spec)` writes
+  `JSON.stringify({mcpServers: renderClaudeMcpServers(spec)})` to
+  `Deno.makeTempDir({prefix:"claude-mcp-"})/mcp.json` and returns
+  `{path, cleanup}`. `executeClaudeProcess` and `openClaudeSession`
+  push `["--mcp-config", path]` (and `"--strict-mcp-config"` when
+  the optional `strictMcpConfig: true` is set) and register
+  `cleanup` in the same `finally` chain that already runs
+  `settingCleanup`. Tmp-file lifecycle is per-attempt: keeps
+  cleanup atomic across success / retry / abort / crash. Both
+  `--mcp-config` and `--strict-mcp-config` live in
+  `CLAUDE_INTENTIONALLY_OPEN_FLAGS`; legacy `claudeArgs: {
+  "--mcp-config": "/path" }` keeps working when `mcpServers` is
+  unset; collision is detected by `validateMcpServers`, which
+  throws synchronously. Both stdio and HTTP server shapes are
+  supported (Claude CLI accepts the union).
+- **OpenCode (`capabilities.mcpInjection: true`)** —
+  `buildOpenCodeConfigContent(servers)` renders both transports
+  per upstream OpenCode SSE schema (FR-L27):
+  - stdio: `{mcp: {<name>: {type:"local", command:[cmd, …args],
+    environment?, enabled:true}}}`
+  - http:  `{mcp: {<name>: {type:"remote", url, headers?,
+    enabled:true}}}`
+  `executeOpenCodeProcess` and `openOpenCodeSession` set the
+  rendered JSON on `env.OPENCODE_CONFIG_CONTENT`. **Merge, not
+  replacement.** Per upstream OpenCode docs, the env var is one
+  layer in the config-precedence chain (global → project →
+  `OPENCODE_CONFIG_CONTENT` → `OPENCODE_CONFIG`); same-named
+  entries override on conflict but siblings (auth providers,
+  agents, model routing, user-defined MCP servers under different
+  names) survive. Empty-string pre-existing value treated as
+  "not set" and overwritten; non-empty value collides and throws.
+- **Codex (`capabilities.mcpInjection: true`)** —
+  `buildCodexMcpServersArgs(servers)` emits both transports per
+  upstream codex-cli ≥ 0.124:
+  - stdio: `--config mcp_servers.<name>.command="<cmd>"`,
+    `--config mcp_servers.<name>.args=[<JSON-escaped tokens>]`,
+    and (when `env` set) `--config mcp_servers.<name>.env={k=v, …}`
+  - http:  `--config mcp_servers.<name>.url="<url>"`, and
+    (when `headers` set) `--config mcp_servers.<name>.http_headers={k=v, …}`
+  Codex discriminates the transport by which keys are present (no
+  explicit `type` field upstream). TOML inline-table escaping
+  handles values containing newlines, equals signs, double quotes,
+  and backslashes via `JSON.stringify`. Called from
+  `buildCodexArgs` (after `permissionModeToCodexArgs` /
+  reasoning-effort, before `expandExtraArgs`) and from
+  `openCodexSession` (prepended to `extraArgv`). Reserved-flag
+  list NOT extended — Codex's `--config` is intentionally open
+  and the validator catches collisions.
+- **Cursor (`capabilities.mcpInjection: false`)** — Cursor CLI has
+  no `--mcp-config` flag yet. Typed field validated uniformly
+  (malformed input still throws), then ignored on the wire; first
+  set-value call emits one `console.warn` per process (latch in
+  `runtime/cursor-adapter.ts`; `_resetMcpInjectionWarning` for
+  tests). Order is **validate → warn → ignore**: malformed input
+  throws BEFORE the latch fires.
+
+**Validation contract** (uniform across adapters):
+
+- `undefined` → no-op.
+- Empty record (`{}`) → throw.
+- Empty server name (`""`) → throw.
+- `type` outside `"stdio" | "http"` → throw.
+- Stdio entry with empty `command` → throw.
+- HTTP entry with empty `url` → throw.
+- Claude only: `extraArgs?.["--mcp-config"]` set when `mcpServers`
+  is set → throw.
+- OpenCode only: non-empty pre-existing
+  `env?.["OPENCODE_CONFIG_CONTENT"]` when `mcpServers` is set →
+  throw.
+- HTTP transport is supported on every runtime with
+  `capabilities.mcpInjection: true` (Claude / OpenCode / Codex).
+  Codex requires `codex-cli ≥ 0.124` for native HTTP.
+
+`mod.ts` re-exports `McpServerSpec`, `McpStdioServer`,
+`McpHttpServer`, `McpServers` so JSR slow-types
+(`private-type-ref`) remain green; `deno publish --dry-run` runs
+last in `deno task check` to enforce.
+
 ## 5. Constraints
 
 - **No domain logic:** Library MUST NOT contain git, GitHub, workflow, DAG,

@@ -1662,6 +1662,118 @@ stable — never renumber on move.
         runs e2e on PR/push). Evidence:
         `ai-ide-cli/.github/workflows/` listing.
 
+### 3.34 FR-L35: Generic Per-Invocation MCP-Server Registration
+
+- **Description:** Typed `mcpServers?: McpServers` field on
+  `RuntimeInvokeOptions` and `RuntimeSessionOptions` that registers a
+  custom MCP server for the duration of a single `invoke()` /
+  `openSession()` call. Consumers describe servers in a
+  runtime-neutral discriminated union (`stdio` / `http`); each
+  adapter renders the spec into its native plumbing —
+  `--mcp-config <tmp.json>` (Claude), `OPENCODE_CONFIG_CONTENT` env
+  var (OpenCode), repeated `-c mcp_servers.<name>.*` overrides
+  (Codex), warn-and-ignore (Cursor). Mirrors the
+  permissionMode / allowedTools / reasoningEffort / settingSources
+  pattern (one shared validator, one capability flag, one warn-once
+  on unsupported runtimes). Restores the transport layer ADR-0002
+  anticipated when it pushed HITL **semantics** out of scope while
+  leaving the transport for a follow-up.
+- **Motivation:** Today consumers must hand-craft argv / env per
+  runtime to register an MCP server, duplicating wire knowledge the
+  library already owns. Codex has no path at all because
+  `ExtraArgsMap = Record<string, string|null>` is single-valued and
+  cannot express N×2 repeated `--config` keys for N servers. The
+  HITL migration in ADR-0002 explicitly listed `mcpServers` as the
+  required transport for non-Claude runtimes; this FR delivers it.
+- **Scenario:** A consumer of `@korchasa/flowai-workflow` ships its
+  own MCP server (e.g. a HITL question-answering server) and wants
+  every adapter to register that server for one invocation only,
+  without leaking MCP plumbing into the consumer code path. The
+  consumer passes `mcpServers: { "hitl": { type: "stdio", command:
+  "deno", args: ["run", "-A", "./hitl-mcp.ts"] } }` and the library
+  routes the config to the right native mechanism, cleans up any
+  tmp file in `finally`, and rejects HTTP servers on Codex
+  synchronously rather than silently dropping them.
+- **Acceptance:**
+  - [x] `runtime/mcp-injection.ts` exports `McpServerSpec`
+        discriminated union (`McpStdioServer | McpHttpServer`),
+        `McpServers = Record<string, McpServerSpec>`,
+        `validateMcpServers(runtime, opts)` synchronous validator
+        (rejects empty record, blank server name, empty
+        `command` / `url`, unknown `type`, and
+        `extraArgs` / `env` collision per runtime), and
+        `renderClaudeMcpServers(servers)` /
+        `buildOpenCodeConfigContent(servers)` /
+        `buildCodexMcpServersArgs(servers)` per-runtime renderers
+        (each handles both stdio and http transports). Evidence:
+        `// FR-L35` traceability comment above each public symbol.
+  - [x] `RuntimeCapabilities.mcpInjection: boolean` declared on every
+        adapter — Claude / OpenCode / Codex `true`; Cursor
+        `false`. Evidence: `// FR-L35` comment on every adapter's
+        `capabilities` literal.
+  - [x] `RuntimeInvokeOptions.mcpServers?: McpServers` and
+        `RuntimeSessionOptions.mcpServers?: McpServers` accepted on
+        every adapter. Evidence: `// FR-L35` comment on the field
+        JSDoc in `runtime/adapter-types.ts` and
+        `runtime/session-types.ts`.
+  - [x] Claude `invoke` and `openSession` write the spec to a
+        temp file under
+        `Deno.makeTempDir({prefix:"claude-mcp-"})`, emit
+        `--mcp-config <path>` exactly once, and delete the temp
+        file in `finally` on success / retry / abort / crash
+        paths. Optional `strictMcpConfig: true` additionally emits
+        `--strict-mcp-config` so the CLI ignores `~/.claude.json`
+        and the project's `.mcp.json`. Both `--mcp-config` and
+        `--strict-mcp-config` are added to
+        `CLAUDE_INTENTIONALLY_OPEN_FLAGS` (NOT extended into
+        `CLAUDE_RESERVED_FLAGS` — same pattern as FR-L24 /
+        FR-L25); legacy
+        `extraArgs: { "--mcp-config": "..." }` keeps working when
+        `mcpServers` is unset; collision throws synchronously via
+        the shared validator. Evidence: `// FR-L35` comment at
+        every emission site (`claude/process.ts`,
+        `claude/session.ts`, `claude/mcp.ts`).
+  - [x] OpenCode `invoke` and `openSession` serialize the spec into
+        the `OPENCODE_CONFIG_CONTENT` env var using OpenCode's
+        native shape:
+        - stdio: `{mcp:{<name>:{type:"local", command:[…],
+          environment?, enabled:true}}}` (field name is
+          `environment`, not `env`; `command` is an array, not a
+          single string)
+        - http: `{mcp:{<name>:{type:"remote", url, headers?,
+          enabled:true}}}`
+        Per-upstream merge semantics apply — the env var is one
+        layer in OpenCode's config-precedence chain (global →
+        project → `OPENCODE_CONFIG_CONTENT` → `OPENCODE_CONFIG`),
+        same-named entries override on conflict but siblings
+        survive. Collision with non-empty caller-provided
+        `env.OPENCODE_CONFIG_CONTENT` throws synchronously
+        (empty-string is treated as "not set" and overwritten).
+        Evidence: `// FR-L35` comment at every emission site
+        (`opencode/process.ts`, `opencode/session.ts`).
+  - [x] Codex `invoke` and `openSession` emit `--config
+        mcp_servers.<name>.*` overrides for both transports
+        (codex-cli ≥ 0.124):
+        - stdio: `mcp_servers.<name>.command="<cmd>"`,
+          `.args=[…]`, and `.env={…}` when `env` set
+        - http: `mcp_servers.<name>.url="<url>"`,
+          `.http_headers={…}` when `headers` set
+        TOML inline-table escaping handles env values containing
+        newlines, equals signs, double quotes, and backslashes
+        via `JSON.stringify`. Evidence: `// FR-L35` comment at
+        every emission site (`codex/argv.ts`, `codex/session.ts`).
+  - [x] Cursor accepts the field, validates it, and emits exactly
+        one `console.warn` on first set-value occurrence per
+        process; subsequent calls stay silent. Test reset via
+        exported `_resetMcpInjectionWarning`. Evidence:
+        `// FR-L35` comment at the warn-once site
+        (`runtime/cursor-adapter.ts`).
+  - [x] All public types (`McpServerSpec`, `McpStdioServer`,
+        `McpHttpServer`, `McpServers`) re-exported from `mod.ts`.
+        Evidence: `deno publish --dry-run` passes the
+        `private-type-ref` and `missing-jsdoc` checks against
+        the new surface (`deno task check` runs the dry-run last).
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

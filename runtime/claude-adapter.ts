@@ -101,6 +101,8 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     capabilityInventory: true,
     toolFilter: true,
     reasoningEffort: true,
+    // FR-L35
+    mcpInjection: true,
     sessionFidelity: "native",
   },
   async invoke(opts) {
@@ -167,6 +169,9 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       allowedTools: opts.allowedTools,
       disallowedTools: opts.disallowedTools,
       reasoningEffort: opts.reasoningEffort,
+      // FR-L35
+      mcpServers: opts.mcpServers,
+      strictMcpConfig: opts.strictMcpConfig,
       processRegistry: opts.processRegistry,
     });
     if (result.output) opts.hooks?.onResult?.(result.output);
@@ -188,6 +193,9 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       allowedTools: opts.allowedTools,
       disallowedTools: opts.disallowedTools,
       reasoningEffort: opts.reasoningEffort,
+      // FR-L35
+      mcpServers: opts.mcpServers,
+      strictMcpConfig: opts.strictMcpConfig,
       onEvent: adaptEventCallback(
         opts.onEvent,
         claudeEventToRuntime,
