@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.1](https://github.com/korchasa/ai-ide-cli/compare/v0.8.0...v0.8.1) (2026-05-03)
+
+
+### Features
+
+* **mcp:** generic per-invocation MCP server registration (FR-L35) ([723d3f8](https://github.com/korchasa/ai-ide-cli/commit/723d3f814fb5306a65fd6068db631fa350f7f9e9))
+
 ## [0.8.0](https://github.com/korchasa/ai-ide-cli/compare/v0.7.0...v0.8.0) (2026-05-02)
 
 
