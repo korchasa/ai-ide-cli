@@ -45,6 +45,12 @@ import {
   openCodeToolUseInfo,
 } from "./events.ts";
 import { exportOpenCodeTranscript } from "./transcript.ts";
+import {
+  findActiveOpenCodeLog,
+  resolveOpenCodeLogDir,
+  type UpstreamFatalError,
+  watchOpenCodeLogForFatalError,
+} from "./upstream-error-detector.ts";
 
 // Re-exports preserve the historical entry-point shape so existing
 // 'from "./opencode/process.ts"' imports (production + tests + mod.ts)
@@ -141,6 +147,12 @@ export async function invokeOpenCodeCli(
         return { error: `Aborted: ${abortReason(opts.signal)}` };
       }
       lastError = (err as Error).message;
+      // Upstream HTTP 401/402/403/429 are non-recoverable from our side
+      // (auth / quota / rate-limit). Skip the retry loop and surface the
+      // provider message so the consumer can show it to the user.
+      if (lastError.startsWith("OpenCode aborted on upstream HTTP")) {
+        return { error: lastError };
+      }
       if (attempt < opts.maxRetries) {
         const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
         try {
@@ -188,6 +200,7 @@ async function executeOpenCodeProcess(
     ...(cwd ? { cwd } : {}),
   });
 
+  const spawnedAt = Date.now();
   const process = cmd.spawn();
   const registry = processRegistry;
   registry.register(process);
@@ -201,6 +214,8 @@ async function executeOpenCodeProcess(
   const seenObservedIds = new Set<string>();
   let stepCount = 0;
   let lastSessionId = "";
+  let upstreamFatal: UpstreamFatalError | undefined;
+  const detectorAbort = new AbortController();
 
   try {
     const timeoutSignal = AbortSignal.timeout(timeoutSeconds * 1000);
@@ -216,6 +231,40 @@ async function executeOpenCodeProcess(
       }
     };
     combined.addEventListener("abort", onAbort, { once: true });
+
+    // Upstream-fatal detector: tail the OpenCode CLI's internal log and
+    // fail fast on HTTP 401/402/403/429. The CLI marks these as
+    // `isRetryable: true` and silently retries them indefinitely without
+    // emitting any --format json event, which would otherwise leave the
+    // adapter waiting until the wall-clock timeout.
+    const detectorLogDir = resolveOpenCodeLogDir();
+    const detectorTask = detectorLogDir
+      ? (async () => {
+        try {
+          const path = await findActiveOpenCodeLog(
+            detectorLogDir,
+            spawnedAt,
+            5_000,
+            detectorAbort.signal,
+          );
+          if (!path || detectorAbort.signal.aborted) return;
+          await watchOpenCodeLogForFatalError(
+            path,
+            (err) => {
+              upstreamFatal = err;
+              try {
+                process.kill("SIGTERM");
+              } catch {
+                // Process may have already exited.
+              }
+            },
+            detectorAbort.signal,
+          );
+        } catch {
+          // Detector is best-effort; do not crash the run if it throws.
+        }
+      })()
+      : Promise.resolve();
 
     let logFile: Deno.FsFile | undefined;
     if (streamLogPath) {
@@ -357,8 +406,16 @@ async function executeOpenCodeProcess(
     await Promise.all([stdoutDone, stderrDone]);
     const status = await process.status;
     combined.removeEventListener("abort", onAbort);
+    detectorAbort.abort();
+    await detectorTask;
 
     logFile?.close();
+
+    if (upstreamFatal) {
+      throw new Error(
+        `OpenCode aborted on upstream HTTP ${upstreamFatal.statusCode}: ${upstreamFatal.message}`,
+      );
+    }
 
     // Tool-use denial takes precedence: synthesize a permission-denial
     // output regardless of subprocess status (SIGTERM path may look like
@@ -440,6 +497,7 @@ async function executeOpenCodeProcess(
 
     throw new Error("OpenCode JSON output contained no parseable events");
   } finally {
+    detectorAbort.abort();
     registry.unregister(process);
   }
 }
