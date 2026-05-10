@@ -5,6 +5,7 @@ import type { OnCallbackError } from "./callback-safety.ts";
 import type { SettingSource } from "./setting-sources.ts";
 import type { ReasoningEffort } from "./reasoning-effort.ts";
 import type { McpServers } from "./mcp-injection.ts";
+import type { RuntimeErrorCategory } from "./error-types.ts";
 import type {
   CapabilityInventory,
   FetchCapabilitiesOptions,
@@ -225,6 +226,22 @@ export interface RuntimeInvokeOptions {
    * source `"onToolUseObserved"`.
    */
   onCallbackError?: OnCallbackError;
+  // FR-L36: per-invocation stream-stall watchdog idle threshold.
+  /**
+   * Maximum seconds of silence on the runtime's NDJSON event stream
+   * before the adapter SIGTERMs the subprocess and surfaces
+   * `error_category: "stream_stall"`. Currently honored by the OpenCode
+   * adapter only (other adapters ignore the field). Default: `120`.
+   * Pass `0` to disable the watchdog; the field MUST be a non-negative
+   * finite integer (negative / NaN / non-integer throws synchronously).
+   *
+   * Precedence: the wall-clock `timeoutSeconds` still applies. With
+   * `streamStallTimeoutSeconds < timeoutSeconds` the stall path wins
+   * for genuinely stuck upstreams; with `streamStallTimeoutSeconds >=
+   * timeoutSeconds` the wall-clock timeout fires first and surfaces
+   * as the legacy `OpenCode timed out` error (no `error_category`).
+   */
+  streamStallTimeoutSeconds?: number;
 }
 
 /** Result returned by a runtime adapter invocation. */
@@ -233,6 +250,14 @@ export interface RuntimeInvokeResult {
   output?: CliRunOutput;
   /** Human-readable error when the invocation failed. */
   error?: string;
+  // FR-L36: typed category so consumers branch without string parsing.
+  /**
+   * Typed category for adapter-surfaced errors. Currently set to
+   * `"stream_stall"` when the OpenCode stream-stall watchdog fires
+   * (FR-L36). Absent on success and on legacy error paths that have no
+   * dedicated category yet.
+   */
+  error_category?: RuntimeErrorCategory;
 }
 
 /** Options for launching an interactive CLI session with bundled skills. */

@@ -69,6 +69,9 @@ export type {
   RuntimeToolUseInfo,
 } from "./runtime/types.ts";
 export type { SettingSource } from "./runtime/setting-sources.ts";
+// FR-L36: typed error categories.
+export { ERROR_CATEGORY_STREAM_STALL } from "./runtime/error-types.ts";
+export type { RuntimeErrorCategory } from "./runtime/error-types.ts";
 // FR-L32: routed error sink for consumer-supplied callbacks.
 export {
   defaultOnCallbackError,

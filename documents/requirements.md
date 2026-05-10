@@ -1774,6 +1774,116 @@ stable — never renumber on move.
         `private-type-ref` and `missing-jsdoc` checks against
         the new surface (`deno task check` runs the dry-run last).
 
+### 3.35 FR-L36: Stream-Stall Detector For OpenCode
+
+- **Description:** Per-invocation watchdog inside
+  `invokeOpenCodeCli` that kills the OpenCode subprocess and
+  surfaces a typed error when the `--format json` event stream
+  stays silent for longer than a configured idle threshold while
+  the process is still alive. Complements the existing
+  upstream-fatal detector (FR-L34's sibling, `process_upstream_fatal_test.ts`):
+  the upstream-fatal path covers explicit HTTP 4xx codes the CLI
+  logs internally; the stall path covers the silent-hang case
+  where the upstream provider holds an HTTPS connection open with
+  no data flowing and OpenCode emits no JSON events to stdout. New
+  options: `streamStallTimeoutSeconds?: number` on
+  `RuntimeInvokeOptions` (default `120`); `0` disables the
+  watchdog. Surfaced as
+  `error: "OpenCode aborted on stream stall: no events for <N>s"`
+  with `error_category: "stream_stall"` propagated through the
+  agent layer.
+- **Motivation:** Observed 2026-05-10 in production: opencode
+  pid 21302 held an `ESTABLISHED` TCP socket to `api.z.ai:443`
+  for 11+ minutes with no data flowing, no `--format json`
+  event emitted, no log line written. The flowai-workflow loop
+  appeared frozen until the 30-minute `timeout_seconds`
+  wall-clock SIGTERM fired. With node-level retries and
+  multi-stage pipelines, a single stall costs the operator hours
+  of wall-clock idle. The existing upstream-fatal detector does
+  not fire because no HTTP 4xx is logged — the upstream simply
+  refuses to send the response body. The wall-clock timeout is
+  too coarse (designed for whole-turn budget, not stream
+  health) and is silenced as `cli_crash` rather than a typed
+  signal that consumers can branch on.
+- **Scenario:** A consumer invokes `invokeOpenCodeCli` with
+  `streamStallTimeoutSeconds: 90`. OpenCode emits one
+  `step_start` event at `t=2s`, then the upstream provider
+  stalls. At `t=92s` the watchdog observes 90 seconds of
+  inactivity, sends `SIGTERM`, captures whatever partial output
+  was buffered, and returns `{ error: "OpenCode aborted on
+  stream stall: no events for 90s", error_category:
+  "stream_stall" }`. The consumer (e.g. `flowai-workflow`)
+  inspects `error_category`, decides retries are pointless
+  while the upstream is unresponsive, and surfaces the failure
+  to the user instead of silently retrying.
+- **Acceptance:**
+  - [x] `RuntimeInvokeOptions.streamStallTimeoutSeconds?: number`
+        with default `120` (must be a positive integer or
+        explicit `0` to disable). `validateRuntimeOptions` (or
+        equivalent shared validator) rejects negative / NaN /
+        non-integer with a synchronous error. Evidence:
+        `// FR-L36` comment on the field JSDoc in
+        `runtime/adapter-types.ts`.
+  - [x] `invokeOpenCodeCli` runs a per-invocation watchdog
+        timer alongside the `detectorTask` upstream-fatal log
+        tailer. The timer resets on every **successfully parsed
+        NDJSON line** delivered to `handleEvent` (raw bytes,
+        whitespace, and JSON-parse failures do NOT reset — they
+        cannot prove the upstream is alive). Timer expiry sends
+        `SIGTERM` to the OpenCode subprocess via the same path
+        used by the upstream-fatal detector and the wall-clock
+        timeout, then returns
+        `{ error: "OpenCode aborted on stream stall: no events
+        for <N>s", error_category: "stream_stall" }` from the
+        catch branch in `process.ts`. Evidence: `// FR-L36`
+        comment at the timer initialisation, the reset point,
+        and the SIGTERM site (`opencode/process.ts`).
+  - [x] The stall path takes precedence over the wall-clock
+        `timeoutSeconds` only when `streamStallTimeoutSeconds <
+        timeoutSeconds`. With default values
+        (`streamStallTimeoutSeconds: 120`, `timeoutSeconds:
+        1800`) the stall path always wins for genuinely stuck
+        upstreams. With `streamStallTimeoutSeconds >= timeoutSeconds`
+        the wall-clock timeout fires first and surfaces as
+        `OpenCode timed out` (no `error_category` set). With
+        `streamStallTimeoutSeconds: 0` the watchdog is disabled
+        and behaviour matches FR-L36 absence. Evidence:
+        in-source comment + dedicated precedence test.
+  - [x] The watchdog timer is cleared in a `finally` block
+        regardless of exit path (success, error, abort, denial)
+        so successful invocations do not leak `setTimeout`
+        handles. Evidence: `Deno.test` op-leak sanitizer does
+        not flag the unit tests.
+  - [x] `error_category: "stream_stall"` is a typed string
+        literal exported from a shared module (e.g.
+        `runtime/error-types.ts`) and re-exported from `mod.ts`,
+        so downstream consumers (`flowai-workflow`'s
+        `agent.ts`) can branch on it without string
+        comparison. Evidence: `// FR-L36` traceability comment.
+  - [x] Tests in `opencode/process_stream_stall_test.ts`
+        following the `process_upstream_fatal_test.ts` pattern
+        cover:
+        (a) stall fires after the configured threshold and
+        surfaces the typed error with elapsed wall-clock time
+        no earlier than `threshold` and no later than
+        `threshold + 5s`;
+        (b) `maxRetries > 1` does not retry after a stall
+        (single spawn, fast failure — consumer-side decision,
+        but the adapter MUST surface the typed category so the
+        consumer can decide);
+        (c) `streamStallTimeoutSeconds: 0` disables the
+        watchdog (process runs until `timeoutSeconds`);
+        (d) genuine activity (a `step_start` event every 30s
+        of a 5-minute spawn with `streamStallTimeoutSeconds:
+        90`) does NOT trigger the stall — every event resets
+        the timer.
+  - [x] No retroactive change to existing call sites: callers
+        that don't pass `streamStallTimeoutSeconds` get the
+        `120s` default; the field is optional everywhere.
+        Evidence: `process_test.ts` and
+        `process_upstream_fatal_test.ts` continue to pass
+        without modification.
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

@@ -68,6 +68,11 @@ export type {
   OnCallbackError,
 } from "./callback-safety.ts";
 export type { SettingSource } from "./setting-sources.ts";
+// FR-L36: typed error category reachable from this sub-path entry —
+// required by JSR slow-types because `RuntimeInvokeResult.error_category`
+// references `RuntimeErrorCategory`.
+export type { RuntimeErrorCategory } from "./error-types.ts";
+export { ERROR_CATEGORY_STREAM_STALL } from "./error-types.ts";
 export type { ProcessRegistry } from "../process-registry.ts";
 export type { SkillDef, SkillFrontmatter } from "../skill/types.ts";
 

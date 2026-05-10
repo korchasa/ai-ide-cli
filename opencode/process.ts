@@ -32,6 +32,7 @@ import {
   type OnCallbackError,
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
+import { ERROR_CATEGORY_STREAM_STALL } from "../runtime/error-types.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import {
   buildOpenCodeConfigContent,
@@ -77,6 +78,23 @@ export type {
 export { exportOpenCodeTranscript } from "./transcript.ts";
 export type { OpenCodeTranscriptResult } from "./transcript.ts";
 
+// FR-L36: shared message prefix so the outer retry loop and tests
+// recognise the stall path without parsing free-form text.
+const STREAM_STALL_ERROR_PREFIX = "OpenCode aborted on stream stall";
+
+// FR-L36: synchronous validation of the watchdog idle threshold. Non-
+// integer / NaN / negative throws so YAML-driven consumers fail fast
+// instead of silently disabling the watchdog at runtime.
+function resolveStreamStallTimeout(input: number | undefined): number {
+  if (input === undefined) return 120;
+  if (!Number.isFinite(input) || !Number.isInteger(input) || input < 0) {
+    throw new Error(
+      `streamStallTimeoutSeconds must be a non-negative integer (received ${input})`,
+    );
+  }
+  return input;
+}
+
 /** Invoke opencode CLI with retry logic. */
 export async function invokeOpenCodeCli(
   opts: RuntimeInvokeOptions,
@@ -84,6 +102,10 @@ export async function invokeOpenCodeCli(
   if (opts.signal?.aborted) {
     return { error: "Aborted before start" };
   }
+  // FR-L36: validate up-front before spawning anything.
+  const streamStallTimeoutSeconds = resolveStreamStallTimeout(
+    opts.streamStallTimeoutSeconds,
+  );
   const mergedTaskPrompt = opts.systemPrompt
     ? `${opts.systemPrompt}\n\n${opts.taskPrompt}`
     : opts.taskPrompt;
@@ -123,6 +145,7 @@ export async function invokeOpenCodeCli(
         opts.hooks,
         opts.onToolUseObserved,
         opts.onCallbackError,
+        streamStallTimeoutSeconds,
       );
       if (output.is_error) {
         lastError = `OpenCode returned error: ${output.result}`;
@@ -152,6 +175,15 @@ export async function invokeOpenCodeCli(
       // provider message so the consumer can show it to the user.
       if (lastError.startsWith("OpenCode aborted on upstream HTTP")) {
         return { error: lastError };
+      }
+      // FR-L36: stream-stall fires only after the configured idle
+      // window — retries would just stall again. Short-circuit and
+      // surface the typed category so the consumer can branch.
+      if (lastError.startsWith(STREAM_STALL_ERROR_PREFIX)) {
+        return {
+          error: lastError,
+          error_category: ERROR_CATEGORY_STREAM_STALL,
+        };
       }
       if (attempt < opts.maxRetries) {
         const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
@@ -187,6 +219,7 @@ async function executeOpenCodeProcess(
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   onCallbackError?: OnCallbackError,
+  streamStallTimeoutSeconds: number = 120,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
@@ -216,6 +249,11 @@ async function executeOpenCodeProcess(
   let lastSessionId = "";
   let upstreamFatal: UpstreamFatalError | undefined;
   const detectorAbort = new AbortController();
+  // FR-L36: stream-stall watchdog state. `streamStalled` flips when the
+  // timer fires; the outer status-handling block throws the typed error
+  // so the retry loop can branch on the message prefix.
+  let streamStalled = false;
+  let stallTimer: number | undefined;
 
   try {
     const timeoutSignal = AbortSignal.timeout(timeoutSeconds * 1000);
@@ -231,6 +269,23 @@ async function executeOpenCodeProcess(
       }
     };
     combined.addEventListener("abort", onAbort, { once: true });
+
+    // FR-L36: stream-stall watchdog. Arm only when the threshold is a
+    // positive integer; `0` disables. Reset on every successfully
+    // parsed NDJSON line (see `handleEvent` below).
+    const resetStallTimer = () => {
+      if (streamStallTimeoutSeconds <= 0) return;
+      if (stallTimer !== undefined) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        streamStalled = true;
+        try {
+          process.kill("SIGTERM");
+        } catch {
+          // Process may have already exited.
+        }
+      }, streamStallTimeoutSeconds * 1000);
+    };
+    resetStallTimer();
 
     // Upstream-fatal detector: tail the OpenCode CLI's internal log and
     // fail fast on HTTP 401/402/403/429. The CLI marks these as
@@ -294,6 +349,10 @@ async function executeOpenCodeProcess(
 
     // deno-lint-ignore no-explicit-any
     const handleEvent = async (event: Record<string, any>): Promise<void> => {
+      // FR-L36: each parsed NDJSON event proves the upstream is alive —
+      // reset the watchdog. Reset BEFORE consumer callbacks so a slow
+      // `onEvent` cannot itself trigger a false-positive stall.
+      resetStallTimer();
       onEvent?.(event);
       const sessionId = typeof event.sessionID === "string"
         ? event.sessionID
@@ -411,6 +470,14 @@ async function executeOpenCodeProcess(
 
     logFile?.close();
 
+    // FR-L36: stall takes precedence over upstream-fatal and exit-code
+    // paths so the typed `error_category` survives partial output.
+    if (streamStalled) {
+      throw new Error(
+        `${STREAM_STALL_ERROR_PREFIX}: no events for ${streamStallTimeoutSeconds}s`,
+      );
+    }
+
     if (upstreamFatal) {
       throw new Error(
         `OpenCode aborted on upstream HTTP ${upstreamFatal.statusCode}: ${upstreamFatal.message}`,
@@ -497,6 +564,9 @@ async function executeOpenCodeProcess(
 
     throw new Error("OpenCode JSON output contained no parseable events");
   } finally {
+    // FR-L36: clear watchdog regardless of exit path so successful
+    // invocations do not leak setTimeout handles.
+    if (stallTimer !== undefined) clearTimeout(stallTimer);
     detectorAbort.abort();
     registry.unregister(process);
   }
