@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.3](https://github.com/korchasa/ai-ide-cli/compare/v0.8.2...v0.8.3) (2026-05-10)
+
+
+### Features
+
+* **opencode:** stream-stall detector with typed error category (FR-L36) ([1324b21](https://github.com/korchasa/ai-ide-cli/commit/1324b218a13b134aa41dfb7c7c671190a6c1f5ba))
+
 ### [0.8.2](https://github.com/korchasa/ai-ide-cli/compare/v0.8.1...v0.8.2) (2026-05-09)
 
 
