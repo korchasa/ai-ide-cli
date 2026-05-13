@@ -301,6 +301,7 @@ export async function openOpenCodeSession(
   })();
 
   let aborted = false;
+  const abortRequests: Promise<void>[] = [];
   const doKill = () => {
     try {
       process.kill("SIGTERM");
@@ -570,12 +571,25 @@ export async function openOpenCodeSession(
     if (aborted) return;
     aborted = true;
     // Fire-and-forget: SIGTERM below tears the server down even if the HTTP
-    // call doesn't complete.
-    fetch(`${baseUrl}/session/${sessionId}/abort`, { method: "POST" }).then(
-      (r) => {
-        r.body?.cancel().catch(() => {});
-      },
-    ).catch(() => {});
+    // call doesn't complete. Track the request so Deno's leak detector sees
+    // it settle before `done` resolves in tests.
+    const abortController = new AbortController();
+    const abortTimeout = setTimeout(() => abortController.abort(), 250);
+    const abortRequest = fetch(`${baseUrl}/session/${sessionId}/abort`, {
+      method: "POST",
+      signal: abortController.signal,
+    }).then(async (r) => {
+      try {
+        await r.arrayBuffer();
+      } catch {
+        // server closed while draining
+      }
+    }).catch(() => {
+      // server may already be gone; abort remains best-effort
+    }).finally(() => {
+      clearTimeout(abortTimeout);
+    });
+    abortRequests.push(abortRequest);
     sseController.abort();
     doKill();
   }
@@ -588,6 +602,7 @@ export async function openOpenCodeSession(
         stderrPump,
         ssePump,
       ]);
+      await Promise.allSettled(abortRequests);
       const stderr = decodeConcat(stderrChunks);
       return {
         exitCode: status.code,
