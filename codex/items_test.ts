@@ -97,7 +97,7 @@ const SCENARIOS: readonly Scenario[] = [
       status: "completed",
       arguments: { path: "a.ts" },
     },
-    inputKeys: ["arguments", "status"],
+    inputKeys: ["path"],
   },
 ];
 
@@ -129,6 +129,78 @@ for (const sc of SCENARIOS) {
     },
   );
 }
+
+Deno.test("parseExecItem — mcp_tool_call unwraps arguments for runtime-neutral input", () => {
+  const item = parseExecItem({
+    id: "m-hitl",
+    type: "mcp_tool_call",
+    server: "flowai-workflow-hitl",
+    tool: "request_human_input",
+    status: "completed",
+    arguments: {
+      question: "Pick?",
+      options: [{ label: "A" }],
+    },
+  });
+  assert(item);
+  assertEquals(item.kind, "mcp_tool_call");
+  assertEquals(item.name, "flowai-workflow-hitl.request_human_input");
+  assertEquals(item.status, "completed");
+  assertEquals(item.input, {
+    question: "Pick?",
+    options: [{ label: "A" }],
+  });
+  assertEquals(item.input.arguments, undefined);
+  assertEquals(item.input.status, undefined);
+});
+
+Deno.test("parseAppServerItem — mcpToolCall unwraps arguments for runtime-neutral input", () => {
+  const item = parseAppServerItem({
+    id: "m-hitl",
+    type: "mcpToolCall",
+    server: "flowai-workflow-hitl",
+    tool: "request_human_input",
+    status: "completed",
+    arguments: {
+      question: "Pick?",
+      options: [{ label: "A" }],
+    },
+  });
+  assert(item);
+  assertEquals(item.kind, "mcp_tool_call");
+  assertEquals(item.name, "flowai-workflow-hitl.request_human_input");
+  assertEquals(item.status, "completed");
+  assertEquals(item.input, {
+    question: "Pick?",
+    options: [{ label: "A" }],
+  });
+  assertEquals(item.input.arguments, undefined);
+  assertEquals(item.input.status, undefined);
+});
+
+Deno.test("parseAppServerItem — mcpToolCall malformed arguments become empty input", () => {
+  for (
+    const argumentsValue of [
+      undefined,
+      null,
+      "not-json-object",
+      [{ label: "A" }],
+    ]
+  ) {
+    const item = parseAppServerItem({
+      id: "m-bad",
+      type: "mcpToolCall",
+      server: "flowai-workflow-hitl",
+      tool: "request_human_input",
+      status: "completed",
+      arguments: argumentsValue,
+    });
+    assert(item);
+    assertEquals(item.input, {});
+    assertEquals(item.name, "flowai-workflow-hitl.request_human_input");
+    assertEquals(item.status, "completed");
+  }
+});
 
 Deno.test("parseExecItem — non-tool items return undefined", () => {
   assertEquals(

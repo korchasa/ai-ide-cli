@@ -465,9 +465,12 @@ stable — never renumber on move.
   - **Claude** — fires for every `tool_use` block inside an `assistant` event.
   - **Codex** — fires for `item.completed` items of kind
     `command_execution` / `file_change` / `mcp_tool_call` / `web_search`.
+    For `mcp_tool_call`, `info.input` is the direct tool arguments object,
+    not the Codex wire wrapper.
   - **OpenCode** — fires for every `tool_use` event once the tool
     reaches a terminal `state.status` (`completed` or `failed`).
   Capability advertised via `RuntimeCapabilities.toolUseObservation`.
+- **Tasks:** [Codex MCP Arguments Unwrapped](tasks/2026/05/codex-mcp-arguments-unwrapped.md), [codex-mcp-hitl-input-contract](tasks/2026/05/codex-mcp-hitl-input-contract.md).
 - **Motivation:** First-class audit / pre-hook that the SDK inspired.
 - **Acceptance:**
   - [x] `onToolUseObserved` callback receives `{id, name, input, turn}`.
@@ -475,6 +478,12 @@ stable — never renumber on move.
         `ai-ide-cli/claude/stream_test.ts`,
         `ai-ide-cli/codex/process.ts:codexItemToToolUseInfo`,
         `ai-ide-cli/opencode/process.ts:openCodeToolUseInfo`.
+  - [x] Codex MCP observations expose direct tool arguments in
+        `RuntimeToolUseInfo.input`, not `{arguments, status}`. Evidence:
+        `codex/items_test.ts::parseExecItem — mcp_tool_call unwraps
+        arguments for runtime-neutral input`,
+        `codex/process_test.ts::invokeCodexCli — onToolUseObserved aborts
+        Codex MCP HITL request`.
   - [x] Sync `"abort"` synthesizes `permission_denials[]` and terminates
         the run. Evidence: `ai-ide-cli/claude/stream_test.ts`,
         `ai-ide-cli/opencode/process_test.ts`
@@ -901,6 +910,7 @@ stable — never renumber on move.
   events (including `SYNTHETIC_TURN_END`, Cursor's open-time init /
   `send_failed`) return `[]` so consumers observe turn boundaries via
   the existing synthetic-event flag, not via content.
+- **Tasks:** [codex-mcp-hitl-input-contract](tasks/2026/05/codex-mcp-hitl-input-contract.md).
 - **Per-runtime source mapping** (keep in sync with the upstream
   protocols — the Codex session path uses app-server v2 camelCase
   types, NOT the snake_case NDJSON types used by `codex exec`):
@@ -914,7 +924,8 @@ stable — never renumber on move.
     `{kind:"final", text:item.text}`; `commandExecution` / `fileChange`
     / `webSearch` / `mcpToolCall` / `dynamicToolCall` →
     `{kind:"tool", …}` with name mapping documented in
-    `runtime/CLAUDE.md`.
+    `runtime/CLAUDE.md`; `mcpToolCall.input` is the direct
+    `arguments` object.
   - **OpenCode** (SSE): `message.part.updated` with text part →
     `{kind:"text", cumulative:true}`; with tool part at terminal
     state (`completed`/`failed`) → `{kind:"tool", …}` (mirrors
@@ -963,6 +974,10 @@ stable — never renumber on move.
         `ai-ide-cli/cursor/content_test.ts`,
         `ai-ide-cli/codex/content_test.ts`,
         `ai-ide-cli/opencode/content_test.ts`.
+  - [x] Codex app-server `mcpToolCall` content exposes direct tool
+        arguments in `input`. Evidence:
+        `codex/content_test.ts::extractSessionContent — codex mcpToolCall
+        unwraps arguments`.
   - [x] Contract test asserts the normalized stream on a scripted
         event sequence through the Claude stub adapter. Evidence:
         `ai-ide-cli/runtime/session_contract_test.ts`

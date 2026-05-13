@@ -85,7 +85,7 @@ Deno.test("extractSessionContent — codex commandExecution → tool with verbat
   assertEquals(t.input.type, undefined);
 });
 
-Deno.test("extractSessionContent — codex mcpToolCall → name is <server>.<tool>", () => {
+Deno.test("extractSessionContent — codex mcpToolCall unwraps arguments", () => {
   const ev = event("completed", {
     method: "item/completed",
     params: {
@@ -101,7 +101,14 @@ Deno.test("extractSessionContent — codex mcpToolCall → name is <server>.<too
   });
   const out = extractSessionContent(ev);
   assertEquals(out.length, 1);
-  assertEquals((out[0] as { name: string }).name, "fs.read_file");
+  const tool = out[0] as {
+    name: string;
+    input: Record<string, unknown>;
+  };
+  assertEquals(tool.name, "fs.read_file");
+  assertEquals(tool.input, { path: "a.ts" });
+  assertEquals(tool.input.arguments, undefined);
+  assertEquals(tool.input.status, undefined);
 });
 
 Deno.test("extractSessionContent — codex fileChange → tool with name=fileChange", () => {

@@ -756,13 +756,16 @@ app-server JSON-RPC protocol.
 - `CodexConceptualItem`: `{id, kind, name, input, status?}`. `name`
   is wire-specific (`<server>.<tool>` for `mcpToolCall`/`mcp_tool_call`,
   `item.tool` for `dynamicToolCall`, the discriminator verbatim
-  otherwise).
+  otherwise). For MCP calls, `input` is the direct tool `arguments`
+  object for both protocols; lifecycle `status` stays on
+  `CodexConceptualItem.status`, not inside `input`.
 - `parseExecItem(snake)` lifts a snake_case `CodexExecItem` (returns
   `undefined` for `agent_message` / `reasoning` / `error` /
   `todo_list`).
-- `parseAppServerItem(camel)` lifts a camelCase JSON-RPC item; drops
-  `id` / `type` and preserves every other field under `input` so the
-  parser survives upstream field additions. Items without a stable
+- `parseAppServerItem(camel)` lifts a camelCase JSON-RPC item. MCP
+  calls unwrap `arguments` directly into `input`; non-MCP tool items
+  drop `id` / `type` and preserve every other field under `input` so
+  the parser survives upstream field additions. Items without a stable
   `id` are rejected (mirrors the historical `extractCodexContent`
   invariant).
 

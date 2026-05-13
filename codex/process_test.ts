@@ -8,6 +8,7 @@ import {
   extractCodexOutput,
   findCodexSessionFile,
   formatCodexEventForOutput,
+  invokeCodexCli,
   permissionModeToCodexArgs,
 } from "./process.ts";
 import type { CodexExecEvent } from "./exec-events.ts";
@@ -26,6 +27,25 @@ function makeInvokeOpts(
     processRegistry: defaultRegistry,
     ...overrides,
   };
+}
+
+async function withStubCodex<T>(script: string, fn: () => Promise<T>) {
+  const dir = await Deno.makeTempDir({ prefix: "codex-process-stub-" });
+  const binPath = join(dir, "codex");
+  await Deno.writeTextFile(binPath, script);
+  await Deno.chmod(binPath, 0o755);
+  const prevPath = Deno.env.get("PATH") ?? "";
+  Deno.env.set("PATH", `${dir}:${prevPath}`);
+  try {
+    return await fn();
+  } finally {
+    Deno.env.set("PATH", prevPath);
+    try {
+      await Deno.remove(dir, { recursive: true });
+    } catch {
+      // best-effort cleanup
+    }
+  }
 }
 
 // --- buildCodexArgs ---
@@ -345,6 +365,44 @@ Deno.test("codexItemToToolUseInfo — mcp_tool_call name combines server.tool", 
     arguments: { q: "hi" },
   });
   assertEquals(info?.name, "search.web");
+  assertEquals(info?.input, { q: "hi" });
+});
+
+Deno.test("invokeCodexCli — onToolUseObserved aborts Codex MCP HITL request", async () => {
+  const script = `#!/usr/bin/env bash
+printf '%s\\n' '{"type":"thread.started","thread_id":"thrd_hitl"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"m-hitl","type":"mcp_tool_call","server":"flowai-workflow-hitl","tool":"request_human_input","status":"completed","arguments":{"question":"Pick?","options":[{"label":"A"}]}}}'
+sleep 5
+`;
+  await withStubCodex(script, async () => {
+    const result = await invokeCodexCli(
+      makeInvokeOpts({
+        onToolUseObserved: (info) => {
+          assertEquals(info.name, "flowai-workflow-hitl.request_human_input");
+          const input = info.input ?? {};
+          assertEquals(input.question, "Pick?");
+          assertEquals(input.options, [{ label: "A" }]);
+          assertEquals(input.arguments, undefined);
+          return "abort";
+        },
+      }),
+    );
+    assert(result.output);
+    assertEquals(result.output.is_error, true);
+    assertEquals(
+      result.output.result,
+      "Aborted by onToolUseObserved callback",
+    );
+    assertEquals(result.output.permission_denials, [
+      {
+        tool_name: "flowai-workflow-hitl.request_human_input",
+        tool_input: {
+          id: "m-hitl",
+          reason: "Aborted by onToolUseObserved callback",
+        },
+      },
+    ]);
+  });
 });
 
 Deno.test("codexItemToToolUseInfo — agent_message returns undefined", () => {

@@ -54,9 +54,10 @@ export type CodexConceptualKind =
  * - `name`   — display name for the tool. For `mcp_tool_call` this is
  *              `<server>.<tool>`; for `dynamic_tool_call` this is the
  *              tool field; otherwise it is the `kind` verbatim.
- * - `input`  — opaque argument map. Field names mirror the source wire
- *              format (snake_case for exec, camelCase for app-server).
- *              Consumers must NOT assume cross-protocol field parity.
+ * - `input`  — opaque argument map. For MCP calls this is the direct
+ *              `arguments` object from the tool invocation; for other
+ *              kinds, field names mirror the source wire format
+ *              (snake_case for exec, camelCase for app-server).
  * - `status` — lifecycle status when the source carried one.
  */
 export interface CodexConceptualItem {
@@ -80,6 +81,7 @@ export interface CodexConceptualItem {
  * Field selection mirrors the historical `codexItemToToolUseInfo`
  * picker so existing tool-observation hooks see the same input keys.
  */
+// FR-L16
 export function parseExecItem(
   item: CodexExecItem | undefined | null,
 ): CodexConceptualItem | undefined {
@@ -118,7 +120,7 @@ export function parseExecItem(
         id,
         kind: "mcp_tool_call",
         name: `${server}.${tool}`,
-        input: { arguments: m.arguments, status: m.status },
+        input: recordOrEmpty(m.arguments),
         status: typeof m.status === "string" ? m.status : undefined,
       };
     }
@@ -146,10 +148,12 @@ export function parseExecItem(
  * deduplicated by tool-observation hooks downstream). This mirrors
  * the previous `extractCodexContent` invariant.
  *
- * Field selection: `id` and `type` are stripped; every other key is
+ * Field selection: MCP calls unwrap `arguments` directly into `input`.
+ * Other app-server tool items strip `id` and `type`; every other key is
  * preserved verbatim under `input` so consumers see whatever the CLI
  * shipped, including new fields added in upstream minor bumps.
  */
+// FR-L23
 export function parseAppServerItem(
   item: Record<string, unknown> | undefined | null,
 ): CodexConceptualItem | undefined {
@@ -182,7 +186,7 @@ export function parseAppServerItem(
         id,
         kind: "mcp_tool_call",
         name: `${server}.${tool}`,
-        input,
+        input: recordOrEmpty(item["arguments"]),
         status,
       };
     }
@@ -217,4 +221,11 @@ function pickAppServerInput(
     out[key] = value;
   }
   return out;
+}
+
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
 }
