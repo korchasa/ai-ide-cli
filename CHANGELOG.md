@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.4](https://github.com/korchasa/ai-ide-cli/compare/v0.8.3...v0.8.4) (2026-05-13)
+
+
+### Bug Fixes
+
+* **codex:** unwrap MCP tool arguments ([245b73e](https://github.com/korchasa/ai-ide-cli/commit/245b73ecf8c83b083048f9c8f9b45dbcf13c2db7))
+* **opencode:** settle session abort request ([43e9f7d](https://github.com/korchasa/ai-ide-cli/commit/43e9f7d48d7874b67f3760fd1d9a03a6cc5c817d))
+
 ### [0.8.3](https://github.com/korchasa/ai-ide-cli/compare/v0.8.2...v0.8.3) (2026-05-10)
 
 
