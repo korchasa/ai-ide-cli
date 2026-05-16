@@ -737,7 +737,9 @@ Consumers are thin serializers:
 
 - `permissionModeToCodexArgs(mode)` in `codex/process.ts` →
   `--sandbox <mode>` + `--config approval_policy="<mode>"` argv
-  (one-shot exec transport).
+  (one-shot exec transport). The deprecated `--full-auto` flag (Codex
+  `rust-v0.128.0`) is intentionally never emitted — permission profiles
+  are the supported replacement.
 - `permissionModeToThreadStartFields(mode)` in `codex/session.ts` →
   `{approvalPolicy?, sandbox?}` fields for `thread/start` /
   `thread/resume` (app-server transport).

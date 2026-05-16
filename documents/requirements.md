@@ -358,6 +358,7 @@ stable — never renumber on move.
   etc.): https://github.com/openai/codex/tree/main/sdk/typescript (see
   `src/exec.ts` for argv/env wiring, `src/thread.ts` for event aggregation,
   `src/events.ts` and `src/items.ts` for the event/item type union).
+- **Tasks:** [codex-ban-full-auto-flag](tasks/2026/05/codex-ban-full-auto-flag.md)
 - **Motivation:** Add OpenAI's Codex CLI as a first-class runtime alongside
   Claude Code / OpenCode / Cursor, without bundling an npm SDK.
 - **Acceptance:**
@@ -395,6 +396,10 @@ stable — never renumber on move.
         `executeCodexProcess`.
   - [x] Sub-path export `@korchasa/ai-ide-cli/codex/process`. Evidence:
         `ai-ide-cli/deno.json` exports.
+  - [x] `buildCodexArgs()` never emits the deprecated `--full-auto` flag
+        (Codex `rust-v0.128.0` deprecation; explicit permission profiles
+        are the supported replacement). Evidence:
+        `ai-ide-cli/codex/argv_test.ts`.
 
 ### 3.14 FR-L14: Map-shaped `extraArgs` / `runtime_args`
 
