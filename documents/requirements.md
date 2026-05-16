@@ -358,7 +358,7 @@ stable — never renumber on move.
   etc.): https://github.com/openai/codex/tree/main/sdk/typescript (see
   `src/exec.ts` for argv/env wiring, `src/thread.ts` for event aggregation,
   `src/events.ts` and `src/items.ts` for the event/item type union).
-- **Tasks:** [codex-ban-full-auto-flag](tasks/2026/05/codex-ban-full-auto-flag.md)
+- **Tasks:** [codex-ban-full-auto-flag](tasks/2026/05/codex-ban-full-auto-flag.md), [codex-flag-placement-audit](tasks/2026/05/codex-flag-placement-audit.md)
 - **Motivation:** Add OpenAI's Codex CLI as a first-class runtime alongside
   Claude Code / OpenCode / Cursor, without bundling an npm SDK.
 - **Acceptance:**
@@ -400,6 +400,12 @@ stable — never renumber on move.
         (Codex `rust-v0.128.0` deprecation; explicit permission profiles
         are the supported replacement). Evidence:
         `ai-ide-cli/codex/argv_test.ts`.
+  - [x] `buildCodexArgs()` enforces canonical no-duplicate placement —
+        every flag emits at subcommand position only (Codex
+        `rust-v0.123.0` root-inheritance is N/A; the adapter never
+        writes flags before `exec`), reserved singleton flags appear at
+        most once, and no two adapter-emitted `--config <key>=...`
+        pairs share a key. Evidence: `ai-ide-cli/codex/argv_test.ts`.
 
 ### 3.14 FR-L14: Map-shaped `extraArgs` / `runtime_args`
 
@@ -411,6 +417,7 @@ stable — never renumber on move.
   synchronously if any reserved key is present. Each runtime declares its
   reserved-flag list (`CLAUDE_RESERVED_FLAGS`, `OPENCODE_RESERVED_FLAGS`,
   `CURSOR_RESERVED_FLAGS`, `CODEX_RESERVED_FLAGS`).
+- **Tasks:** [codex-flag-placement-audit](tasks/2026/05/codex-flag-placement-audit.md)
 - **Motivation:** Map shape makes cascading overrides trivial (`{flag:
   null}` suppresses a parent value) and matches the shape of Anthropic's
   Claude Agent SDK `extraArgs` option.

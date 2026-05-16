@@ -9,7 +9,7 @@
  * runtime on a modern Codex binary.
  */
 
-import { assert } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import { buildCodexArgs } from "./argv.ts";
 import type { RuntimeInvokeOptions } from "../runtime/types.ts";
 
@@ -40,6 +40,59 @@ Deno.test("never emits deprecated --full-auto", () => {
       `buildCodexArgs emitted deprecated --full-auto for permissionMode=${mode}: ${
         JSON.stringify(argv)
       }`,
+    );
+  }
+});
+
+const RESERVED_SINGLETON_FLAGS: readonly string[] = [
+  "--experimental-json",
+  "--model",
+  "--cd",
+  "--sandbox",
+];
+
+function configKeysFromArgv(argv: readonly string[]): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < argv.length - 1; i++) {
+    if (argv[i] !== "--config") continue;
+    const value = argv[i + 1];
+    const eq = value.indexOf("=");
+    keys.push(eq < 0 ? value : value.slice(0, eq));
+  }
+  return keys;
+}
+
+// FR-L13
+Deno.test("no duplicate shared flag positions", () => {
+  for (const mode of ALL_MODES) {
+    const argv = buildCodexArgs(
+      {
+        permissionMode: mode,
+        model: "gpt-5",
+        cwd: "/tmp/scratch",
+        reasoningEffort: "medium",
+        extraArgs: { "--config": "web_search=true" },
+      } as unknown as RuntimeInvokeOptions,
+    );
+
+    for (const token of RESERVED_SINGLETON_FLAGS) {
+      const count = argv.filter((t) => t === token).length;
+      assert(
+        count <= 1,
+        `buildCodexArgs emitted ${token} ${count} times for permissionMode=${mode}: ${
+          JSON.stringify(argv)
+        }`,
+      );
+    }
+
+    const keys = configKeysFromArgv(argv);
+    const unique = new Set(keys);
+    assertEquals(
+      keys.length,
+      unique.size,
+      `buildCodexArgs emitted duplicate --config <key> entries for permissionMode=${mode}: keys=${
+        JSON.stringify(keys)
+      } argv=${JSON.stringify(argv)}`,
     );
   }
 });

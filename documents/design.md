@@ -829,6 +829,15 @@ piping, NDJSON parsing, denial synthesis). Pure helpers moved out:
 - `codex/argv.ts` — `buildCodexArgs`, `permissionModeToCodexArgs`,
   reserved-flag sets (`CODEX_RESERVED_FLAGS`,
   `CODEX_RESERVED_POSITIONALS`, `CODEX_INTENTIONALLY_OPEN_FLAGS`).
+  Canonical placement: every emitted flag lives at subcommand position
+  (after `exec`); reserved singletons (`--experimental-json`,
+  `--model`, `--cd`, `--sandbox`) structurally de-duplicate against
+  `extraArgs`; `--config` is intentionally open (repeatable, last-wins
+  per Codex convention) and adapter-emitted `--config` keys
+  (`approval_policy`, `model_reasoning_effort`,
+  `mcp_servers.<name>.*`) never collide among themselves. Codex
+  `rust-v0.123.0` root-inheritance does not apply — the adapter never
+  writes flags before `exec`.
 - `codex/run-state.ts` — `CodexRunState`, `createCodexRunState`,
   `applyCodexEvent` (snake_case event aggregator),
   `extractCodexOutput`, `codexItemToToolUseInfo`,
