@@ -146,13 +146,23 @@ stable — never renumber on move.
   output, processes NDJSON events in real-time, extracts `CliRunOutput` from
   the `result` event. Retry with exponential backoff. `buildClaudeArgs(opts)`
   constructs CLI argv. Supports `--permission-mode`, `--agent`,
-  `--append-system-prompt`, `--model`, `--resume`.
+  `--append-system-prompt`, `--append-system-prompt-file`, `--model`,
+  `--resume`.
   Upstream reference — use this when porting additional flags or when the
   `stream-json` event shape evolves: Anthropic's Claude Agent SDK for
   TypeScript — https://github.com/anthropics/claude-agent-sdk-typescript
 - **Acceptance:**
   - [x] `buildClaudeArgs()` emits correct flags for fresh and resume modes.
         Evidence: `ai-ide-cli/claude/process.ts:94-127`.
+  - [x] `systemPromptFile` emits Claude's
+        `--append-system-prompt-file <path>`, is mutually exclusive with
+        `systemPrompt`, is skipped on resume, and collides with legacy
+        `claudeArgs["--append-system-prompt-file"]` only when the typed
+        field is set. Test:
+        `claude/process_test.ts::buildClaudeArgs — systemPromptFile emits --append-system-prompt-file`;
+        `claude/process_test.ts::buildClaudeArgs — systemPrompt and systemPromptFile are mutually exclusive`;
+        `claude/process_test.ts::buildClaudeArgs — systemPromptFile collision with extraArgs throws`;
+        `claude/process_test.ts::buildClaudeArgs — resume path suppresses systemPromptFile`.
   - [x] `invokeClaudeCli()` with retry loop + exponential backoff.
         Evidence: `ai-ide-cli/claude/process.ts:52-91`.
   - [x] Real-time NDJSON processing via `processStreamEvent()`.

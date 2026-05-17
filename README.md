@@ -271,6 +271,11 @@ Both `RuntimeInvokeOptions` and `RuntimeSessionOptions` accept the
 optional `processRegistry` field; when omitted, the default singleton is
 used (backward-compatible with all earlier consumers).
 
+For one-shot Claude invocations, `RuntimeInvokeOptions.systemPromptFile`
+maps to `--append-system-prompt-file <path>`. It is mutually exclusive
+with `systemPrompt`; OpenCode, Cursor, and Codex reject it until they
+gain native file-prompt support.
+
 > **OS signals:** the library never installs `SIGINT`/`SIGTERM` handlers
 > itself. Downstream `installSignalHandlers()` helpers typically reap
 > only the **default singleton**. Subprocesses tracked by a private

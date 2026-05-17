@@ -220,6 +220,59 @@ Deno.test("buildClaudeArgs — legacy extraArgs --effort path still works withou
   assertEquals(args[idx + 1], "xhigh");
 });
 
+// --- System prompt file delivery ---
+
+Deno.test("buildClaudeArgs — systemPromptFile emits --append-system-prompt-file", () => {
+  const args = buildClaudeArgs(
+    makeOpts({ systemPromptFile: "/tmp/node/system-prompt.md" }),
+  );
+  const idx = args.indexOf("--append-system-prompt-file");
+  assert(idx >= 0);
+  assertEquals(args[idx + 1], "/tmp/node/system-prompt.md");
+  assertEquals(args.includes("--append-system-prompt"), false);
+});
+
+Deno.test("buildClaudeArgs — systemPrompt and systemPromptFile are mutually exclusive", () => {
+  assertThrows(
+    () =>
+      buildClaudeArgs(
+        makeOpts({
+          systemPrompt: "inline",
+          systemPromptFile: "/tmp/system-prompt.md",
+        }),
+      ),
+    Error,
+    "mutually exclusive",
+  );
+});
+
+Deno.test("buildClaudeArgs — systemPromptFile collision with extraArgs throws", () => {
+  assertThrows(
+    () =>
+      buildClaudeArgs(
+        makeOpts({
+          systemPromptFile: "/tmp/system-prompt.md",
+          claudeArgs: {
+            "--append-system-prompt-file": "/tmp/other.md",
+          },
+        }),
+      ),
+    Error,
+    'extraArgs key "--append-system-prompt-file"',
+  );
+});
+
+Deno.test("buildClaudeArgs — resume path suppresses systemPromptFile", () => {
+  const args = buildClaudeArgs(
+    makeOpts({
+      resumeSessionId: "ses_abc",
+      systemPromptFile: "/tmp/system-prompt.md",
+    }),
+  );
+  assertEquals(args.includes("--append-system-prompt-file"), false);
+  assert(args.indexOf("--resume") >= 0);
+});
+
 // --- FR-L35 mcp injection ---
 
 Deno.test("buildClaudeArgs — mcpServers + extraArgs --mcp-config collide and throw", () => {

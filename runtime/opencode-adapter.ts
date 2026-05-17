@@ -21,6 +21,7 @@ import {
 import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { validateMcpServers } from "./mcp-injection.ts";
+import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
@@ -120,6 +121,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     sessionFidelity: "native",
   },
   invoke(opts) {
+    rejectUnsupportedSystemPromptFile("opencode", opts);
     validateToolFilter("opencode", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("opencode", opts);

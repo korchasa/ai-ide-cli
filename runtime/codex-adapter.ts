@@ -17,6 +17,7 @@ import {
 import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { validateMcpServers } from "./mcp-injection.ts";
+import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
@@ -110,6 +111,7 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     sessionFidelity: "native",
   },
   invoke(opts) {
+    rejectUnsupportedSystemPromptFile("codex", opts);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);

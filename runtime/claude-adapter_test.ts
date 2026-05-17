@@ -32,6 +32,34 @@ Deno.test("claudeRuntimeAdapter — declares session capability", () => {
   assert(typeof claudeRuntimeAdapter.openSession === "function");
 });
 
+Deno.test("claudeRuntimeAdapter.invoke — forwards systemPromptFile to Claude args", async () => {
+  await withStubClaude(
+    `printf '%s\n' "$@" > "$CAPTURE_ARGS"
+cat <<'EOF'
+{"type":"system","subtype":"init","session_id":"stub-file","model":"stub"}
+{"type":"result","subtype":"success","result":"ok","session_id":"stub-file","total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"num_turns":1,"is_error":false}
+EOF`,
+    async (dir) => {
+      const capture = `${dir}/args.txt`;
+      const result = await claudeRuntimeAdapter.invoke({
+        processRegistry: defaultRegistry,
+        taskPrompt: "task",
+        systemPromptFile: "/tmp/system-prompt.md",
+        timeoutSeconds: 5,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+        env: { CAPTURE_ARGS: capture },
+      });
+      assertEquals(result.error, undefined);
+      const args = (await Deno.readTextFile(capture)).trim().split("\n");
+      const idx = args.indexOf("--append-system-prompt-file");
+      assert(idx >= 0);
+      assertEquals(args[idx + 1], "/tmp/system-prompt.md");
+      assertEquals(args.includes("--append-system-prompt"), false);
+    },
+  );
+});
+
 Deno.test("claudeRuntimeAdapter.openSession — yields normalized session events with raw payload preserved", async () => {
   await withStubClaude(
     `cat <<'EOF'

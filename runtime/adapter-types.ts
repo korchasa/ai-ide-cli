@@ -74,6 +74,13 @@ export interface RuntimeInvokeOptions {
   agent?: string;
   /** Optional system prompt content for the invocation. */
   systemPrompt?: string;
+  /**
+   * Optional path to a UTF-8 file containing system prompt content for the
+   * invocation. Claude renders this as `--append-system-prompt-file <path>`.
+   * Mutually exclusive with `systemPrompt`; other runtimes reject it unless
+   * they add native file-based support.
+   */
+  systemPromptFile?: string;
   /** User task prompt passed to the runtime. */
   taskPrompt: string;
   /** Existing session ID for continuation/resume. */

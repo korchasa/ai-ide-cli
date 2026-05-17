@@ -148,6 +148,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     const result = await invokeClaudeCli({
       agent: opts.agent,
       systemPrompt: opts.systemPrompt,
+      systemPromptFile: opts.systemPromptFile,
       taskPrompt: opts.taskPrompt,
       resumeSessionId: opts.resumeSessionId,
       claudeArgs: opts.extraArgs,

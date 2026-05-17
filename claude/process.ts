@@ -95,6 +95,11 @@ export const CLAUDE_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
   // `claudeArgs: { "--strict-mcp-config": "" }` keeps working when
   // the typed field is unset.
   "--strict-mcp-config",
+  // File-based system prompt delivery is preferred through
+  // `systemPromptFile`, but the legacy extraArgs path remains valid when
+  // the typed field is unset. Collision is checked by
+  // `validateSystemPromptDelivery`, not by reserving the flag.
+  "--append-system-prompt-file",
 ];
 
 /** Low-level options for a single claude CLI invocation (initial or resume). */
@@ -108,6 +113,8 @@ export interface ClaudeInvokeOptions {
   agent?: string;
   /** System context passed via --append-system-prompt. Skipped on resume. */
   systemPrompt?: string;
+  /** System context file passed via --append-system-prompt-file. Skipped on resume. */
+  systemPromptFile?: string;
   /** Task prompt passed to claude via -p flag. */
   taskPrompt: string;
   /** Session ID for --resume continuation (omit for initial invocation). */
@@ -240,6 +247,22 @@ export function _resetClaudeReasoningEffortWarning(): void {
   warnedClaudeEffortMapping = false;
 }
 
+function validateSystemPromptDelivery(opts: ClaudeInvokeOptions): void {
+  if (opts.systemPrompt !== undefined && opts.systemPromptFile !== undefined) {
+    throw new Error(
+      "systemPrompt and systemPromptFile are mutually exclusive",
+    );
+  }
+  if (
+    opts.systemPromptFile !== undefined &&
+    opts.claudeArgs?.["--append-system-prompt-file"] !== undefined
+  ) {
+    throw new Error(
+      'extraArgs key "--append-system-prompt-file" collides with typed systemPromptFile',
+    );
+  }
+}
+
 /** Invoke claude CLI with retry logic. */
 export async function invokeClaudeCli(
   opts: ClaudeInvokeOptions,
@@ -299,9 +322,12 @@ export async function invokeClaudeCli(
   };
 }
 
+// FR-L4
 /** Build CLI arguments for the claude command. Exported for testing. */
 export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
   const args: string[] = [];
+
+  validateSystemPromptDelivery(opts);
 
   // Permission mode (first-class field, maps to --permission-mode).
   // Fail-fast on unknown values; mirrors the tool-filter / reasoning-effort
@@ -360,7 +386,9 @@ export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
 
   if (!opts.resumeSessionId) {
     if (opts.agent) args.push("--agent", opts.agent);
-    if (opts.systemPrompt) {
+    if (opts.systemPromptFile) {
+      args.push("--append-system-prompt-file", opts.systemPromptFile);
+    } else if (opts.systemPrompt) {
       args.push("--append-system-prompt", opts.systemPrompt);
     }
   }

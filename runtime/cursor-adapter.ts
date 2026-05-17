@@ -20,6 +20,7 @@ import {
 import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { validateMcpServers } from "./mcp-injection.ts";
+import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
 
 // FR-L24: see runtime/opencode-adapter.ts for the shared rationale.
 let warnedToolFilter = false;
@@ -137,6 +138,7 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     sessionFidelity: "emulated",
   },
   invoke(opts) {
+    rejectUnsupportedSystemPromptFile("cursor", opts);
     validateToolFilter("cursor", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("cursor", opts);

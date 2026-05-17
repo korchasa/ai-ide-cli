@@ -223,8 +223,9 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
 - `RuntimeInvokeOptions` — normalized invocation options: `taskPrompt`,
   `resumeSessionId`, `model`, `permissionMode`, `extraArgs`, `timeoutSeconds`,
   `maxRetries`, `retryDelaySeconds`, `onOutput`, `streamLogPath`, `verbosity`,
-  `cwd`, `agent`, `systemPrompt`, `env`, `onEvent`, `allowedTools`,
-  `disallowedTools` (FR-L24), `processRegistry` (FR-L3 — **required**
+  `cwd`, `agent`, `systemPrompt`, `systemPromptFile` (one-shot Claude
+  file-based system prompt; other runtimes reject), `env`, `onEvent`,
+  `allowedTools`, `disallowedTools` (FR-L24), `processRegistry` (FR-L3 — **required**
   `ProcessRegistry` instance for scoping the spawned subprocess; standalone
   callers pass the module-level `defaultRegistry`).
 - `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string;
@@ -427,9 +428,12 @@ classification is deferred until runtime-specific evidence is captured.
 `buildClaudeArgs(opts: ClaudeInvokeOptions)`: constructs argv.
 Order: `--permission-mode` → tool-filter flag (FR-L24, see below) →
 `claudeArgs` → `--resume` → `-p` → `--agent` → `--append-system-prompt`
-→ `--model` → `--output-format stream-json --verbose`. Resume skips
-`--agent`, `--append-system-prompt`, `--model` (session inherits) but
-**does** re-emit the tool-filter flag (filtering is not part of
+or `--append-system-prompt-file` → `--model` →
+`--output-format stream-json --verbose`. `systemPromptFile` is
+one-shot-only, mutually exclusive with `systemPrompt`, and collides with
+legacy `claudeArgs["--append-system-prompt-file"]` only when the typed
+field is set. Resume skips `--agent`, prompt injection, and `--model`
+(session inherits) but **does** re-emit the tool-filter flag (filtering is not part of
 session state).
 
 **`PermissionMode` enum (canonical home: `claude/permission-mode.ts`).**
