@@ -25,6 +25,8 @@
 export interface UpstreamFatalError {
   /** HTTP status code (one of 401, 402, 403, 429). */
   statusCode: number;
+  /** Provider-specific error code when the log payload exposes one. */
+  providerCode?: string;
   /** Human-readable message from the upstream provider, verbatim. */
   message: string;
 }
@@ -63,8 +65,15 @@ export function detectUpstreamFatalInLine(
       " ",
     )
     : `HTTP ${statusCode} from upstream provider`;
+  const providerCodeMatch = /"code":\s*"((?:[^"\\]|\\.)*)"/.exec(after);
+  const providerCode = providerCodeMatch
+    ? providerCodeMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\")
+    : undefined;
 
-  return { statusCode, message };
+  return providerCode ? { statusCode, providerCode, message } : {
+    statusCode,
+    message,
+  };
 }
 
 /** Resolve the log directory the OpenCode CLI writes to.

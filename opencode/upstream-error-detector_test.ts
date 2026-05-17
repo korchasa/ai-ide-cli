@@ -15,9 +15,21 @@ Deno.test("detectUpstreamFatalInLine — 429 with usage-limit message", () => {
     got,
     {
       statusCode: 429,
+      providerCode: "1308",
       message:
         "Usage limit reached for 5 hour. Your limit will reset at 2026-05-09 04:56:07",
     } satisfies UpstreamFatalError,
+  );
+});
+
+Deno.test("detects usage limit with reset hint", () => {
+  const line =
+    `INFO {"statusCode":429,"data":{"error":{"message":"Usage limit reached for 5 hour. Your limit will reset at 2026-05-09 04:56:07"}}}`;
+  const got = detectUpstreamFatalInLine(line);
+  assertEquals(got?.statusCode, 429);
+  assertEquals(
+    got?.message,
+    "Usage limit reached for 5 hour. Your limit will reset at 2026-05-09 04:56:07",
   );
 });
 

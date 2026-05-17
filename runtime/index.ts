@@ -73,6 +73,16 @@ export type { SettingSource } from "./setting-sources.ts";
 // references `RuntimeErrorCategory`.
 export type { RuntimeErrorCategory } from "./error-types.ts";
 export { ERROR_CATEGORY_STREAM_STALL } from "./error-types.ts";
+// FR-L37: structured runtime-error analysis type reachable from this sub-path
+// entry — required by JSR slow-types because `RuntimeInvokeResult.runtime_error`
+// references `RuntimeErrorAnalysis`.
+export type {
+  RuntimeErrorAnalysis,
+  RuntimeErrorAnalysisInput,
+  RuntimeErrorConfidence,
+  RuntimeErrorKind,
+  RuntimeErrorSource,
+} from "./runtime-error-analysis.ts";
 export type { ProcessRegistry } from "../process-registry.ts";
 export type { SkillDef, SkillFrontmatter } from "../skill/types.ts";
 

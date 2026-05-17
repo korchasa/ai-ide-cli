@@ -1964,6 +1964,99 @@ stable — never renumber on move.
         `process_upstream_fatal_test.ts` continue to pass
         without modification.
 
+### 3.36 FR-L37: Runtime Error Analysis
+
+- **Description:** Pure runtime-neutral analyzer for captured CLI runtime
+  failure signals. It classifies stdout / stderr / event / log /
+  error-string fragments into conservative kinds (`quota`, `rate_limit`,
+  `context_window`, `token_budget`, `auth`, `policy`, `plan_limit`,
+  `runtime_error`) with optional HTTP status, provider code, reset timestamp,
+  retry-after seconds, message, source, runtime, and confidence.
+  `RuntimeInvokeResult.runtime_error?: RuntimeErrorAnalysis` surfaces
+  analyzer output only where an adapter has reliable runtime-failure
+  evidence. Known subtypes are precise; otherwise adapters may return
+  `kind: "runtime_error"` after they already know the failure came from the
+  runtime.
+- **Tasks:** [runtime-error-handling](tasks/2026/05/runtime-error-handling.md)
+- **Motivation:** Runtime CLIs surface quota, rate, context-window, and
+  provider-plan states through incompatible channels. OpenCode logs upstream
+  HTTP 401 / 402 / 403 / 429 internally; Cursor emits Free-plan named-model
+  failures on stderr before a terminal `result` event. Consumers need a
+  tested classifier before adapter wiring can safely expose structured
+  runtime-error data without brittle string matching.
+- **Scenario:** A capture harness feeds an OpenCode log line containing
+  `statusCode:429` and `Usage limit reached ... reset at ...` into
+  `analyzeRuntimeErrorSignal({runtime:"opencode", source:"log", text})`.
+  The analyzer returns `{kind:"quota", statusCode:429, resetAt:..., ...}`.
+  A non-error line such as watchdog configuration prose returns `undefined`.
+  When OpenCode's upstream-fatal detector observes the same provider failure
+  during `invokeOpenCodeCli`, the adapter preserves its existing
+  human-readable `error` string and also returns `runtime_error` with the
+  structured facts. Cursor Free-plan named-model stderr returns
+  `{kind:"plan_limit", runtime:"cursor", source:"stderr", ...}`; unknown
+  Cursor process stderr returns `{kind:"runtime_error", confidence:"low",
+  ...}`.
+- **Acceptance:**
+  - [x] `runtime/runtime-error-analysis.ts` exports
+        `analyzeRuntimeErrorSignal`, `RuntimeErrorAnalysis`,
+        `RuntimeErrorAnalysisInput`, `RuntimeErrorKind`,
+        `RuntimeErrorSource`, and `RuntimeErrorConfidence`.
+        Evidence: `// FR-L37` comments above exported symbols.
+  - [x] Analyzer is pure: no subprocess spawn, file reads/writes, environment
+        mutation, or adapter invocation. Malformed events and ambiguous
+        non-error text return `undefined` instead of throwing. When an adapter
+        sets `assumeRuntimeError`, unclassified text returns
+        `kind:"runtime_error"`. Tests:
+        `runtime/runtime-error-analysis_test.ts::runtime error analyzer
+        tolerates malformed event payloads`,
+        `runtime/runtime-error-analysis_test.ts::runtime error analyzer
+        returns generic error when adapter confirms failure`.
+  - [x] Fixtures classify OpenCode HTTP 401 / 402 / 403 / 429 log lines,
+        reset hints, generic context-window messages, token-budget messages,
+        auth / policy / rate cases, Cursor Free-plan named-model stderr,
+        generic runtime-error fallback, and non-error false positives. Tests:
+        `runtime/runtime-error-analysis_test.ts::known runtime error fixtures
+        classify deterministically`,
+        `runtime/runtime-error-analysis_test.ts::non-error text is not
+        classified without adapter confirmation`.
+  - [x] `RuntimeInvokeResult.runtime_error?: RuntimeErrorAnalysis` is an
+        additive public field. OpenCode upstream-fatal HTTP 401 / 402 / 403 /
+        429 log detections populate it without changing the existing
+        human-readable `error` string. Tests:
+        `opencode/process_upstream_fatal_test.ts::invokeOpenCodeCli —
+        detects upstream 429 in opencode log and surfaces verbatim message`,
+        `opencode/process_upstream_fatal_test.ts::invokeOpenCodeCli —
+        upstream 401 surfaces auth runtime_error`,
+        `opencode/process_upstream_fatal_test.ts::invokeOpenCodeCli —
+        upstream-fatal error short-circuits the maxRetries loop`.
+  - [x] Cursor stderr failures populate `runtime_error`: Free-plan
+        named-model restriction maps to `plan_limit`; unrecognized stderr
+        maps to generic `runtime_error`. Tests:
+        `cursor/process_test.ts::invokeCursorCli — plan-limited named models
+        surface typed runtime_error`,
+        `cursor/process_test.ts::invokeCursorCli — unknown process failures
+        surface generic runtime_error`.
+  - [x] OpenCode upstream-fatal detector preserves provider code when present
+        while keeping the existing `{statusCode, message}` shape compatible
+        through an optional `providerCode` field. Test:
+        `opencode/upstream-error-detector_test.ts::detectUpstreamFatalInLine
+        — 429 with usage-limit message`.
+  - [x] Adapter integration remains deliberately narrow: stream stalls keep
+        `error_category: "stream_stall"` with no `runtime_error`, non-fatal
+        HTTP 503 log lines stay unclassified, and Claude / Cursor / Codex
+        plain success-path text is not classified without adapter-confirmed
+        failure evidence. Evidence: SDS "Runtime Error Analysis".
+  - [x] Opt-in e2e capture harness is gated by `E2E=1`, uses temp `HOME` /
+        log dirs, and never tries to exhaust quotas or rate limits. Test:
+        `e2e/runtime_error_analysis_e2e_test.ts::runtime error analysis
+        probes are gated`.
+  - [x] Root public API and runtime sub-path entries re-export analyzer
+        function / types needed by `RuntimeInvokeResult.runtime_error`.
+        Evidence: `deno doc --lint mod.ts`,
+        `deno doc --lint runtime/index.ts`,
+        `deno doc --lint runtime/types.ts`; `deno task check` publish
+        dry-run passes `missing-jsdoc` / `private-type-ref`.
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

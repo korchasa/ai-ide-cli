@@ -200,6 +200,33 @@ await invokeClaudeCli({
 });
 ```
 
+## Runtime error analysis
+
+`analyzeRuntimeErrorSignal()` classifies captured CLI failure fragments
+without spawning a runtime. It is useful when a consumer has stderr, logs,
+raw events, or an error string and wants a conservative signal such as
+`quota`, `rate_limit`, `context_window`, `token_budget`, `auth`, `policy`,
+`plan_limit`, or the generic `runtime_error`.
+
+```ts
+import { analyzeRuntimeErrorSignal } from "jsr:@korchasa/ai-ide-cli";
+
+const runtimeError = analyzeRuntimeErrorSignal({
+  runtime: "opencode",
+  source: "log",
+  text:
+    `INFO {"statusCode":429,"data":{"error":{"message":"Usage limit reached. Your limit will reset at 2026-05-09 04:56:07"}}}`,
+});
+console.log(runtimeError?.kind, runtimeError?.resetAt);
+```
+
+`RuntimeInvokeResult.runtime_error` is populated from trusted adapter
+failure paths. Known cases get typed subtypes: OpenCode upstream HTTP
+401 / 402 / 403 / 429 log detections and Cursor's Free-plan named-model
+restriction. Cursor process failures that have no safe subtype are returned
+as `kind: "runtime_error"`. The existing human-readable `error` string is
+preserved.
+
 ## Scoping subprocesses (`ProcessRegistry`)
 
 Every adapter call (`invoke`, `openSession`) spawns one or more child

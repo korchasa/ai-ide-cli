@@ -17,6 +17,10 @@ import type {
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import {
+  analyzeRuntimeErrorSignal,
+  type RuntimeErrorAnalysis,
+} from "../runtime/runtime-error-analysis.ts";
 import type { ProcessRegistry } from "../process-registry.ts";
 import {
   type CursorAssistantEvent,
@@ -72,6 +76,16 @@ export const CURSOR_RESERVED_POSITIONALS: readonly string[] = [
  * coverage test can iterate uniformly.
  */
 export const CURSOR_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [];
+
+class CursorRuntimeProcessError extends Error {
+  readonly runtimeError?: RuntimeErrorAnalysis;
+
+  constructor(message: string, runtimeError?: RuntimeErrorAnalysis) {
+    super(message);
+    this.name = "CursorRuntimeProcessError";
+    this.runtimeError = runtimeError;
+  }
+}
 
 /**
  * Build CLI arguments for the `cursor agent` command.
@@ -219,6 +233,7 @@ export async function invokeCursorCli(
     : opts.taskPrompt;
   const args = buildCursorArgs({ ...opts, taskPrompt: mergedTaskPrompt });
   let lastError = "";
+  let lastRuntimeError: RuntimeErrorAnalysis | undefined;
 
   for (let attempt = 1; attempt <= opts.maxRetries; attempt++) {
     try {
@@ -239,6 +254,15 @@ export async function invokeCursorCli(
       );
       if (output.is_error) {
         lastError = `Cursor CLI returned error: ${output.result}`;
+        lastRuntimeError = output.permission_denials?.length
+          ? undefined
+          : analyzeRuntimeErrorSignal({
+            runtime: "cursor",
+            source: "event",
+            text: output.result,
+            event: { type: "result", result: output.result },
+            assumeRuntimeError: true,
+          });
         if (attempt < opts.maxRetries) {
           const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
           try {
@@ -251,7 +275,11 @@ export async function invokeCursorCli(
           }
           continue;
         }
-        return { output, error: lastError };
+        return {
+          output,
+          error: lastError,
+          ...(lastRuntimeError ? { runtime_error: lastRuntimeError } : {}),
+        };
       }
       opts.hooks?.onResult?.(output);
       return { output };
@@ -260,6 +288,9 @@ export async function invokeCursorCli(
         return { error: `Aborted: ${abortReason(opts.signal)}` };
       }
       lastError = (err as Error).message;
+      lastRuntimeError = err instanceof CursorRuntimeProcessError
+        ? err.runtimeError
+        : undefined;
       if (attempt < opts.maxRetries) {
         const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
         try {
@@ -277,6 +308,7 @@ export async function invokeCursorCli(
 
   return {
     error: `Cursor CLI failed after ${opts.maxRetries} attempts: ${lastError}`,
+    ...(lastRuntimeError ? { runtime_error: lastRuntimeError } : {}),
   };
 }
 
@@ -518,15 +550,29 @@ async function executeCursorProcess(
 
     // SIGTERM caused by denial is expected — but `denied` already returned above.
     if (!status.success && !denialAbort) {
-      throw new Error(
-        `Cursor CLI exited with code ${status.code}${
-          stderr ? `: ${stderr}` : ""
-        }`,
+      const message = `Cursor CLI exited with code ${status.code}${
+        stderr ? `: ${stderr}` : ""
+      }`;
+      throw new CursorRuntimeProcessError(
+        message,
+        analyzeRuntimeErrorSignal({
+          runtime: "cursor",
+          source: "stderr",
+          text: stderr || message,
+          assumeRuntimeError: true,
+        }),
       );
     }
 
-    throw new Error(
-      "Cursor CLI stream-json output contained no result event",
+    const message = "Cursor CLI stream-json output contained no result event";
+    throw new CursorRuntimeProcessError(
+      message,
+      analyzeRuntimeErrorSignal({
+        runtime: "cursor",
+        source: "error_string",
+        text: message,
+        assumeRuntimeError: true,
+      }),
     );
   } finally {
     registry.unregister(process);

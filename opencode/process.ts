@@ -38,6 +38,10 @@ import {
   buildOpenCodeConfigContent,
   validateMcpServers,
 } from "../runtime/mcp-injection.ts";
+import {
+  analyzeRuntimeErrorSignal,
+  type RuntimeErrorAnalysis,
+} from "../runtime/runtime-error-analysis.ts";
 import { buildOpenCodeArgs } from "./argv.ts";
 import {
   extractOpenCodeOutput,
@@ -81,6 +85,31 @@ export type { OpenCodeTranscriptResult } from "./transcript.ts";
 // FR-L36: shared message prefix so the outer retry loop and tests
 // recognise the stall path without parsing free-form text.
 const STREAM_STALL_ERROR_PREFIX = "OpenCode aborted on stream stall";
+
+class OpenCodeUpstreamFatalError extends Error {
+  readonly runtimeError?: RuntimeErrorAnalysis;
+
+  constructor(upstreamFatal: UpstreamFatalError) {
+    super(
+      `OpenCode aborted on upstream HTTP ${upstreamFatal.statusCode}: ${upstreamFatal.message}`,
+    );
+    this.name = "OpenCodeUpstreamFatalError";
+    this.runtimeError = analyzeRuntimeErrorSignal({
+      runtime: "opencode",
+      source: "log",
+      text: JSON.stringify({
+        statusCode: upstreamFatal.statusCode,
+        error: {
+          ...(upstreamFatal.providerCode
+            ? { code: upstreamFatal.providerCode }
+            : {}),
+          message: upstreamFatal.message,
+        },
+      }),
+      assumeRuntimeError: true,
+    });
+  }
+}
 
 // FR-L36: synchronous validation of the watchdog idle threshold. Non-
 // integer / NaN / negative throws so YAML-driven consumers fail fast
@@ -174,7 +203,12 @@ export async function invokeOpenCodeCli(
       // (auth / quota / rate-limit). Skip the retry loop and surface the
       // provider message so the consumer can show it to the user.
       if (lastError.startsWith("OpenCode aborted on upstream HTTP")) {
-        return { error: lastError };
+        return {
+          error: lastError,
+          ...(err instanceof OpenCodeUpstreamFatalError && err.runtimeError
+            ? { runtime_error: err.runtimeError }
+            : {}),
+        };
       }
       // FR-L36: stream-stall fires only after the configured idle
       // window — retries would just stall again. Short-circuit and
@@ -479,9 +513,7 @@ async function executeOpenCodeProcess(
     }
 
     if (upstreamFatal) {
-      throw new Error(
-        `OpenCode aborted on upstream HTTP ${upstreamFatal.statusCode}: ${upstreamFatal.message}`,
-      );
+      throw new OpenCodeUpstreamFatalError(upstreamFatal);
     }
 
     // Tool-use denial takes precedence: synthesize a permission-denial
