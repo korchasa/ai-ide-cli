@@ -930,6 +930,27 @@ would break literal discriminator narrowing on every `if (event.type
 (`CodexUntypedNotification` / `CodexUntypedItem`) where consumers can
 assert manually.
 
+**Permissive fallback.** Unknown notification methods (e.g. variants
+introduced in a newer `codex-cli` minor that the library has not
+narrowed yet) reach the consumer as `CodexUntypedNotification` —
+`{method, params}` verbatim. `isCodexNotification` returns `false` for
+every known method literal, so the consumer's `if` chain falls through
+to a default branch where it can read `note.method` / `note.params`
+directly. The transport queue is field-agnostic — Codex 0.122+
+ThreadStore-backed `thread/started` payloads (no local `rolloutPath`
+field) round-trip unchanged. The library never throws on an unknown
+method or a payload missing an optional field.
+
+**Multi-env / sticky-env optional fields (Codex 0.122/0.124).**
+`CodexTurn`, `CodexThreadStartedParams`, and `CodexTurnStartedParams`
+expose first-class optional `environmentId?`, `cwd?`, and
+`stickyEnvironment?` fields (per-turn environment selection from 0.124,
+sticky-environment marker from 0.122). Schemas are mirrored best-effort
+from upstream release notes — re-run `codex app-server generate-ts
+--experimental` to refresh once a 0.124+ binary is locally available.
+Absent fields stay `undefined`; the `[key: string]: unknown` index
+signature still absorbs anything the library has not narrowed yet.
+
 
 ### 3.12 `codex/session.ts` — Streaming-Input Session
 

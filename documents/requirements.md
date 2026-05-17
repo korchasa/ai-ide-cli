@@ -358,7 +358,7 @@ stable — never renumber on move.
   etc.): https://github.com/openai/codex/tree/main/sdk/typescript (see
   `src/exec.ts` for argv/env wiring, `src/thread.ts` for event aggregation,
   `src/events.ts` and `src/items.ts` for the event/item type union).
-- **Tasks:** [codex-ban-full-auto-flag](tasks/2026/05/codex-ban-full-auto-flag.md), [codex-flag-placement-audit](tasks/2026/05/codex-flag-placement-audit.md), [codex-reasoning-token-usage](tasks/2026/05/codex-reasoning-token-usage.md)
+- **Tasks:** [codex-ban-full-auto-flag](tasks/2026/05/codex-ban-full-auto-flag.md), [codex-flag-placement-audit](tasks/2026/05/codex-flag-placement-audit.md), [codex-reasoning-token-usage](tasks/2026/05/codex-reasoning-token-usage.md), [codex-app-server-0.122-0.130-hardening](tasks/2026/05/codex-app-server-0.122-0.130-hardening.md)
 - **Motivation:** Add OpenAI's Codex CLI as a first-class runtime alongside
   Claude Code / OpenCode / Cursor, without bundling an npm SDK.
 - **Acceptance:**
@@ -1205,7 +1205,7 @@ stable — never renumber on move.
   --experimental` output (variants the library actively narrows on);
   unrecognized methods remain accessible through the raw
   `CodexUntypedNotification` shape preserved by the transport client.
-- **Tasks:** [codex-reasoning-token-usage](tasks/2026/05/codex-reasoning-token-usage.md)
+- **Tasks:** [codex-reasoning-token-usage](tasks/2026/05/codex-reasoning-token-usage.md), [codex-app-server-0.122-0.130-hardening](tasks/2026/05/codex-app-server-0.122-0.130-hardening.md)
 - **Scenario:** Embedding application iterates
   `CodexAppServerClient.notifications` to render a turn's lifecycle.
   Without typed events, every consumer rewrites the same `(note.params as
@@ -1258,6 +1258,22 @@ stable — never renumber on move.
     casts (a schema rename breaks the access). Evidence:
     `ai-ide-cli/e2e/_matrix.ts:scenarioCodexTypedNotifications`
     (FR-L31 matrix entry `codex-typed-notification-narrowing`).
+  - [x] Unknown notification methods land on `CodexUntypedNotification`
+    — `isCodexNotification` returns `false` for every known method
+    literal, raw `method` + `params` stay readable, no exception
+    thrown. Evidence: `ai-ide-cli/codex/events_test.ts::"unknown
+    variant produces fallback event"`.
+  - [x] Multi-env / sticky-env optional fields typed on `CodexTurn`,
+    `CodexThreadStartedParams`, `CodexTurnStartedParams` (Codex
+    0.122/0.124). Schema mirrored from upstream release notes; absent
+    fields stay `undefined`. Evidence:
+    `ai-ide-cli/codex/events_test.ts::"multi-env fields parsed on
+    turn"`, `ai-ide-cli/codex/events_test.ts::"sticky-env field
+    parsed on thread"`.
+  - [x] `NotificationQueue` round-trips Codex 0.122+ ThreadStore-
+    backed `thread/started` payloads (no `rolloutPath` field) without
+    exception. Evidence: `ai-ide-cli/codex/app-server_test.ts::
+    "thread without rollout path"`.
 
 ### 3.27 FR-L27: Typed OpenCode SSE Session Events
 

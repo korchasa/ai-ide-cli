@@ -51,6 +51,24 @@ export interface CodexTurn {
   completedAt?: number | null;
   /** Wall-clock duration of the turn in milliseconds. */
   durationMs?: number | null;
+  /**
+   * Execution-environment id selected for this turn (Codex 0.124+
+   * multi-environment sessions, #18401/#18416). Absent on older binaries.
+   *
+   * **Best-effort schema.** Mirrored from upstream release notes — re-run
+   * `codex app-server generate-ts --experimental` to refresh once a 0.124+
+   * binary is locally available.
+   */
+  // FR-L26
+  environmentId?: string;
+  /**
+   * Working directory the turn executed in (Codex 0.124+ per-turn cwd
+   * selection). Absent on older binaries.
+   *
+   * **Best-effort schema** — see `environmentId`.
+   */
+  // FR-L26
+  cwd?: string;
   /** Forward-compat passthrough. */
   [key: string]: unknown;
 }
@@ -250,6 +268,25 @@ export interface CodexUntypedItem {
 export interface CodexThreadStartedParams {
   /** New thread id. */
   threadId: string;
+  /**
+   * Default execution-environment id for the thread (Codex 0.122+ remote
+   * thread plumbing, #18255/#18897). Absent on single-environment threads.
+   *
+   * **Best-effort schema.** Mirrored from upstream release notes — re-run
+   * `codex app-server generate-ts --experimental` to refresh once a 0.122+
+   * binary is locally available.
+   */
+  // FR-L26
+  environmentId?: string;
+  /**
+   * Sticky-environment marker — when true, follow-up turns inherit the
+   * thread's `environmentId` rather than picking per-turn (Codex 0.122
+   * sticky environments, #18908). Absent on older binaries.
+   *
+   * **Best-effort schema** — see `environmentId`.
+   */
+  // FR-L26
+  stickyEnvironment?: boolean;
   /** Forward-compat passthrough. */
   [key: string]: unknown;
 }
@@ -260,6 +297,26 @@ export interface CodexTurnStartedParams {
   threadId: string;
   /** The turn that started. */
   turn: CodexTurn;
+  /**
+   * Execution-environment id selected for this turn (Codex 0.124+
+   * per-turn environment selection, #18416). Sibling to
+   * `turn.environmentId`; the params-level field is what the client
+   * sees first in the notification, the turn-level field surfaces when
+   * the same `CodexTurn` later appears in `turn.items` payloads.
+   *
+   * **Best-effort schema** — re-run `codex app-server generate-ts
+   * --experimental` to refresh.
+   */
+  // FR-L26
+  environmentId?: string;
+  /**
+   * Working directory the turn executes in (Codex 0.124+). Sibling to
+   * `turn.cwd`.
+   *
+   * **Best-effort schema** — see `environmentId`.
+   */
+  // FR-L26
+  cwd?: string;
   /** Forward-compat passthrough. */
   [key: string]: unknown;
 }

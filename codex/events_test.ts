@@ -142,6 +142,86 @@ Deno.test("item/started narrows mcpToolCall item", () => {
 });
 
 // FR-L26
+Deno.test("multi-env fields parsed on turn", () => {
+  const note: CodexUntypedNotification = {
+    method: "turn/started",
+    params: {
+      threadId: "T1",
+      turn: {
+        id: "turn-1",
+        status: "inProgress",
+        environmentId: "env-A",
+        cwd: "/work/repo",
+      },
+      environmentId: "env-A",
+      cwd: "/work/repo",
+    },
+  };
+  if (isCodexNotification(note, "turn/started")) {
+    // First-class typed access — assignments below fail compile if the
+    // optional fields are not typed as `string | undefined` (the
+    // `[key: string]: unknown` index signature alone would type them
+    // as `unknown` and reject the assignment).
+    const turnEnvId: string | undefined = note.params.turn.environmentId;
+    const turnCwd: string | undefined = note.params.turn.cwd;
+    const paramsEnvId: string | undefined = note.params.environmentId;
+    const paramsCwd: string | undefined = note.params.cwd;
+    assertEquals(turnEnvId, "env-A");
+    assertEquals(turnCwd, "/work/repo");
+    assertEquals(paramsEnvId, "env-A");
+    assertEquals(paramsCwd, "/work/repo");
+  } else {
+    throw new Error("expected turn/started narrow to match");
+  }
+});
+
+// FR-L26
+Deno.test("sticky-env field parsed on thread", () => {
+  const note: CodexUntypedNotification = {
+    method: "thread/started",
+    params: {
+      threadId: "T1",
+      environmentId: "env-default",
+      stickyEnvironment: true,
+    },
+  };
+  if (isCodexNotification(note, "thread/started")) {
+    // First-class typed access — assignments fail compile if the
+    // optional fields are not typed as their narrow shape.
+    const envId: string | undefined = note.params.environmentId;
+    const sticky: boolean | undefined = note.params.stickyEnvironment;
+    assertEquals(envId, "env-default");
+    assertEquals(sticky, true);
+  } else {
+    throw new Error("expected thread/started narrow to match");
+  }
+});
+
+// FR-L26
+Deno.test("unknown variant produces fallback event", () => {
+  const note: CodexUntypedNotification = {
+    method: "future/method/not-yet-typed",
+    params: { someField: 42, nested: { foo: "bar" } },
+  };
+  // Every known method discriminator rejects the unknown variant.
+  assertEquals(isCodexNotification(note, "turn/started"), false);
+  assertEquals(isCodexNotification(note, "turn/completed"), false);
+  assertEquals(isCodexNotification(note, "thread/started"), false);
+  assertEquals(isCodexNotification(note, "item/started"), false);
+  assertEquals(isCodexNotification(note, "item/completed"), false);
+  assertEquals(isCodexNotification(note, "response.processed"), false);
+  assertEquals(isCodexNotification(note, "error"), false);
+  // The raw method + params stay readable on the untyped side — no
+  // exception, no silent drop.
+  assertEquals(note.method, "future/method/not-yet-typed");
+  assertEquals(note.params.someField, 42);
+  assertEquals(
+    (note.params.nested as Record<string, unknown>).foo,
+    "bar",
+  );
+});
+
+// FR-L26
 Deno.test("isCodexNotification narrows response.processed", () => {
   const note: CodexUntypedNotification = {
     method: "response.processed",
