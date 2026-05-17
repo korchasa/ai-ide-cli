@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.5](https://github.com/korchasa/ai-ide-cli/compare/v0.8.4...v0.8.5) (2026-05-17)
+
+
+### Features
+
+* **claude:** type system.hook_started/hook_response stream events (FR-L25) ([3f9a0fa](https://github.com/korchasa/ai-ide-cli/commit/3f9a0fa165c76d24e10e83d2dd95a0126da2434a)), closes [#8](https://github.com/korchasa/ai-ide-cli/issues/8)
+* **codex:** surface reasoning-token usage on CliRunUsage (FR-L13/FR-L26) ([c22b9bd](https://github.com/korchasa/ai-ide-cli/commit/c22b9bdca347eb13d2f517663e71d910c5f3056a)), closes [#19308](https://github.com/korchasa/ai-ide-cli/issues/19308) [#21642](https://github.com/korchasa/ai-ide-cli/issues/21642) [#9](https://github.com/korchasa/ai-ide-cli/issues/9)
+* **codex:** type multi-env/sticky-env app-server fields and codify permissive fallback (FR-L13/FR-L26) ([3c347a7](https://github.com/korchasa/ai-ide-cli/commit/3c347a7f8efa30e213c92128bf84f220e6514cd0)), closes [#10](https://github.com/korchasa/ai-ide-cli/issues/10)
+
+
+### Tests
+
+* **codex:** pin --full-auto deprecation ban (FR-L13) ([dee834c](https://github.com/korchasa/ai-ide-cli/commit/dee834cd963c3607bf408a8ee85daadfc27ccafc)), closes [#6](https://github.com/korchasa/ai-ide-cli/issues/6)
+* **codex:** pin canonical argv flag placement (FR-L13/FR-L14) ([665fee7](https://github.com/korchasa/ai-ide-cli/commit/665fee746fa8497940b9d991ac5208633bf6371b)), closes [#7](https://github.com/korchasa/ai-ide-cli/issues/7)
+
+
+### Documentation
+
+* remove completed task file for FR-L13/FR-L26 hardening ([e9cb746](https://github.com/korchasa/ai-ide-cli/commit/e9cb7465d0f02a97cbe730b6ee5139ce2b7e17e8))
+
 ### [0.8.4](https://github.com/korchasa/ai-ide-cli/compare/v0.8.3...v0.8.4) (2026-05-13)
 
 
