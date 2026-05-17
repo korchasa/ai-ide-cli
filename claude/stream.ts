@@ -62,6 +62,68 @@ export type ClaudeAssistantBlock =
   | ClaudeToolUseBlock
   | ClaudeThinkingBlock;
 
+// FR-L25
+/**
+ * `system` / `hook_started` event — Claude Code 2.1.133+ emits one of these
+ * for every user-configured hook the CLI is about to dispatch (SessionStart,
+ * PreToolUse, PostToolUse, UserPromptSubmit, …). Out-of-band `effort.level`
+ * and `$CLAUDE_EFFORT` propagate to the hook process via stdin / env — neither
+ * is exposed through stream-json; see the FR-L25 doc bullet in
+ * `documents/requirements.md` for the sidecar-channel rationale.
+ */
+export interface ClaudeHookStartedEvent {
+  /** Discriminator: same `"system"` umbrella as `ClaudeSystemEvent`. */
+  type: "system";
+  /** Sub-discriminator narrowing to the hook-lifecycle start variant. */
+  subtype: "hook_started";
+  /** Stable id correlating the start event to its eventual response. */
+  hook_id: string;
+  /** Hook descriptor, e.g. `"PostToolUse:Bash"`. */
+  hook_name?: string;
+  /** Bare event family, e.g. `"PostToolUse"`. */
+  hook_event?: string;
+  /** Per-event uuid Claude Code allocates. */
+  uuid?: string;
+  /** Session id Claude Code allocates. */
+  session_id?: string;
+  /** Allow forward-compat upstream fields without casting. */
+  [key: string]: unknown;
+}
+
+/**
+ * `system` / `hook_response` event — emitted once the hook subprocess exits.
+ * Carries the aggregated `output`, the raw `stdout` / `stderr`, the
+ * `exit_code`, and an `outcome` summary (observed value: `"success"`).
+ */
+export interface ClaudeHookResponseEvent {
+  /** Discriminator: same `"system"` umbrella as `ClaudeSystemEvent`. */
+  type: "system";
+  /** Sub-discriminator narrowing to the hook-lifecycle response variant. */
+  subtype: "hook_response";
+  /** Stable id correlating the response to its `hook_started` peer. */
+  hook_id: string;
+  /** Hook descriptor, e.g. `"PostToolUse:Bash"`. */
+  hook_name?: string;
+  /** Bare event family, e.g. `"PostToolUse"`. */
+  hook_event?: string;
+  /** Aggregated output (Claude's flattened `"output"` field). */
+  output?: string;
+  /** Hook subprocess stdout, captured verbatim. */
+  stdout?: string;
+  /** Hook subprocess stderr, captured verbatim. */
+  stderr?: string;
+  /** Hook subprocess exit code (`0` on success). */
+  exit_code?: number;
+  /** Observed value: `"success"`. Treated as forward-compat string. */
+  outcome?: string;
+  /** Per-event uuid Claude Code allocates. */
+  uuid?: string;
+  /** Session id Claude Code allocates. */
+  session_id?: string;
+  /** Allow forward-compat upstream fields without casting. */
+  [key: string]: unknown;
+}
+
 /** `system` / `init` event emitted at session start. */
 export interface ClaudeSystemEvent {
   /** Discriminator. */
@@ -147,6 +209,8 @@ export interface ClaudeUnknownEvent {
 /** Discriminated union of every Claude stream-json event we surface. */
 export type ClaudeStreamEvent =
   | ClaudeSystemEvent
+  | ClaudeHookStartedEvent
+  | ClaudeHookResponseEvent
   | ClaudeAssistantEvent
   | ClaudeUserEvent
   | ClaudeResultEvent
@@ -242,12 +306,20 @@ export type OnToolUseObservedCallback = (
  * (turn counter, file-read tracker, log writes).
  */
 export interface ClaudeLifecycleHooks {
-  /** Fires once at session start when the `system`/`init` event is seen. */
+  /**
+   * Fires for every `type:"system"` event regardless of subtype (preserves
+   * backward-compat semantics from before the `hook_started`/`hook_response`
+   * subtypes were introduced).
+   */
   onInit?: (event: ClaudeSystemEvent) => void;
   /** Fires once per assistant turn (many times per run). */
   onAssistant?: (event: ClaudeAssistantEvent) => void;
   /** Fires exactly once at run termination on the `result` event. */
   onResult?: (event: ClaudeResultEvent) => void;
+  /** FR-L25: fires once per hook lifecycle start (Claude Code 2.1.133+). */
+  onHookStarted?: (event: ClaudeHookStartedEvent) => void;
+  /** FR-L25: fires once per hook completion (Claude Code 2.1.133+). */
+  onHookResponse?: (event: ClaudeHookResponseEvent) => void;
 }
 
 /** Mutable state bag for processStreamEvent() — holds all stream-processing state. */
@@ -294,8 +366,11 @@ export interface StreamProcessorState {
  *
  * Dispatch order (stable contract consumed by tests and engines):
  * 1. `state.onEvent(raw)` — raw escape hatch, called first.
- * 2. Typed lifecycle hook (`hooks.onInit` / `onAssistant` / `onResult`)
- *    with the narrowed event, before any state mutation.
+ * 2. Typed lifecycle hook (`hooks.onInit` / `onAssistant` / `onResult` /
+ *    `onHookStarted` / `onHookResponse`) with the narrowed event, before
+ *    any state mutation. `onInit` fires for every `type:"system"` event
+ *    regardless of subtype; `onHookStarted` / `onHookResponse` additionally
+ *    fire when the subtype matches (FR-L25, Claude Code 2.1.133+).
  * 3. `onToolUseObserved` fires for each `tool_use` block, after the typed
  *    hook but before the turn counter / log writes for that block.
  * 4. Internal state mutations (`turnCount++`, `FileReadTracker`,
@@ -314,8 +389,16 @@ export async function processStreamEvent(
   }
 
   // Typed lifecycle hooks — fire BEFORE state mutations.
-  if (event.type === "system" && state.hooks?.onInit) {
-    state.hooks.onInit(event as ClaudeSystemEvent);
+  if (event.type === "system") {
+    if (state.hooks?.onInit) {
+      state.hooks.onInit(event as ClaudeSystemEvent);
+    }
+    const subtype = (event as ClaudeSystemEvent).subtype;
+    if (subtype === "hook_started" && state.hooks?.onHookStarted) {
+      state.hooks.onHookStarted(event as ClaudeHookStartedEvent);
+    } else if (subtype === "hook_response" && state.hooks?.onHookResponse) {
+      state.hooks.onHookResponse(event as ClaudeHookResponseEvent);
+    }
   } else if (event.type === "assistant" && state.hooks?.onAssistant) {
     state.hooks.onAssistant(event as ClaudeAssistantEvent);
   } else if (event.type === "result" && state.hooks?.onResult) {

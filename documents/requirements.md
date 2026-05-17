@@ -1082,6 +1082,7 @@ stable — never renumber on move.
   not honour the requested depth). `RuntimeCapabilities.reasoningEffort`
   is a new boolean capability — Claude / Codex / OpenCode `true`,
   Cursor `false`.
+- **Tasks:** [claude-stream-hook-events](tasks/2026/05/claude-stream-hook-events.md)
 - **Validation contract** (runs on every adapter via shared
   `validateReasoningEffort` in `runtime/reasoning-effort.ts`):
   - Value outside the 4-level enum → synchronous throw
@@ -1164,6 +1165,26 @@ stable — never renumber on move.
     have `low` configured on a fresh install — argv propagation is
     unit-tested instead); Cursor is excluded (capability is `false`).
     Evidence: `ai-ide-cli/e2e/reasoning_effort_e2e_test.ts`.
+  - [x] `claude/stream.ts` types `ClaudeHookStartedEvent` and
+    `ClaudeHookResponseEvent` (subtype `hook_started` / `hook_response`)
+    in the `ClaudeStreamEvent` discriminated union;
+    `ClaudeLifecycleHooks.onHookStarted` / `onHookResponse` fire
+    before state mutation in `processStreamEvent`. Backward-compat
+    invariant: `onInit` still fires for every `type:"system"` event
+    regardless of subtype. Evidence:
+    `ai-ide-cli/claude/stream.ts`, `ai-ide-cli/claude/stream_test.ts`.
+  - [x] **Sidecar `effort.level` / `$CLAUDE_EFFORT` channel
+    (Claude Code v2.1.133+):** Claude Code propagates the active
+    effort to hook stdin (`effort.level` JSON field) and to hook /
+    Bash subprocess env (`$CLAUDE_EFFORT`). Neither lives in
+    `--output-format stream-json` — the library does not observe
+    them directly. Consumers wanting a strict round-trip check
+    install a project-scoped hook that echoes `$CLAUDE_EFFORT`; its
+    stdout surfaces in `ClaudeHookResponseEvent.stdout`. The
+    library's contract stops at emitting `--effort <value>` on
+    argv; sidecar propagation is Claude Code's responsibility.
+    Evidence: documentation-only — this Acceptance entry plus the
+    SDS § 3.x "Sidecar channels (v2.1.133+)" subsection.
 
 ### 3.26 FR-L26: Typed Codex App-Server Notifications
 

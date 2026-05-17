@@ -410,10 +410,15 @@ in process registry.
 ### 3.5 `claude/stream.ts` — Stream Processing
 
 Typed `ClaudeStreamEvent` discriminated union:
-`ClaudeSystemEvent | ClaudeAssistantEvent | ClaudeUserEvent |
-ClaudeResultEvent | ClaudeUnknownEvent`. Assistant message content is a
-tagged union of `ClaudeTextBlock | ClaudeToolUseBlock |
-ClaudeThinkingBlock`. Index signatures `[key: string]: unknown` on every
+`ClaudeSystemEvent | ClaudeHookStartedEvent | ClaudeHookResponseEvent |
+ClaudeAssistantEvent | ClaudeUserEvent | ClaudeResultEvent |
+ClaudeUnknownEvent`. Assistant message content is a tagged union of
+`ClaudeTextBlock | ClaudeToolUseBlock | ClaudeThinkingBlock`. Hook
+events (`system.hook_started`, `system.hook_response`, Claude Code
+2.1.133+) carry `hook_id` / `hook_name` / `hook_event` plus, on the
+response variant, `output` / `stdout` / `stderr` / `exit_code` /
+`outcome`; consumers narrow them off the `subtype` string-literal
+discriminator. Index signatures `[key: string]: unknown` on every
 event preserve forward-compat upstream fields without casts.
 
 `parseClaudeStreamEvent(line)`: pure function returning
@@ -424,8 +429,11 @@ non-object payloads, or a missing string `type`.
 (`StreamProcessorState`). Fixed dispatch order:
 
 1. `state.onEvent?.(event)` — raw escape hatch.
-2. Typed lifecycle hook (`hooks.onInit` / `onAssistant` / `onResult`)
-   with the narrowed event.
+2. Typed lifecycle hook (`hooks.onInit` / `onAssistant` / `onResult` /
+   `onHookStarted` / `onHookResponse`) with the narrowed event.
+   `onInit` fires for every `type:"system"` event regardless of
+   subtype (backward-compat); `onHookStarted` / `onHookResponse`
+   additionally fire when subtype matches (FR-L25).
 3. For each `tool_use` block inside `assistant`, `onToolUseObserved` is
    awaited; `"abort"` sets `state.denied` and calls
    `state.abortController?.abort()`.
@@ -1342,6 +1350,24 @@ every adapter invokes before dispatch.
   control. The typed field is validated (so malformed input still
   throws uniformly) and ignored in argv / subprocess args; first
   set-value call emits one `console.warn` per process.
+
+**Sidecar channels (Claude Code v2.1.133+).** Claude Code propagates
+the active effort level out-of-band to its own child processes:
+
+- `effort.level` is included in hook-stdin JSON (the hook process
+  reads it from its own stdin).
+- `$CLAUDE_EFFORT` is set on hook and Bash-tool subprocess env.
+
+Neither lives in `--output-format stream-json`, so the library
+itself cannot observe drift between the requested `reasoningEffort`
+argv and the value Claude Code ends up exposing to hooks (e.g. if a
+hypothetical mid-session picker override fires — not possible in
+headless `-p` mode today, but listed here for completeness). Library
+consumers that want a strict round-trip check install a
+project-scoped PostToolUse hook that echoes `$CLAUDE_EFFORT`; its
+stdout surfaces in the typed
+`ClaudeHookResponseEvent.stdout` (subtype `hook_response`) — the
+library stays out of the round-trip check itself.
 
 **Validation contract** (uniform across adapters):
 

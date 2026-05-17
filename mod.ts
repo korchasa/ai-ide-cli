@@ -136,6 +136,8 @@ export type { ClaudeInvokeOptions } from "./claude/process.ts";
 export type {
   ClaudeAssistantBlock,
   ClaudeAssistantEvent,
+  ClaudeHookResponseEvent,
+  ClaudeHookStartedEvent,
   ClaudeLifecycleHooks,
   ClaudeResultEvent,
   ClaudeStreamEvent,

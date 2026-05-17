@@ -1,6 +1,8 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   type ClaudeAssistantEvent,
+  type ClaudeHookResponseEvent,
+  type ClaudeHookStartedEvent,
   type ClaudeResultEvent,
   type ClaudeStreamEvent,
   type ClaudeSystemEvent,
@@ -262,6 +264,126 @@ Deno.test("processStreamEvent — 'allow' decision is a no-op", async () => {
   );
   assertEquals(state.denied, undefined);
   assertEquals(abortController.signal.aborted, false);
+});
+
+// --- Hook events (FR-L25, Claude Code 2.1.133+) ---
+
+Deno.test("parseClaudeStreamEvent narrows hook_started / hook_response", () => {
+  const startedLine = JSON.stringify({
+    type: "system",
+    subtype: "hook_started",
+    hook_id: "h1",
+    hook_name: "PostToolUse:Bash",
+    hook_event: "PostToolUse",
+    uuid: "u1",
+    session_id: "s1",
+  });
+  const responseLine = JSON.stringify({
+    type: "system",
+    subtype: "hook_response",
+    hook_id: "h1",
+    hook_name: "PostToolUse:Bash",
+    hook_event: "PostToolUse",
+    output: "effort=low\n",
+    stdout: "effort=low\n",
+    stderr: "",
+    exit_code: 0,
+    outcome: "success",
+    uuid: "u2",
+    session_id: "s1",
+  });
+  const started = parseClaudeStreamEvent(startedLine);
+  const response = parseClaudeStreamEvent(responseLine);
+  assert(started !== null);
+  assert(response !== null);
+  assert(started.type === "system" && started.subtype === "hook_started");
+  assert(response.type === "system" && response.subtype === "hook_response");
+  // satisfies-style narrowing — no `as unknown` cast needed.
+  const startedTyped: ClaudeHookStartedEvent =
+    started as ClaudeHookStartedEvent;
+  const responseTyped: ClaudeHookResponseEvent =
+    response as ClaudeHookResponseEvent;
+  assertEquals(startedTyped.hook_id, "h1");
+  assertEquals(startedTyped.hook_name, "PostToolUse:Bash");
+  assertEquals(responseTyped.stdout, "effort=low\n");
+  assertEquals(responseTyped.exit_code, 0);
+  assertEquals(responseTyped.outcome, "success");
+});
+
+Deno.test("onHookStarted and onHookResponse fire before state mutation", async () => {
+  const log: string[] = [];
+  const state = makeState({
+    hooks: {
+      onHookStarted: (e) => log.push(`started:${e.hook_id}`),
+      onHookResponse: (e) => log.push(`response:${e.hook_id}:${e.exit_code}`),
+    },
+  });
+  const startedEvent: ClaudeHookStartedEvent = {
+    type: "system",
+    subtype: "hook_started",
+    hook_id: "hX",
+  };
+  const responseEvent: ClaudeHookResponseEvent = {
+    type: "system",
+    subtype: "hook_response",
+    hook_id: "hX",
+    exit_code: 0,
+  };
+  await processStreamEvent(startedEvent, state);
+  await processStreamEvent(responseEvent, state);
+  assertEquals(log, ["started:hX", "response:hX:0"]);
+  // Hook events must not bump the assistant-turn counter.
+  assertEquals(state.turnCount, 0);
+});
+
+Deno.test("hook events without typed hooks are no-op", async () => {
+  const state = makeState();
+  const startedEvent: ClaudeHookStartedEvent = {
+    type: "system",
+    subtype: "hook_started",
+    hook_id: "h0",
+  };
+  const responseEvent: ClaudeHookResponseEvent = {
+    type: "system",
+    subtype: "hook_response",
+    hook_id: "h0",
+  };
+  await processStreamEvent(startedEvent, state);
+  await processStreamEvent(responseEvent, state);
+  assertEquals(state.turnCount, 0);
+});
+
+Deno.test("onInit still fires on hook_started / hook_response (backward compat)", async () => {
+  const log: string[] = [];
+  const state = makeState({
+    hooks: {
+      onInit: (e) => log.push(`init:${e.subtype ?? "?"}`),
+      onHookStarted: (e) => log.push(`started:${e.hook_id}`),
+      onHookResponse: (e) => log.push(`response:${e.hook_id}`),
+    },
+  });
+  await processStreamEvent(
+    {
+      type: "system",
+      subtype: "hook_started",
+      hook_id: "h7",
+    } as ClaudeHookStartedEvent,
+    state,
+  );
+  await processStreamEvent(
+    {
+      type: "system",
+      subtype: "hook_response",
+      hook_id: "h7",
+    } as ClaudeHookResponseEvent,
+    state,
+  );
+  assertEquals(log, [
+    "init:hook_started",
+    "started:h7",
+    "init:hook_response",
+    "response:h7",
+  ]);
 });
 
 // --- extractClaudeOutput ---
