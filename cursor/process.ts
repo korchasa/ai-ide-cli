@@ -290,12 +290,7 @@ export async function invokeCursorCli(
       lastError = (err as Error).message;
       lastRuntimeError = err instanceof CursorRuntimeProcessError
         ? err.runtimeError
-        : analyzeRuntimeErrorSignal({
-          runtime: "cursor",
-          source: "error_string",
-          text: lastError,
-          assumeRuntimeError: true,
-        });
+        : undefined;
       if (attempt < opts.maxRetries) {
         const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
         try {

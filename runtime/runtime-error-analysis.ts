@@ -129,6 +129,8 @@ function collectText(input: RuntimeErrorAnalysisInput): string {
 function extractEventText(event: Record<string, unknown>): string {
   const messages: string[] = [];
   collectEventMessages(event, messages, 0);
+  const json = stringifyEvent(event);
+  if (json && /"statusCode"\s*:/.test(json)) return json;
   return messages.join("\n").trim();
 }
 
@@ -143,13 +145,21 @@ function collectEventMessages(
     return;
   }
   const record = value as Record<string, unknown>;
-  for (const key of ["message", "error", "details", "reason"]) {
+  for (const key of ["message", "error", "details", "reason", "result"]) {
     const field = record[key];
     if (typeof field === "string" && field.trim()) {
       messages.push(field.trim());
     } else {
       collectEventMessages(field, messages, depth + 1);
     }
+  }
+}
+
+function stringifyEvent(event: Record<string, unknown>): string | undefined {
+  try {
+    return JSON.stringify(event);
+  } catch {
+    return undefined;
   }
 }
 

@@ -381,6 +381,28 @@ Deno.test("invokeCursorCli — unknown process failures surface generic runtime_
   );
 });
 
+Deno.test("invokeCursorCli — spawn failures do not surface runtime_error", async () => {
+  const prevPath = Deno.env.get("PATH");
+  Deno.env.set("PATH", "/private/tmp/no-such-cursor-bin");
+  try {
+    const { error, runtime_error } = await invokeCursorCli({
+      processRegistry: defaultRegistry,
+      taskPrompt: "do something",
+      timeoutSeconds: 30,
+      maxRetries: 1,
+      retryDelaySeconds: 1,
+    });
+    assertEquals(
+      error,
+      "Cursor CLI failed after 1 attempts: Failed to spawn 'cursor': entity not found",
+    );
+    assertEquals(runtime_error, undefined);
+  } finally {
+    if (prevPath === undefined) Deno.env.delete("PATH");
+    else Deno.env.set("PATH", prevPath);
+  }
+});
+
 Deno.test("invokeCursorCli — onToolUseObserved fires once per tool_call/started (FR-L30)", async () => {
   await withStubCursorEmittingNdjson(STUB_NDJSON, async () => {
     const observed: RuntimeToolUseInfo[] = [];

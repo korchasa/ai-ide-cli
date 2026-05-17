@@ -176,6 +176,54 @@ Deno.test("runtime error analyzer returns generic error when adapter confirms fa
   );
 });
 
+Deno.test("runtime error analyzer preserves structured event facts", () => {
+  assertEquals(
+    analyzeRuntimeErrorSignal({
+      runtime: "opencode",
+      source: "event",
+      event: {
+        statusCode: 429,
+        error: {
+          code: "1308",
+          message:
+            "Usage limit reached for 5 hour. Your limit will reset at 2026-05-09 04:56:07",
+        },
+      },
+    }),
+    {
+      runtime: "opencode",
+      source: "event",
+      kind: "quota",
+      confidence: "high",
+      statusCode: 429,
+      providerCode: "1308",
+      message:
+        "Usage limit reached for 5 hour. Your limit will reset at 2026-05-09 04:56:07",
+      resetAt: "2026-05-09 04:56:07",
+    },
+  );
+
+  assertEquals(
+    analyzeRuntimeErrorSignal({
+      runtime: "cursor",
+      source: "event",
+      event: {
+        type: "result",
+        subtype: "error",
+        result: "Rate limit exceeded. Please retry after 30 seconds.",
+      },
+    }),
+    {
+      runtime: "cursor",
+      source: "event",
+      kind: "rate_limit",
+      confidence: "medium",
+      message: "Rate limit exceeded. Please retry after 30 seconds.",
+      retryAfterSeconds: 30,
+    },
+  );
+});
+
 Deno.test("runtime error analyzer tolerates malformed event payloads", () => {
   assertEquals(
     analyzeRuntimeErrorSignal({
