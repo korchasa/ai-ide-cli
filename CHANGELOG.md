@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.7](https://github.com/korchasa/ai-ide-cli/compare/v0.8.6...v0.8.7) (2026-05-17)
+
+
+### Features
+
+* **runtime:** support Claude system prompt files ([36650d7](https://github.com/korchasa/ai-ide-cli/commit/36650d790b5719861f111ee0a8d5f80a15f36cfa))
+
 ### [0.8.6](https://github.com/korchasa/ai-ide-cli/compare/v0.8.5...v0.8.6) (2026-05-17)
 
 
