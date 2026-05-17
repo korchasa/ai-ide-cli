@@ -51,6 +51,24 @@ Deno.test("parseCodexExecEvent — turn.completed parses with usage", () => {
   assertEquals(narrowed.usage?.output_tokens, 256);
 });
 
+// FR-L13
+Deno.test("parseCodexExecEvent — reasoning-token field parsed on turn.completed.usage", () => {
+  const event = parseCodexExecEvent(
+    JSON.stringify({
+      type: "turn.completed",
+      usage: {
+        input_tokens: 37543,
+        cached_input_tokens: 2432,
+        output_tokens: 26,
+        reasoning_output_tokens: 24,
+      },
+    }),
+  );
+  assert(event !== null);
+  const narrowed = event as CodexExecTurnCompletedEvent;
+  assertEquals(narrowed.usage?.reasoning_output_tokens, 24);
+});
+
 Deno.test("parseCodexExecEvent — turn.failed parses with error", () => {
   const event = parseCodexExecEvent(
     JSON.stringify({

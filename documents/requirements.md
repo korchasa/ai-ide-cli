@@ -358,7 +358,7 @@ stable — never renumber on move.
   etc.): https://github.com/openai/codex/tree/main/sdk/typescript (see
   `src/exec.ts` for argv/env wiring, `src/thread.ts` for event aggregation,
   `src/events.ts` and `src/items.ts` for the event/item type union).
-- **Tasks:** [codex-ban-full-auto-flag](tasks/2026/05/codex-ban-full-auto-flag.md), [codex-flag-placement-audit](tasks/2026/05/codex-flag-placement-audit.md)
+- **Tasks:** [codex-ban-full-auto-flag](tasks/2026/05/codex-ban-full-auto-flag.md), [codex-flag-placement-audit](tasks/2026/05/codex-flag-placement-audit.md), [codex-reasoning-token-usage](tasks/2026/05/codex-reasoning-token-usage.md)
 - **Motivation:** Add OpenAI's Codex CLI as a first-class runtime alongside
   Claude Code / OpenCode / Cursor, without bundling an npm SDK.
 - **Acceptance:**
@@ -406,6 +406,16 @@ stable — never renumber on move.
         writes flags before `exec`), reserved singleton flags appear at
         most once, and no two adapter-emitted `--config <key>=...`
         pairs share a key. Evidence: `ai-ide-cli/codex/argv_test.ts`.
+  - [x] `turn.completed.usage.reasoning_output_tokens` (Codex
+        `rust-v0.128.0`+) is typed on `CodexExecUsage`, summed across
+        turns in `CodexRunState`, and projected onto
+        `CliRunUsage.reasoning_tokens` by `extractCodexUsage`. Older
+        binaries omit the field — downstream `reasoning_tokens` stays
+        `undefined` (NOT `0`) to preserve the
+        `not-reported`-vs-`real-zero` contract on `CliRunUsage`.
+        Evidence: `ai-ide-cli/codex/exec-events_test.ts`,
+        `ai-ide-cli/codex/run-state_test.ts`,
+        `ai-ide-cli/e2e/codex_reasoning_usage_e2e_test.ts`.
 
 ### 3.14 FR-L14: Map-shaped `extraArgs` / `runtime_args`
 
@@ -1195,6 +1205,7 @@ stable — never renumber on move.
   --experimental` output (variants the library actively narrows on);
   unrecognized methods remain accessible through the raw
   `CodexUntypedNotification` shape preserved by the transport client.
+- **Tasks:** [codex-reasoning-token-usage](tasks/2026/05/codex-reasoning-token-usage.md)
 - **Scenario:** Embedding application iterates
   `CodexAppServerClient.notifications` to render a turn's lifecycle.
   Without typed events, every consumer rewrites the same `(note.params as
@@ -1206,8 +1217,13 @@ stable — never renumber on move.
     covering `thread/started`, `turn/started`, `turn/completed`,
     `item/started`, `item/completed`, `item/agentMessage/delta`,
     `item/reasoning/textDelta`, `item/reasoning/summaryTextDelta`,
-    `item/commandExecution/outputDelta`, `error`. Evidence:
-    `ai-ide-cli/codex/events.ts`.
+    `item/commandExecution/outputDelta`, `response.processed`,
+    `error`. `response.processed` was added in Codex
+    `rust-v0.130.0` (#21642) and is typed on a best-effort schema
+    pending local 0.130 binary availability; consumers narrow via
+    `isCodexNotification` as usual. Evidence:
+    `ai-ide-cli/codex/events.ts`,
+    `ai-ide-cli/codex/events_test.ts` (`response.processed` narrow).
   - [x] `CodexThreadItem` discriminated union over `item.type` covers
     `userMessage`, `agentMessage`, `reasoning`, `plan`,
     `commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall`,

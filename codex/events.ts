@@ -350,6 +350,28 @@ export interface CodexErrorParams {
   [key: string]: unknown;
 }
 
+/**
+ * Params for `response.processed` — remote-compaction marker emitted on
+ * v2 streams (Codex `rust-v0.130.0`+).
+ *
+ * **Experimental — schema best-effort.** The local Codex generator
+ * (`codex app-server generate-ts --experimental`) on 0.128.x does NOT
+ * yet emit `ResponseProcessedNotification.ts`; this shape mirrors the
+ * conservative minimum stable across sibling notifications
+ * (`threadId` / `turnId`) and keeps a forward-compat passthrough for
+ * fields the 0.130 schema may add. Once a 0.130 binary is locally
+ * available, re-run the generator and tighten the shape — see the
+ * matching follow-up bullet on FR-L26.
+ */
+export interface CodexResponseProcessedParams {
+  /** Thread the response belongs to. */
+  threadId: string;
+  /** Turn the response belongs to. */
+  turnId: string;
+  /** Forward-compat passthrough. */
+  [key: string]: unknown;
+}
+
 // --- Discriminated notification union ---
 
 /** `thread/started` notification. */
@@ -433,6 +455,19 @@ export interface CodexErrorNotification {
 }
 
 /**
+ * `response.processed` notification — remote-compaction completion
+ * marker for v2 streams. Introduced in Codex `rust-v0.130.0` (#21642);
+ * older binaries never emit it. Consumers wiring on the v2 stream
+ * narrow via {@link isCodexNotification} as usual.
+ */
+export interface CodexResponseProcessedNotification {
+  /** Discriminator. */
+  method: "response.processed";
+  /** Notification payload. */
+  params: CodexResponseProcessedParams;
+}
+
+/**
  * Sharp discriminated union over `method` for the notifications the library
  * actively narrows on. Each variant has a literal `method` discriminator,
  * so a `switch` / type-guard chain narrows `params` to its concrete shape
@@ -457,6 +492,7 @@ export type CodexNotification =
   | CodexReasoningTextDeltaNotification
   | CodexReasoningSummaryTextDeltaNotification
   | CodexCommandExecOutputDeltaNotification
+  | CodexResponseProcessedNotification
   | CodexErrorNotification;
 
 /**

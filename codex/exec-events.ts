@@ -39,6 +39,13 @@ export interface CodexExecUsage {
   cached_input_tokens?: number;
   /** Output tokens produced by the model. */
   output_tokens?: number;
+  /**
+   * Reasoning tokens emitted by reasoning-capable models. Added in
+   * Codex `rust-v0.128.0` (#19308 — `codex exec --json` reports
+   * reasoning-token usage). Older binaries omit the field; downstream
+   * usage carries `undefined`, not `0`.
+   */
+  reasoning_output_tokens?: number;
   /** Forward-compat passthrough. */
   [key: string]: unknown;
 }

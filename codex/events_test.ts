@@ -3,6 +3,7 @@ import {
   type CodexAgentMessageDeltaNotification,
   type CodexCommandExecutionItem,
   type CodexItemCompletedNotification,
+  type CodexResponseProcessedNotification,
   type CodexTurnCompletedNotification,
   type CodexTurnStartedNotification,
   type CodexUntypedNotification,
@@ -137,5 +138,28 @@ Deno.test("item/started narrows mcpToolCall item", () => {
     assertEquals(note.params.item.tool, "web");
   } else {
     throw new Error("expected mcpToolCall narrow to succeed");
+  }
+});
+
+// FR-L26
+Deno.test("isCodexNotification narrows response.processed", () => {
+  const note: CodexUntypedNotification = {
+    method: "response.processed",
+    params: {
+      threadId: "T1",
+      turnId: "turn-1",
+      responseId: "resp-1",
+    },
+  };
+  if (isCodexNotification(note, "response.processed")) {
+    // Compile-time check: typed params has threadId and turnId; the
+    // forward-compat index signature carries the unverified
+    // `responseId` field through without a cast.
+    const typed: CodexResponseProcessedNotification = note;
+    assertEquals(typed.params.threadId, "T1");
+    assertEquals(typed.params.turnId, "turn-1");
+    assertEquals(typed.params["responseId"], "resp-1");
+  } else {
+    throw new Error("expected response.processed narrow to match");
   }
 });

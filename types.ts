@@ -45,7 +45,8 @@ export interface PermissionDenial {
  * - Claude: input/output tokens + cost.
  * - OpenCode: cost (no token counts on the event stream).
  * - Cursor: input/output/cached tokens (no cost).
- * - Codex: input/output/cached tokens (no cost).
+ * - Codex: input/output/cached/reasoning tokens (no cost; reasoning_tokens
+ *   requires Codex `rust-v0.128.0`+ on a reasoning-capable model).
  *
  * Consumers aggregating telemetry should branch on field presence rather
  * than treat `0` as "no data" — `0` is a real value (free turn). Absence
@@ -58,6 +59,14 @@ export interface CliRunUsage {
   output_tokens?: number;
   /** Cached input tokens (prompt-cache hits) summed across turns. */
   cached_tokens?: number;
+  /**
+   * Reasoning tokens emitted by reasoning-capable models, summed across
+   * turns. Currently surfaced only by Codex (`rust-v0.128.0`+, wire-key
+   * `reasoning_output_tokens`); other runtimes leave this `undefined`.
+   * Older Codex binaries also leave it `undefined`. Treat `undefined`
+   * as "not reported", not as `0`.
+   */
+  reasoning_tokens?: number;
   /** Total cost in USD if the runtime reports it. */
   cost_usd?: number;
 }

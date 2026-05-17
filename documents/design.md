@@ -800,7 +800,8 @@ camelCase JSON-RPC `CodexNotification` union in `codex/events.ts`):
 - `CodexExecThreadStartedEvent` (`type: "thread.started"`) — `thread_id`.
 - `CodexExecTurnCompletedEvent` (`type: "turn.completed"`) — `usage`
   (`CodexExecUsage`: `input_tokens`, `cached_input_tokens`,
-  `output_tokens`).
+  `output_tokens`, `reasoning_output_tokens` — the last field added
+  in Codex `rust-v0.128.0` (#19308); older binaries omit it).
 - `CodexExecTurnFailedEvent` (`type: "turn.failed"`) — `error`
   (`CodexExecErrorPayload`: `message`).
 - `CodexExecErrorEvent` (`type: "error"`) — top-level transport
@@ -849,7 +850,11 @@ piping, NDJSON parsing, denial synthesis). Pure helpers moved out:
 - `codex/run-state.ts` — `CodexRunState`, `createCodexRunState`,
   `applyCodexEvent` (snake_case event aggregator),
   `extractCodexOutput`, `codexItemToToolUseInfo`,
-  `formatCodexEventForOutput`.
+  `formatCodexEventForOutput`. `CodexRunState.reasoningOutputTokens`
+  accumulates the 0.128+ wire-field and `extractCodexUsage` projects
+  it onto `CliRunUsage.reasoning_tokens` only when non-zero —
+  preserves the `undefined`-vs-`0` "not reported" contract for older
+  binaries.
 - `codex/transcript.ts` — `defaultCodexSessionsDir`,
   `findCodexSessionFile` (walks
   `<sessionsDir>/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`).
@@ -911,14 +916,19 @@ for await (const note of client.notifications) {
 `thread/started`, `turn/started`, `turn/completed`, `item/started`,
 `item/completed`, `item/agentMessage/delta`, `item/reasoning/textDelta`,
 `item/reasoning/summaryTextDelta`,
-`item/commandExecution/outputDelta`, `error`. The `CodexThreadItem`
-sub-union covers `userMessage`, `agentMessage`, `reasoning`, `plan`,
-`commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall`,
-`webSearch`, `contextCompaction`. Both unions deliberately omit a
-fallback `type: string` variant — including one would break literal
-discriminator narrowing on every `if (event.type === "X")` check.
-Future variants surface at the runtime layer (`CodexUntypedNotification`
-/ `CodexUntypedItem`) where consumers can assert manually.
+`item/commandExecution/outputDelta`, `response.processed`, `error`.
+`response.processed` was introduced in Codex `rust-v0.130.0` (#21642
+— remote-compaction marker on v2 streams); its `params` shape is
+typed best-effort (`{ threadId, turnId, [key: string]: unknown }`)
+until a local 0.130 binary is available to regenerate the schema.
+The `CodexThreadItem` sub-union covers `userMessage`, `agentMessage`,
+`reasoning`, `plan`, `commandExecution`, `fileChange`, `mcpToolCall`,
+`dynamicToolCall`, `webSearch`, `contextCompaction`. Both unions
+deliberately omit a fallback `type: string` variant — including one
+would break literal discriminator narrowing on every `if (event.type
+=== "X")` check. Future variants surface at the runtime layer
+(`CodexUntypedNotification` / `CodexUntypedItem`) where consumers can
+assert manually.
 
 
 ### 3.12 `codex/session.ts` — Streaming-Input Session

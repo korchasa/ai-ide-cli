@@ -45,6 +45,11 @@ export interface CodexRunState {
   cachedInputTokens: number;
   /** Cumulative `output_tokens` summed across all turns. */
   outputTokens: number;
+  /**
+   * Cumulative `reasoning_output_tokens` summed across all turns.
+   * Stays `0` on older Codex binaries that never emit the wire field.
+   */
+  reasoningOutputTokens: number;
   /** Number of `turn.completed` events observed during the run. */
   turnCount: number;
   /** Error message captured from `turn.failed` or top-level `error` events. */
@@ -67,6 +72,7 @@ export function createCodexRunState(): CodexRunState {
     inputTokens: 0,
     cachedInputTokens: 0,
     outputTokens: 0,
+    reasoningOutputTokens: 0,
     turnCount: 0,
     startMs: Date.now(),
   };
@@ -94,6 +100,10 @@ export function applyCodexEvent(
         state.inputTokens += Number(usage.input_tokens ?? 0);
         state.cachedInputTokens += Number(usage.cached_input_tokens ?? 0);
         state.outputTokens += Number(usage.output_tokens ?? 0);
+        // FR-L13: Codex rust-v0.128.0+ reasoning-token bucket.
+        state.reasoningOutputTokens += Number(
+          usage.reasoning_output_tokens ?? 0,
+        );
       }
       return;
     }
@@ -156,15 +166,22 @@ export function extractCodexUsage(
 ): CliRunUsage | undefined {
   if (
     state.inputTokens === 0 && state.outputTokens === 0 &&
-    state.cachedInputTokens === 0
+    state.cachedInputTokens === 0 && state.reasoningOutputTokens === 0
   ) {
     return undefined;
   }
-  return {
+  const usage: CliRunUsage = {
     input_tokens: state.inputTokens,
     output_tokens: state.outputTokens,
     cached_tokens: state.cachedInputTokens,
   };
+  // Keep `reasoning_tokens` absent (not `0`) when the binary never
+  // surfaced it — preserves the `undefined`-vs-`0` contract documented
+  // in {@link CliRunUsage}.
+  if (state.reasoningOutputTokens > 0) {
+    usage.reasoning_tokens = state.reasoningOutputTokens;
+  }
+  return usage;
 }
 
 /**

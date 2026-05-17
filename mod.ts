@@ -315,6 +315,8 @@ export type {
   CodexReasoningItem,
   CodexReasoningSummaryTextDeltaNotification,
   CodexReasoningTextDeltaNotification,
+  CodexResponseProcessedNotification,
+  CodexResponseProcessedParams,
   CodexThreadItem,
   CodexThreadStartedNotification,
   CodexThreadStartedParams,
