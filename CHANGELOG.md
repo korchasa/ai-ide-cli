@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.6](https://github.com/korchasa/ai-ide-cli/compare/v0.8.5...v0.8.6) (2026-05-17)
+
+
+### Features
+
+* **runtime:** surface structured runtime errors ([32e2d73](https://github.com/korchasa/ai-ide-cli/commit/32e2d735a36ba86f5325b381092055d28ed67eb7))
+
+
+### Bug Fixes
+
+* **runtime:** tighten runtime error classification ([1f2f504](https://github.com/korchasa/ai-ide-cli/commit/1f2f504ae515f4f3c73cad23470410a5a0730f9b))
+
+
+### Chores
+
+* add IDE version change analyzer skill ([31bea0f](https://github.com/korchasa/ai-ide-cli/commit/31bea0f047ecccc732cbdae9843244338ee36fb6))
+
 ### [0.8.5](https://github.com/korchasa/ai-ide-cli/compare/v0.8.4...v0.8.5) (2026-05-17)
 
 
