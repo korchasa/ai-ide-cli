@@ -275,6 +275,7 @@ const STUB_NDJSON = [
 async function withStubCursorEmittingNdjson<T>(
   ndjson: string,
   fn: (dir: string) => Promise<T>,
+  opts?: { stderr?: string; exitCode?: number },
 ): Promise<T> {
   const dir = await Deno.makeTempDir({ prefix: "cursor-process-stub-" });
   const stubPath = `${dir}/cursor`;
@@ -287,7 +288,12 @@ async function withStubCursorEmittingNdjson<T>(
     stubPath,
     `#!/usr/bin/env bash
 cat ${ndjsonPath}
-exit 0
+${
+      opts?.stderr
+        ? `printf '%s\\n' '${opts.stderr.replace(/'/g, "'\\''")}' >&2`
+        : ""
+    }
+exit ${opts?.exitCode ?? 0}
 `,
   );
   await Deno.chmod(stubPath, 0o755);
@@ -302,6 +308,78 @@ exit 0
     } catch { /* best effort */ }
   }
 }
+
+Deno.test("invokeCursorCli — plan-limited named models surface typed runtime_error", async () => {
+  await withStubCursorEmittingNdjson(
+    [
+      {
+        type: "system",
+        subtype: "init",
+        session_id: "sess-plan",
+        model: "GPT-5.4 272K Medium",
+        permissionMode: "default",
+      },
+      {
+        type: "user",
+        message: { role: "user", content: [{ type: "text", text: "ok" }] },
+        session_id: "sess-plan",
+      },
+    ].map((e) => JSON.stringify(e)).join("\n"),
+    async () => {
+      const { error, runtime_error } = await invokeCursorCli({
+        processRegistry: defaultRegistry,
+        taskPrompt: "do something",
+        timeoutSeconds: 30,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+      });
+      assertEquals(
+        error,
+        "Cursor CLI failed after 1 attempts: Cursor CLI exited with code 1: S: Named models unavailable Free plans can only use Auto. Switch to Auto or upgrade plans to continue.",
+      );
+      assertEquals(runtime_error, {
+        runtime: "cursor",
+        source: "stderr",
+        kind: "plan_limit",
+        confidence: "high",
+        message:
+          "S: Named models unavailable Free plans can only use Auto. Switch to Auto or upgrade plans to continue.",
+      });
+    },
+    {
+      stderr:
+        "S: Named models unavailable Free plans can only use Auto. Switch to Auto or upgrade plans to continue.",
+      exitCode: 1,
+    },
+  );
+});
+
+Deno.test("invokeCursorCli — unknown process failures surface generic runtime_error", async () => {
+  await withStubCursorEmittingNdjson(
+    "",
+    async () => {
+      const { error, runtime_error } = await invokeCursorCli({
+        processRegistry: defaultRegistry,
+        taskPrompt: "do something",
+        timeoutSeconds: 30,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+      });
+      assertEquals(
+        error,
+        "Cursor CLI failed after 1 attempts: Cursor CLI exited with code 1: backend vanished",
+      );
+      assertEquals(runtime_error, {
+        runtime: "cursor",
+        source: "stderr",
+        kind: "runtime_error",
+        confidence: "low",
+        message: "backend vanished",
+      });
+    },
+    { stderr: "backend vanished", exitCode: 1 },
+  );
+});
 
 Deno.test("invokeCursorCli — onToolUseObserved fires once per tool_call/started (FR-L30)", async () => {
   await withStubCursorEmittingNdjson(STUB_NDJSON, async () => {

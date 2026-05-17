@@ -6,6 +6,7 @@ import type { SettingSource } from "./setting-sources.ts";
 import type { ReasoningEffort } from "./reasoning-effort.ts";
 import type { McpServers } from "./mcp-injection.ts";
 import type { RuntimeErrorCategory } from "./error-types.ts";
+import type { RuntimeErrorAnalysis } from "./runtime-error-analysis.ts";
 import type {
   CapabilityInventory,
   FetchCapabilitiesOptions,
@@ -258,6 +259,14 @@ export interface RuntimeInvokeResult {
    * dedicated category yet.
    */
   error_category?: RuntimeErrorCategory;
+  // FR-L37: structured runtime-error facts surfaced from trusted detectors.
+  /**
+   * Structured runtime failure facts for adapter paths that expose reliable
+   * evidence. Known subtypes are precise; otherwise adapters may return
+   * `kind: "runtime_error"` when they know the failure came from the runtime
+   * but cannot safely identify a narrower subtype.
+   */
+  runtime_error?: RuntimeErrorAnalysis;
 }
 
 /** Options for launching an interactive CLI session with bundled skills. */

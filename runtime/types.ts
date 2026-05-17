@@ -13,6 +13,16 @@
  * so every existing `from "../runtime/types.ts"` import keeps working.
  */
 export type {
+  CliRunOutput,
+  CliRunUsage,
+  PermissionDenial,
+  RuntimeId,
+  Verbosity,
+} from "../types.ts";
+export type { ProcessRegistry } from "../process-registry.ts";
+export type { SkillDef, SkillFrontmatter } from "../skill/types.ts";
+
+export type {
   RuntimeCapabilities,
   RuntimeInitInfo,
   RuntimeLifecycleHooks,
@@ -47,3 +57,33 @@ export type {
   RuntimeToolUseDecision,
   RuntimeToolUseInfo,
 } from "./adapter-types.ts";
+
+export type {
+  CapabilityInventory,
+  CapabilityRef,
+  FetchCapabilitiesOptions,
+} from "./capabilities.ts";
+export type { RuntimeErrorCategory } from "./error-types.ts";
+export { ERROR_CATEGORY_STREAM_STALL } from "./error-types.ts";
+export type {
+  McpHttpServer,
+  McpServers,
+  McpServerSpec,
+  McpStdioServer,
+} from "./mcp-injection.ts";
+export type { ReasoningEffort } from "./reasoning-effort.ts";
+export type { SettingSource } from "./setting-sources.ts";
+export type {
+  CallbackErrorSource,
+  OnCallbackError,
+} from "./callback-safety.ts";
+
+// FR-L37: reachable from the `runtime/types` sub-path because
+// `RuntimeInvokeResult.runtime_error` references this type.
+export type {
+  RuntimeErrorAnalysis,
+  RuntimeErrorAnalysisInput,
+  RuntimeErrorConfidence,
+  RuntimeErrorKind,
+  RuntimeErrorSource,
+} from "./runtime-error-analysis.ts";

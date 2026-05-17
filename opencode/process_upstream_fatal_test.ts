@@ -107,6 +107,12 @@ Deno.test(
     assert(result.error, "expected upstream fatal to surface as error");
     assertStringIncludes(result.error!, "upstream HTTP 429");
     assertStringIncludes(result.error!, "Usage limit reached for 5 hour");
+    assertEquals(result.runtime_error?.kind, "quota");
+    assertEquals(result.runtime_error?.runtime, "opencode");
+    assertEquals(result.runtime_error?.source, "log");
+    assertEquals(result.runtime_error?.statusCode, 429);
+    assertEquals(result.runtime_error?.providerCode, "1308");
+    assertEquals(result.runtime_error?.resetAt, "2026-05-09 04:56:07");
     // Detector + SIGTERM path is fast — should be well under 5s vs the
     // 30s sleep in the stub.
     assert(
@@ -135,10 +141,31 @@ Deno.test(
 
     assertStringIncludes(result.error!, "upstream HTTP 429");
     assertStringIncludes(result.error!, "Quota exceeded");
+    assertEquals(result.runtime_error?.kind, "quota");
+    assertEquals(result.runtime_error?.statusCode, 429);
     assert(
       elapsedMs < 5_000,
       `expected single attempt; elapsed ${elapsedMs}ms suggests retries fired`,
     );
+  },
+);
+
+Deno.test(
+  "invokeOpenCodeCli — upstream 401 surfaces auth runtime_error",
+  async () => {
+    const result = await withFakeOpencode(
+      `INFO {"statusCode":401,"error":{"message":"Invalid API key"}}`,
+      200,
+      async () =>
+        await invokeOpenCodeCli(
+          makeInvokeOpts({ timeoutSeconds: 30, maxRetries: 1 }),
+        ),
+    );
+
+    assertStringIncludes(result.error!, "upstream HTTP 401");
+    assertStringIncludes(result.error!, "Invalid API key");
+    assertEquals(result.runtime_error?.kind, "auth");
+    assertEquals(result.runtime_error?.statusCode, 401);
   },
 );
 
@@ -163,5 +190,6 @@ Deno.test(
       false,
       `503 should not surface as upstream-fatal; got error: ${result.error}`,
     );
+    assertEquals(result.runtime_error, undefined);
   },
 );

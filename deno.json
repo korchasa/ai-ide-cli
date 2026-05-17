@@ -13,6 +13,7 @@
     "./runtime/content": "./runtime/content.ts",
     "./runtime/tool-filter": "./runtime/tool-filter.ts",
     "./runtime/reasoning-effort": "./runtime/reasoning-effort.ts",
+    "./runtime/runtime-error-analysis": "./runtime/runtime-error-analysis.ts",
     "./claude/process": "./claude/process.ts",
     "./claude/stream": "./claude/stream.ts",
     "./claude/session": "./claude/session.ts",

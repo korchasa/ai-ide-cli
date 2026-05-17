@@ -124,6 +124,15 @@ export type {
   CapabilityRef,
   FetchCapabilitiesOptions,
 } from "./runtime/capabilities.ts";
+// FR-L37: empirical runtime-error analyzer.
+export { analyzeRuntimeErrorSignal } from "./runtime/runtime-error-analysis.ts";
+export type {
+  RuntimeErrorAnalysis,
+  RuntimeErrorAnalysisInput,
+  RuntimeErrorConfidence,
+  RuntimeErrorKind,
+  RuntimeErrorSource,
+} from "./runtime/runtime-error-analysis.ts";
 
 // --- Claude runner (public entry points only) ---
 export {

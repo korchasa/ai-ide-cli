@@ -9,6 +9,7 @@
 - [FR-L25](requirements.md#3-25-fr-l25-abstract-reasoning-effort-on-runtime-options) — Abstract reasoning-effort enum on runtime options, with v2.1.133 hook-event typing — [x]
 - [FR-L26](requirements.md#3-26-fr-l26-typed-codex-app-server-notifications) — Typed Codex app-server notifications (incl. `response.processed`) — [x]
 - [FR-L35](requirements.md#3-34-fr-l35-generic-per-invocation-mcp-server-registration) — Generic per-invocation MCP-server registration across runtimes — [x]
+- [FR-L37](requirements.md#3-36-fr-l37-runtime-error-analysis) — Pure runtime-neutral analyzer for captured runtime failure signals — [x]
 
 ## ADR
 

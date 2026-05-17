@@ -7,7 +7,7 @@ Design specification for `@korchasa/ai-ide-cli`.
 - **Purpose:** Design of the `@korchasa/ai-ide-cli` library — thin wrapper
   around agent-CLI binaries providing normalized invocation, stream parsing,
   and retry. HITL is consumer-owned (ADR-0002).
-- **Relation to SRS:** Implements FR-L1..FR-L34 from
+- **Relation to SRS:** Implements FR-L1..FR-L37 from
   [requirements.md](requirements.md).
 - **Embedding-friendly:** every spawned subprocess is tracked through a
   `ProcessRegistry` that the caller can supply per-call (FR-L3). Standalone
@@ -59,6 +59,8 @@ ai-ide-cli/
     env-cwd-sync.ts     — withSyncedPWD(env, cwd): pure helper that syncs
                           env.PWD with subprocess cwd at the spawn boundary
                           (FR-L33)
+    runtime-error-analysis.ts — pure runtime-error analyzer over captured
+                          stdout / stderr / event / log fragments (FR-L37)
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
@@ -156,6 +158,9 @@ ai-ide-cli/
     cursor_typed_stream_e2e_test.ts — Cursor --yolo + Read tool, asserts
                           parseCursorStreamEvent / unwrapCursorToolCall /
                           onToolUseObserved against live binary (FR-L30)
+    runtime_error_analysis_e2e_test.ts — gated capture-harness smoke for
+                          runtime-error analysis; temp HOME / log dirs only
+                          and no quota exhaustion (FR-L37)
 ```
 
 **Dependency rule:** All arrows point inward. Runtime-specific modules import
@@ -222,7 +227,12 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
   `disallowedTools` (FR-L24), `processRegistry` (FR-L3 — **required**
   `ProcessRegistry` instance for scoping the spawned subprocess; standalone
   callers pass the module-level `defaultRegistry`).
-- `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string }`.
+- `RuntimeInvokeResult` — `{ output?: CliRunOutput; error?: string;
+  error_category?: RuntimeErrorCategory; runtime_error?: RuntimeErrorAnalysis }`.
+  `runtime_error` is additive and populated only from trusted adapter
+  failure paths. Known subtypes are precise; otherwise adapters may return
+  `kind: "runtime_error"` after they already know the failure came from the
+  runtime.
 - `InteractiveOptions` — `{ skills?, systemPrompt?, cwd?, env? }`.
 - `InteractiveResult` — `{ exitCode: number }`.
 - `RuntimeSessionOptions` — streaming-session options: `agent`, `systemPrompt`,
@@ -296,6 +306,57 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
   `process.ts` / `session.ts` modules can pull the helper without
   re-entering `runtime/index.ts` and tripping a TDZ on `ADAPTERS` when
   any `*-adapter.ts` is loaded as the direct entry point.
+
+**`runtime/runtime-error-analysis.ts` — Runtime Error Analysis (FR-L37):**
+
+Pure classifier for captured runtime failure signals. Public API:
+`analyzeRuntimeErrorSignal(input)` plus `RuntimeErrorAnalysis`,
+`RuntimeErrorAnalysisInput`, `RuntimeErrorKind`, `RuntimeErrorSource`,
+`RuntimeErrorConfidence`.
+
+Input accepts `{runtime?, source, text?, event?, assumeRuntimeError?}` where
+source is one of `stdout | stderr | event | log | error_string`. The analyzer
+extracts facts from the supplied text / event only; it never spawns a CLI,
+reads files, writes files, mutates env, or calls adapters. Malformed event
+payloads and ambiguous non-error prose return `undefined`. When an adapter
+sets `assumeRuntimeError`, unclassified text returns
+`kind: "runtime_error"` with low confidence.
+
+Taxonomy:
+
+- `quota` — usage-limit / insufficient-credit / billing-limit failures.
+- `rate_limit` — retryable throttling (`rate limit`, `too many requests`,
+  `retry after`, `retry in`).
+- `context_window` — context length / maximum context window failures.
+- `token_budget` — output-token / max-token budget failures.
+- `auth` — invalid API key, unauthenticated, unauthorized.
+- `policy` — permission / policy denials from upstream providers.
+- `plan_limit` — subscription / entitlement limits, e.g. Cursor Free-plan
+  named-model restriction.
+- `runtime_error` — adapter-confirmed runtime failure with no safe subtype.
+
+Classification is conservative: HTTP status + matching message yields
+`confidence: "high"`; strong plain-text patterns yield `"medium"`; generic
+fallbacks yield `"low"`. Optional fields preserve observed facts:
+`statusCode`, `providerCode`, `resetAt`, `retryAfterSeconds`, `message`.
+Reset timestamps are normalized only for `T` → space; timezone inference is
+not attempted.
+
+Capture protocol: OpenCode may create
+`~/.local/share/opencode/repos` even for `--version`, so every real-binary
+capture uses temp `HOME` and temp `OPENCODE_LOG_DIR`. The e2e harness proves
+the capture environment is isolated and gates on `E2E=1`; it never attempts
+to exhaust quota or rate limits.
+
+Adapter integration boundary: OpenCode upstream-fatal HTTP 401 / 402 /
+403 / 429 log detections are wired to
+`RuntimeInvokeResult.runtime_error` while preserving the existing
+human-readable `error` string byte-for-byte. Cursor stderr process failures
+are wired too: Free-plan named-model errors map to `plan_limit`, unknown
+stderr maps to generic `runtime_error`. Stream stalls remain
+`error_category: "stream_stall"` with no `runtime_error`; non-fatal HTTP 503
+log lines stay unclassified. Claude / Codex plain error-string
+classification is deferred until runtime-specific evidence is captured.
 
 **`runtime/setting-sources.ts`:**
 
