@@ -56,6 +56,7 @@ export type {
   RuntimeInvokeResult,
   RuntimeToolUseDecision,
   RuntimeToolUseInfo,
+  TransportOption,
 } from "./adapter-types.ts";
 
 export type {

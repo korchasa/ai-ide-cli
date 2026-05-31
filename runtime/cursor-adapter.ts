@@ -11,7 +11,9 @@ import type {
   RuntimeSession,
   RuntimeSessionEvent,
   RuntimeSessionOptions,
+  TransportOption,
 } from "./types.ts";
+import type { RuntimeCapabilities } from "./capability-types.ts";
 import { adaptEventCallback, adaptRuntimeSession } from "./session-adapter.ts";
 import {
   type CapabilityInventory,
@@ -118,6 +120,21 @@ function isCursorTurnEnd(event: CursorStreamEvent): boolean {
 
 export const cursorRuntimeAdapter: RuntimeAdapter = {
   id: "cursor",
+  capabilitiesFor(transport: TransportOption): RuntimeCapabilities {
+    // FR-L39: cursor stays `pilot: false` in `runtime/acp/fronts.ts` —
+    // the cursor-agent ACP front needs the local IDE binary and has
+    // not been empirically validated end-to-end yet. Mirrors the
+    // invoke/openSession refusal to keep the surface honest: a typo
+    // on the caller fails loudly here instead of silently advertising
+    // CLI capabilities for a transport the adapter cannot serve.
+    if (transport === "acp") {
+      throw new Error(
+        "acp transport: cursor front is not piloted yet (FR-L39). " +
+          "Promote it in runtime/acp/fronts.ts after empirical validation.",
+      );
+    }
+    return this.capabilities;
+  },
   capabilities: {
     permissionMode: false,
     transcript: false,

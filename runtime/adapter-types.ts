@@ -19,6 +19,20 @@ import type { RuntimeSession, RuntimeSessionOptions } from "./session-types.ts";
 import type { AcpFrontLauncher } from "./acp/fronts.ts";
 
 /**
+ * Wire transport selector for runtime invocation and session opening.
+ *
+ * - `"cli"` — runtime's hand-rolled subprocess wrapper (the default;
+ *   omitting the field is equivalent).
+ * - `"acp"` — shared {@link https://agentclientprotocol.com Agent
+ *   Client Protocol} client + a runtime-specific ACP front pinned in
+ *   `runtime/acp/fronts.ts`.
+ *
+ * See FR-L39 (transport plumbing) and {@link RuntimeAdapter.capabilitiesFor}
+ * (transport-scoped capability advertisement).
+ */
+export type TransportOption = "cli" | "acp";
+
+/**
  * Map-shaped extra CLI arguments.
  *
  * Value semantics (matches `expandExtraArgs`):
@@ -252,7 +266,7 @@ export interface RuntimeInvokeOptions {
    * runtimes accept the literal but throw with a clear message until
    * their front is promoted out of `pilot: false`.
    */
-  transport?: "cli" | "acp";
+  transport?: TransportOption;
   /**
    * Override the ACP front launcher resolved from
    * `runtime/acp/fronts.ts`. Honored only when `transport === "acp"`.
@@ -327,8 +341,26 @@ export interface InteractiveResult {
 export interface RuntimeAdapter {
   /** Stable runtime identifier. */
   id: RuntimeId;
-  /** Capability metadata used by config validation and feature gating. */
+  /**
+   * Capability metadata used by config validation and feature gating.
+   * Reflects the CLI transport (the historical default). Consumers that
+   * opt into a non-CLI transport via {@link RuntimeInvokeOptions.transport}
+   * SHOULD read {@link capabilitiesFor} for the transport-scoped vector.
+   */
   capabilities: RuntimeCapabilities;
+  /**
+   * Return capabilities scoped to a specific transport (FR-L39). Adapters
+   * that pilot a non-CLI transport override `"acp"` to reflect which CLI
+   * capabilities round-trip under the chosen transport (e.g. ACP has no
+   * exported transcript file, no TUI launcher, and no client-side
+   * tool-filter flag). `"cli"` delegates to the static {@link capabilities}
+   * baseline. Cursor — still `pilot: false` on ACP — throws on `"acp"`
+   * with a "not piloted yet" message.
+   *
+   * Optional for API stability; callers MUST tolerate `undefined`
+   * (treat as "no transport-specific downgrade — use `capabilities`").
+   */
+  capabilitiesFor?(transport: TransportOption): RuntimeCapabilities;
   /** Invoke the runtime with normalized options. */
   invoke(opts: RuntimeInvokeOptions): Promise<RuntimeInvokeResult>;
   /**
