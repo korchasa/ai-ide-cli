@@ -942,7 +942,7 @@ stable — never renumber on move.
   events (including `SYNTHETIC_TURN_END`, Cursor's open-time init /
   `send_failed`) return `[]` so consumers observe turn boundaries via
   the existing synthetic-event flag, not via content.
-- **Tasks:** [codex-mcp-hitl-input-contract](tasks/2026/05/codex-mcp-hitl-input-contract.md).
+- **Tasks:** [codex-mcp-hitl-input-contract](tasks/2026/05/codex-mcp-hitl-input-contract.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md).
 - **Per-runtime source mapping** (keep in sync with the upstream
   protocols — the Codex session path uses app-server v2 camelCase
   types, NOT the snake_case NDJSON types used by `codex exec`):
@@ -1024,6 +1024,16 @@ stable — never renumber on move.
   - [x] `// FR-L23` traceability comment on the
         `extractSessionContent` dispatcher. Evidence:
         `ai-ide-cli/runtime/content.ts`.
+  - [x] ACP transport (FR-L39) `session/update` notifications normalize
+        to delta text (`agent_message_chunk` → `cumulative: false`) and
+        tool content (`tool_call_update`) for every pilot runtime. The
+        dispatcher routes ACP-shaped events through
+        `runtime/acp/content.ts:extractAcpContent` ahead of the per-CLI
+        switch, detected by `event.type === "session/update"` or
+        nested `raw.update.sessionUpdate` string (defensive fallback).
+        Evidence: `ai-ide-cli/runtime/acp/content_test.ts`,
+        `ai-ide-cli/runtime/acp/session_contract_test.ts`
+        (`extractSessionContent normalizes session/update content`).
 
 ### 3.24 FR-L24: Typed Tool Filter on Runtime Options
 
@@ -1987,7 +1997,7 @@ stable — never renumber on move.
   evidence. Known subtypes are precise; otherwise adapters may return
   `kind: "runtime_error"` after they already know the failure came from the
   runtime.
-- **Tasks:** [runtime-error-handling](tasks/2026/05/runtime-error-handling.md)
+- **Tasks:** [runtime-error-handling](tasks/2026/05/runtime-error-handling.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md)
 - **Motivation:** Runtime CLIs surface quota, rate, context-window, and
   provider-plan states through incompatible channels. OpenCode logs upstream
   HTTP 401 / 402 / 403 / 429 internally; Cursor emits Free-plan named-model
@@ -2080,6 +2090,7 @@ stable — never renumber on move.
   (`cursor-agent acp`) is pinned in `runtime/acp/fronts.ts` but
   flagged `pilot: false` until its local IDE binary becomes part
   of the validation matrix.
+- **Tasks:** [acp-transport-poc](tasks/2026/05/acp-transport-poc.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md)
 - **Motivation:** Quantify whether one universal transport can replace
   four hand-rolled subprocess wrappers (PoC tracked under
   `documents/tasks/2026/05/acp-transport-poc.md`). Public contract
@@ -2282,6 +2293,9 @@ never throws on malformed payloads.
 | opencode       | `message.part.updated` with `part.type === "text"`         | `{kind:"text", text: part.text, cumulative: true}`            | OpenCode has no native `final` — consumer flushes last cumulative text on `SYNTHETIC_TURN_END` |
 | opencode       | `message.part.updated` with `part.type === "tool"` at terminal `state.status` (`completed`/`failed`) | `{kind:"tool", id, name, input?}` | mirrors FR-L16 terminal-state rule; id falls back `part.id → part.callID` |
 | opencode       | non-terminal tool states (`part.type === "tool"` mid-run)  | — (skipped)                                                 | only terminal states surface to `kind:"tool"`                             |
+| acp (FR-L39)   | `session/update` with `update.sessionUpdate === "agent_message_chunk"` (or top-level form) | `{kind:"text", text, cumulative: false}` | ACP emits deltas, not running totals; every pilot (claude/codex/opencode) shares the projection |
+| acp (FR-L39)   | `session/update` with `update.sessionUpdate === "tool_call_update"` | `{kind:"tool", id, name, input?}` | `name` falls back from `update.title` to `update.kind`; `input` threads through `rawInput` |
+| acp (FR-L39)   | any other `sessionUpdate` variant (`plan`, `current_mode_update`, future kinds) | `[]` | additive — future kinds gain dedicated branches |
 | all            | any synthetic event (`synthetic: true`)                   | `[]`                                                         | consumers observe turn boundaries via the envelope flag, not content      |
 | all            | unrecognised `type` / malformed `raw`                     | `[]`                                                         | extractor is stateless and never throws                                   |
 

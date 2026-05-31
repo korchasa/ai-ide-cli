@@ -20,8 +20,9 @@
  * - Synthetic turn-end emitted exactly once per completed prompt.
  * - Transport-level RPC failures during `send` raise
  *   {@link SessionDeliveryError}.
- * - `extractSessionContent` (FR-L23) returns `[]` for ACP envelopes
- *   today — pinned so the gap promotes intentionally.
+ * - `extractSessionContent` (FR-L23) normalizes ACP `session/update`
+ *   `agent_message_chunk` notifications into delta-text content for
+ *   every runtime; synthetic turn-end stays `[]`.
  */
 
 import { assert, assertEquals, assertRejects } from "@std/assert";
@@ -325,14 +326,13 @@ for (const runtime of RUNTIMES) {
   );
 
   Deno.test(
-    `RuntimeSession contract (acp/${runtime}) — extractSessionContent returns [] for ACP events today`,
+    `RuntimeSession contract (acp/${runtime}) — extractSessionContent normalizes session/update content`,
     async () => {
-      // Documented gap (see `runtime/acp/mapping.ts`): the FR-L23
-      // dispatcher currently has no ACP arm. Pinning the gap so a
-      // future ACP-aware extractor promotes intentionally rather than
-      // by accident — and to confirm that every runtime sees the same
-      // behavior here (the dispatcher branches on `event.runtime`, so
-      // a regression on one runtime would split the matrix).
+      // FR-L23 + FR-L39: the dispatcher routes `session/update` events
+      // through `extractAcpContent`. HANDSHAKE_SCRIPT emits one
+      // `agent_message_chunk` per prompt → one delta-text entry.
+      // SYNTHETIC_TURN_END short-circuits before the ACP arm and
+      // contributes nothing.
       await withAcpSession(runtime, HANDSHAKE_SCRIPT, async (open) => {
         const session = await open();
         try {
@@ -347,9 +347,9 @@ for (const runtime of RUNTIMES) {
           await drainer;
           const normalized = collected.flatMap(extractSessionContent);
           assertEquals(
-            normalized.length,
-            0,
-            `expected no normalized content for ACP envelopes on ${runtime}, got ${
+            normalized,
+            [{ kind: "text", text: "ok", cumulative: false }],
+            `expected normalized agent_message_chunk on ${runtime}, got ${
               JSON.stringify(normalized)
             }`,
           );

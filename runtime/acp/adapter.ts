@@ -231,6 +231,12 @@ async function flushDrain(client: AcpStdioClient): Promise<void> {
  * forward compatibility with adapter stubs and future ACP fronts that
  * skip the `update` wrapper. Returns `undefined` for non-text updates so
  * the caller can keep the projection minimal.
+ *
+ * Parallel projection: the public `extractAcpContent` in
+ * `runtime/acp/content.ts` reads the same wire shape for FR-L23 consumers
+ * (`extractSessionContent`). Both intentionally coexist — the private
+ * projection feeds `result.output.result` inline; deduplication is a
+ * non-blocking follow-up tracked in `documents/tasks/2026/06/acp-surface-parity.md`.
  */
 function extractAgentChunkText(
   params: Record<string, unknown> | undefined,

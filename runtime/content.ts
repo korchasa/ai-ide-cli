@@ -25,6 +25,7 @@ import { extractClaudeContent } from "../claude/content.ts";
 import { extractCursorContent } from "../cursor/content.ts";
 import { extractCodexContent } from "../codex/content.ts";
 import { extractOpenCodeContent } from "../opencode/content.ts";
+import { extractAcpContent } from "./acp/content.ts";
 
 /**
  * Streaming assistant text — either a delta to append or the full
@@ -108,6 +109,14 @@ export function extractSessionContent(
   event: RuntimeSessionEvent,
 ): NormalizedContent[] {
   if (event.synthetic) return [];
+  // FR-L39 / FR-L23: events from the ACP transport carry the JSON-RPC
+  // method name on `event.type` (`"session/update"`) and ACP-specific
+  // wire shapes on `event.raw`. The per-CLI extractors expect their
+  // native stream-json / NDJSON shapes and would return `[]` for ACP
+  // events, so we detect first and route through `extractAcpContent`.
+  if (isAcpShapedEvent(event)) {
+    return extractAcpContent(event.runtime, event.type, event.raw);
+  }
   switch (event.runtime) {
     case "claude":
       return extractClaudeContent(event.type, event.raw);
@@ -122,4 +131,17 @@ export function extractSessionContent(
     case "opencode":
       return extractOpenCodeContent(event.type, event.raw);
   }
+}
+
+// Primary signal: `runtime/acp/mapping.ts:mapSessionUpdate` stores the
+// JSON-RPC method verbatim in `event.type`. Defensive fallback: future
+// ACP fronts may drop the method-name prefix and emit a bare wrapper
+// under `raw.update.sessionUpdate`. Order matters — the explicit method
+// check is the authoritative one.
+function isAcpShapedEvent(event: RuntimeSessionEvent): boolean {
+  if (event.type === "session/update") return true;
+  const update = event.raw["update"];
+  if (typeof update !== "object" || update === null) return false;
+  const variant = (update as Record<string, unknown>)["sessionUpdate"];
+  return typeof variant === "string";
 }
