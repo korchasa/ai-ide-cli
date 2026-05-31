@@ -2076,6 +2076,26 @@ stable — never renumber on move.
         `deno doc --lint runtime/index.ts`,
         `deno doc --lint runtime/types.ts`; `deno task check` publish
         dry-run passes `missing-jsdoc` / `private-type-ref`.
+  - [x] Adapter integration boundary — ACP transport: `invokeViaAcp`
+        funnels three distinct failure surfaces through
+        `analyzeRuntimeErrorSignal`: (a) `AcpRpcError` envelope message
+        (source `"error_string"`, `assumeRuntimeError: true`); (b)
+        `PromptResponse.stopReason` mapped to `{max_tokens →
+        token_budget, max_turn_requests → runtime_error (medium),
+        refusal → policy (high), end_turn → none, cancelled → none,
+        unknown → runtime_error (low)}`; (c) stderr tail (source
+        `"stderr"`) as fallback. Precedence: RPC analysis wins unless
+        its kind is generic `runtime_error` AND the stderr classifier
+        produces a narrower kind. Tests:
+        `runtime/acp/error_analysis_test.ts::AcpRpcError surfaces
+        runtime_error.kind on rpc failure path — rate_limit`,
+        `runtime/acp/error_analysis_test.ts::stopReason maps to
+        runtime_error.kind table — max_tokens → token_budget`,
+        `runtime/acp/error_analysis_test.ts::stderr tail used as
+        fallback runtime_error source when RPC has no classifiable
+        text`,
+        `runtime/acp/error_analysis_test.ts::RPC analysis wins over
+        stderr when both are classifiable (precedence)`.
 
 ### 3.37 FR-L39: ACP Transport (Claude + Codex + OpenCode pilots)
 
