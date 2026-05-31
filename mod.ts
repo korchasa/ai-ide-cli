@@ -67,6 +67,7 @@ export type {
   RuntimeSessionStatus,
   RuntimeToolUseDecision,
   RuntimeToolUseInfo,
+  TransportOption,
 } from "./runtime/types.ts";
 export type { SettingSource } from "./runtime/setting-sources.ts";
 // FR-L36: typed error categories.

@@ -47,6 +47,7 @@ export type {
   RuntimeSessionStatus,
   RuntimeToolUseDecision,
   RuntimeToolUseInfo,
+  TransportOption,
 } from "./types.ts";
 export type {
   CapabilityInventory,

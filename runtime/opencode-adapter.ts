@@ -12,7 +12,9 @@ import type {
   RuntimeSession,
   RuntimeSessionEvent,
   RuntimeSessionOptions,
+  TransportOption,
 } from "./types.ts";
+import type { RuntimeCapabilities } from "./capability-types.ts";
 import { adaptEventCallback, adaptRuntimeSession } from "./session-adapter.ts";
 import {
   type CapabilityInventory,
@@ -106,6 +108,25 @@ function opencodeSkillsDir(): string {
   return join(Deno.env.get("HOME") ?? Deno.cwd(), ".claude", "skills");
 }
 
+// FR-L39: transport-scoped capability vector for the OpenCode ACP
+// front (`opencode acp`). Mirrors the cross-pilot downgrade rule:
+// transcript / interactive / toolFilter / capabilityInventory
+// drop to `false` because none survive the ACP wire dialect; the
+// remaining surfaces (permissionMode, toolUseObservation, session,
+// reasoningEffort, mcpInjection) round-trip natively.
+const OPENCODE_ACP_CAPABILITIES: RuntimeCapabilities = {
+  permissionMode: true,
+  transcript: false,
+  interactive: false,
+  toolUseObservation: true,
+  session: true,
+  capabilityInventory: false,
+  toolFilter: false,
+  reasoningEffort: true,
+  mcpInjection: true,
+  sessionFidelity: "native",
+};
+
 export const opencodeRuntimeAdapter: RuntimeAdapter = {
   id: "opencode",
   capabilities: {
@@ -120,6 +141,10 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     // FR-L35
     mcpInjection: true,
     sessionFidelity: "native",
+  },
+  capabilitiesFor(transport: TransportOption): RuntimeCapabilities {
+    if (transport === "acp") return OPENCODE_ACP_CAPABILITIES;
+    return this.capabilities;
   },
   invoke(opts) {
     // FR-L39: opt-in ACP transport. Default `transport === "cli"` keeps

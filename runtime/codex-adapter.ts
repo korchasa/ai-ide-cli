@@ -8,7 +8,9 @@ import type {
   RuntimeInvokeOptions,
   RuntimeSession,
   RuntimeSessionOptions,
+  TransportOption,
 } from "./types.ts";
+import type { RuntimeCapabilities } from "./capability-types.ts";
 import {
   CAPABILITY_INVENTORY_SCHEMA,
   type CapabilityInventory,
@@ -96,6 +98,27 @@ function codexSkillsDir(): string {
  *   The one-shot `invoke` path still uses `codex exec` and cannot accept
  *   follow-ups.
  */
+// FR-L39: transport-scoped capability vector for the Codex ACP front
+// (`@zed-industries/codex-acp`). Same downgrade rationale as the
+// Claude pilot — transcript / interactive / toolFilter /
+// capabilityInventory are unavailable on the ACP path while
+// session, reasoning-effort, MCP injection, and tool-use observation
+// round-trip natively. The toolFilter dimension was already `false`
+// on Codex's CLI baseline; carrying it forward unchanged keeps the
+// vector explicit.
+const CODEX_ACP_CAPABILITIES: RuntimeCapabilities = {
+  permissionMode: true,
+  transcript: false,
+  interactive: false,
+  toolUseObservation: true,
+  session: true,
+  capabilityInventory: false,
+  toolFilter: false,
+  reasoningEffort: true,
+  mcpInjection: true,
+  sessionFidelity: "native",
+};
+
 export const codexRuntimeAdapter: RuntimeAdapter = {
   id: "codex",
   capabilities: {
@@ -110,6 +133,10 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     // FR-L35
     mcpInjection: true,
     sessionFidelity: "native",
+  },
+  capabilitiesFor(transport: TransportOption): RuntimeCapabilities {
+    if (transport === "acp") return CODEX_ACP_CAPABILITIES;
+    return this.capabilities;
   },
   invoke(opts) {
     // FR-L39

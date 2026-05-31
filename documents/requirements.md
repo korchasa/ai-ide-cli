@@ -2162,6 +2162,22 @@ stable — never renumber on move.
   - [x] `deno publish --dry-run` keeps passing — no ACP JSON-RPC types
         leak into `mod.ts` / sub-path entries.
         Evidence: `deno task check`.
+  - [x] `RuntimeAdapter.capabilitiesFor?(transport): RuntimeCapabilities`
+        scopes capability advertisement to the selected transport:
+        every pilot (claude, codex, opencode) downgrades `transcript`,
+        `interactive`, `toolFilter`, and `capabilityInventory` to
+        `false` on `"acp"` while preserving `permissionMode`,
+        `toolUseObservation`, `session`, `reasoningEffort`,
+        `mcpInjection`, and `sessionFidelity: "native"`. `"cli"`
+        delegates to the static `capabilities` baseline byte-for-byte.
+        Cursor stays `pilot: false` and throws on `"acp"` with a
+        "not piloted yet" message symmetric to
+        `invoke`/`openSession`.
+        Test: `runtime/transport_capabilities_test.ts`.
+  - [x] `TransportOption` type alias (`"cli" | "acp"`) is the single
+        canonical home for the transport literal and is re-exported
+        from `mod.ts` so `RuntimeAdapter.capabilitiesFor` is JSR
+        slow-types clean. Evidence: `deno publish --dry-run`.
 
 ## 4. Non-Functional Requirements
 

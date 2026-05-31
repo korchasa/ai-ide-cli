@@ -274,7 +274,10 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
   `instanceof` rather than message prefixes. Transport-level causes
   attached via standard `Error.cause`.
 - `RuntimeSessionStatus` — `{ exitCode, signal, stderr }`.
-- `RuntimeAdapter` — interface: `id`, `capabilities`, `invoke(opts)`,
+- `RuntimeAdapter` — interface: `id`, `capabilities`,
+  optional `capabilitiesFor?(transport: TransportOption): RuntimeCapabilities`
+  (FR-L39 — pilots override `"acp"` to reflect transport-bound
+  downgrades; default delegates to `capabilities`), `invoke(opts)`,
   `launchInteractive(opts)`, optional `openSession?(opts)` (only when
   `capabilities.session === true`), optional `fetchCapabilitiesSlow?(opts)`
   (only when `capabilities.capabilityInventory === true`).

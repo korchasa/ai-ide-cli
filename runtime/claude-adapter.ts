@@ -20,7 +20,9 @@ import type {
   RuntimeSession,
   RuntimeSessionEvent,
   RuntimeSessionOptions,
+  TransportOption,
 } from "./types.ts";
+import type { RuntimeCapabilities } from "./capability-types.ts";
 import { adaptEventCallback, adaptRuntimeSession } from "./session-adapter.ts";
 import {
   CAPABILITY_INVENTORY_SCHEMA,
@@ -91,6 +93,30 @@ async function removeInjectedSkills(paths: string[]): Promise<void> {
   }
 }
 
+// FR-L39: transport-scoped capability vector for the Claude ACP front
+// (`@agentclientprotocol/claude-agent-acp`). Diverges from the CLI
+// baseline on the dimensions ACP cannot round-trip:
+// - `transcript: false` — ACP has no exported transcript file.
+// - `interactive: false` — no TUI launcher on the ACP path.
+// - `toolFilter: false` — no client-side tool allow/deny-list on the wire.
+// - `capabilityInventory: false` — `fetchCapabilitiesSlow` is unwired.
+// `permissionMode` (session/set_mode), `toolUseObservation`
+// (session/request_permission), `session`, `reasoningEffort`
+// (session/set_config_option `thought_level`), and `mcpInjection`
+// (session/new `mcpServers[]`) round-trip natively.
+const CLAUDE_ACP_CAPABILITIES: RuntimeCapabilities = {
+  permissionMode: true,
+  transcript: false,
+  interactive: false,
+  toolUseObservation: true,
+  session: true,
+  capabilityInventory: false,
+  toolFilter: false,
+  reasoningEffort: true,
+  mcpInjection: true,
+  sessionFidelity: "native",
+};
+
 export const claudeRuntimeAdapter: RuntimeAdapter = {
   id: "claude",
   capabilities: {
@@ -105,6 +131,10 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     // FR-L35
     mcpInjection: true,
     sessionFidelity: "native",
+  },
+  capabilitiesFor(transport: TransportOption): RuntimeCapabilities {
+    if (transport === "acp") return CLAUDE_ACP_CAPABILITIES;
+    return this.capabilities;
   },
   async invoke(opts) {
     // FR-L39: opt-in ACP transport routes through the universal adapter

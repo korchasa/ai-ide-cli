@@ -4,7 +4,7 @@ import type { OnCallbackError } from "./callback-safety.ts";
 import type { SettingSource } from "./setting-sources.ts";
 import type { ReasoningEffort } from "./reasoning-effort.ts";
 import type { McpServers } from "./mcp-injection.ts";
-import type { ExtraArgsMap } from "./adapter-types.ts";
+import type { ExtraArgsMap, TransportOption } from "./adapter-types.ts";
 import type { AcpFrontLauncher } from "./acp/fronts.ts";
 
 /**
@@ -108,7 +108,7 @@ export interface RuntimeSessionOptions {
    * routes through the shared Agent Client Protocol JSON-RPC client +
    * the ACP front pinned in `runtime/acp/fronts.ts`. See FR-L39.
    */
-  transport?: "cli" | "acp";
+  transport?: TransportOption;
   /**
    * Override the ACP front launcher resolved from
    * `runtime/acp/fronts.ts`. Honored only when `transport === "acp"`.
