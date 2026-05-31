@@ -2198,6 +2198,32 @@ stable — never renumber on move.
         canonical home for the transport literal and is re-exported
         from `mod.ts` so `RuntimeAdapter.capabilitiesFor` is JSR
         slow-types clean. Evidence: `deno publish --dry-run`.
+  - [x] `invokeViaAcp` honours `maxRetries` / `retryDelaySeconds` with
+        exponential backoff (multiplier 2.0) symmetric to the CLI
+        invokers. Retries iff (`runtime_error.kind ∈ {rate_limit,
+        quota, runtime_error}`) OR (JSON-RPC -32603 wire code
+        normalised to generic `runtime_error`) OR (unclassified
+        spawn / drain exception). `auth` / `policy` /
+        `context_window` / `token_budget` / `plan_limit` are
+        terminal. Each retry spawns a fresh `AcpStdioClient` and
+        disposes the previous one before the next iteration —
+        registry size returns to zero after the loop exits.
+        `maxRetries: 0` (default) preserves single-shot semantics
+        and the legacy error-string shape. Retry sleep is abortable
+        via `opts.signal`; abort during sleep returns
+        `error: "Aborted: <reason>"` with no further attempts
+        (mirrors FR-L15).
+        Tests:
+        `runtime/acp/retry_test.ts::invokeViaAcp retries on
+        rate_limit and succeeds on second attempt`,
+        `runtime/acp/retry_test.ts::invokeViaAcp does NOT retry on
+        auth — terminal classifier output`,
+        `runtime/acp/retry_test.ts::invokeViaAcp retries on JSON-RPC
+        -32603 internal error`,
+        `runtime/acp/retry_test.ts::maxRetries 0 produces
+        single-attempt error string identical to PoC shape`,
+        `runtime/acp/retry_test.ts::retry sleep is abortable via
+        external signal`.
 
 ## 4. Non-Functional Requirements
 

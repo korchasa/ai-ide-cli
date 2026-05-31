@@ -363,8 +363,90 @@ function pickClassification(
 }
 
 /**
+ * FR-L39: kinds of `runtime_error.kind` that mean "do not retry" —
+ * mirrors the CLI invokers' policy. Anything not on this list is
+ * either explicitly retryable (`rate_limit` / `quota` / `runtime_error`)
+ * or an unclassified spawn failure that follows the CLI loop's
+ * "retry on unknown exception" pattern.
+ */
+const TERMINAL_RUNTIME_ERROR_KINDS: ReadonlySet<string> = new Set([
+  "auth",
+  "policy",
+  "context_window",
+  "token_budget",
+  "plan_limit",
+]);
+
+/**
+ * FR-L39: retry-decision policy. Driven by the classifier output threaded
+ * through `attemptInvocation`. Unclassified spawn / drain exceptions fall
+ * back to "retry once like the CLI loop" so a transient `npx` failure is
+ * not strictly terminal.
+ */
+function shouldRetry(
+  result: RuntimeInvokeResult,
+  attempt: number,
+  maxRetries: number,
+): boolean {
+  if (attempt >= maxRetries) return false;
+  // Abort already short-circuits at the top of the loop; treat the
+  // `Aborted:` shape as terminal too in case it leaks through here.
+  if (result.error?.startsWith("Aborted:")) return false;
+  const kind = result.runtime_error?.kind;
+  if (kind && TERMINAL_RUNTIME_ERROR_KINDS.has(kind)) return false;
+  if (kind === "rate_limit" || kind === "quota" || kind === "runtime_error") {
+    return true;
+  }
+  // Unclassified error path — mirrors CLI loop's "retry on exception".
+  return !!result.error;
+}
+
+/**
+ * FR-L39: abortable sleep. Inlined from `claude/process.ts:sleep` —
+ * the helper is leaf-pure and three lines long; extracting to
+ * `runtime/abortable-sleep.ts` is a follow-up once a third caller
+ * appears (documented on `acp-reliability-parity.md` Risks).
+ */
+function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timerId = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timerId);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function abortReason(signal?: AbortSignal): string {
+  const reason = signal?.reason;
+  if (reason === undefined) return "manual abort";
+  if (typeof reason === "string") return reason;
+  if (reason instanceof Error) return reason.message;
+  try {
+    return JSON.stringify(reason);
+  } catch {
+    return String(reason);
+  }
+}
+
+/**
  * Invoke an ACP front for one prompt turn and return the runtime-neutral
  * {@link RuntimeInvokeResult}.
+ *
+ * Honours `opts.maxRetries` / `opts.retryDelaySeconds` with exponential
+ * backoff (multiplier 2.0) symmetric to the CLI invokers. Each retry
+ * spawns a fresh `AcpStdioClient`; the previous one is disposed inside
+ * the same loop iteration so the next attempt sees a clean
+ * `ProcessRegistry`. Default `maxRetries: 0` keeps single-shot
+ * semantics for callers that did not opt in.
  *
  * @param runtime Pilot runtime selector. `claude`, `codex`, and
  *   `opencode` are end-to-end validated; `cursor` rejects with a
@@ -381,6 +463,34 @@ export async function invokeViaAcp(
   if (opts.signal?.aborted) {
     return { error: "Aborted before start" };
   }
+  const maxRetries = opts.maxRetries ?? 0;
+  const baseDelayMs = (opts.retryDelaySeconds ?? 1) * 1000;
+  let lastResult: RuntimeInvokeResult | undefined;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const result = await attemptInvocation(runtime, opts);
+    if (!result.error && !result.output?.is_error) return result;
+    if (!shouldRetry(result, attempt, maxRetries)) return result;
+    lastResult = result;
+    try {
+      await abortableSleep(baseDelayMs * 2 ** attempt, opts.signal);
+    } catch {
+      return { error: `Aborted: ${abortReason(opts.signal)}` };
+    }
+  }
+  return lastResult ??
+    { error: `acp(${runtime}): exhausted retries with no result` };
+}
+
+/**
+ * One spawn-handshake-prompt cycle. The retry loop in
+ * {@link invokeViaAcp} runs this once per attempt — each call gets a
+ * fresh `AcpStdioClient`, runs the drain race, and disposes the client
+ * before returning.
+ */
+async function attemptInvocation(
+  runtime: RuntimeId,
+  opts: RuntimeInvokeOptions,
+): Promise<RuntimeInvokeResult> {
   const startedAt = performance.now();
   const turn = 1;
   const permissionHandler = createPermissionHandler({

@@ -1685,6 +1685,31 @@ subprocess wrapper. One implementation
     idempotent (`session/cancel` notify + dispose, both fire-and-
     forget after the `#aborted` guard). Synthetic
     `SYNTHETIC_TURN_END` queued after each prompt completes.
+  - **Retry loop (FR-L39)** — `invokeViaAcp` wraps a private
+    `attemptInvocation(runtime, opts)` in an outer loop driven by
+    `opts.maxRetries` / `opts.retryDelaySeconds` (default 0 / 1s,
+    multiplier 2.0). `shouldRetry` consults the classifier output:
+    `auth`/`policy`/`context_window`/`token_budget`/`plan_limit`
+    are terminal; `rate_limit`/`quota`/`runtime_error` retry;
+    unclassified `error` retries once like the CLI loop.
+    `abortableSleep` is inlined from `claude/process.ts:sleep`
+    (leaf-pure; shared helper is a follow-up — see Risks in
+    `documents/tasks/2026/06/acp-reliability-parity.md`). Each
+    attempt spawns a fresh `AcpStdioClient`; the previous one is
+    disposed in the same iteration's `finally` so the next attempt
+    sees a clean `ProcessRegistry`. Abort during sleep returns
+    `error: "Aborted: <reason>"`.
+  - **`runtime_error` analysis (FR-L37)** — three failure surfaces
+    funnel through `analyzeRuntimeErrorSignal`: `AcpRpcError`
+    envelope (source `"error_string"`, `assumeRuntimeError: true`),
+    `PromptResponse.stopReason` (synthesised text for
+    `max_tokens → token_budget`; direct kind for
+    `max_turn_requests/refusal`; passthrough for
+    `end_turn`/`cancelled`; low-confidence runtime_error for
+    unknown), and stderr tail (source `"stderr"`). Precedence:
+    RPC wins unless its kind is generic `runtime_error` AND
+    stderr classifies to something narrower
+    (`pickClassification`).
 
 Public surface unchanged. New fields on `RuntimeInvokeOptions` /
 `RuntimeSessionOptions`: `transport?: "cli" | "acp"` (default `"cli"`)
