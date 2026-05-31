@@ -10,6 +10,7 @@
 - [FR-L26](requirements.md#3-26-fr-l26-typed-codex-app-server-notifications) — Typed Codex app-server notifications (incl. `response.processed`) — [x]
 - [FR-L35](requirements.md#3-34-fr-l35-generic-per-invocation-mcp-server-registration) — Generic per-invocation MCP-server registration across runtimes — [x]
 - [FR-L37](requirements.md#3-36-fr-l37-runtime-error-analysis) — Pure runtime-neutral analyzer for captured runtime failure signals — [x]
+- [FR-L39](requirements.md#3-37-fr-l39-acp-transport-claude--codex--opencode-pilots) — Opt-in Agent Client Protocol transport (Claude + Codex + OpenCode pilots) under `transport: "acp"` — [x]
 
 ## ADR
 

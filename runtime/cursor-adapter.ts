@@ -3,6 +3,7 @@ import {
   type CursorStreamEvent,
   openCursorSession,
 } from "../cursor/session.ts";
+import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
 import type {
   InteractiveResult,
   RuntimeAdapter,
@@ -138,6 +139,8 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     sessionFidelity: "emulated",
   },
   invoke(opts) {
+    // FR-L39
+    if (opts.transport === "acp") return invokeViaAcp("cursor", opts);
     rejectUnsupportedSystemPromptFile("cursor", opts);
     validateToolFilter("cursor", opts);
     warnToolFilterOnce(opts);
@@ -161,6 +164,7 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    if (opts.transport === "acp") return openSessionViaAcp("cursor", opts);
     validateToolFilter("cursor", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("cursor", opts);

@@ -11,6 +11,7 @@
 
 import { invokeClaudeCli } from "../claude/process.ts";
 import { openClaudeSession } from "../claude/session.ts";
+import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
 import type { ClaudeStreamEvent } from "../claude/stream.ts";
 import type {
   InteractiveOptions,
@@ -106,6 +107,12 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     sessionFidelity: "native",
   },
   async invoke(opts) {
+    // FR-L39: opt-in ACP transport routes through the universal adapter
+    // instead of the CLI subprocess. Default `transport === "cli"` keeps
+    // every byte-for-byte existing behaviour intact.
+    if (opts.transport === "acp") {
+      return invokeViaAcp("claude", opts);
+    }
     // Translate runtime-neutral onToolUseObserved into the Claude-specific
     // callback (just adds `runtime: "claude"` to the info object).
     const claudeHook = opts.onToolUseObserved
@@ -180,6 +187,9 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    if (opts.transport === "acp") {
+      return openSessionViaAcp("claude", opts);
+    }
     const inner = await openClaudeSession({
       agent: opts.agent,
       systemPrompt: opts.systemPrompt,

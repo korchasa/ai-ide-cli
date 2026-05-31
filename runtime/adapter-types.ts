@@ -16,6 +16,7 @@ import type {
   RuntimeLifecycleHooks,
 } from "./capability-types.ts";
 import type { RuntimeSession, RuntimeSessionOptions } from "./session-types.ts";
+import type { AcpFrontLauncher } from "./acp/fronts.ts";
 
 /**
  * Map-shaped extra CLI arguments.
@@ -234,6 +235,34 @@ export interface RuntimeInvokeOptions {
    * source `"onToolUseObserved"`.
    */
   onCallbackError?: OnCallbackError;
+  // FR-L39: opt-in alternate transport. `"cli"` keeps the existing
+  // per-runtime subprocess wrapper; `"acp"` routes the call through the
+  // shared Agent Client Protocol JSON-RPC client + a runtime-specific
+  // ACP front. Default `undefined` ≡ `"cli"`. Documented per-front
+  // capability gaps live in `runtime/acp/mapping.ts`.
+  /**
+   * Selects the wire transport that backs the call. `"cli"` (default)
+   * routes through the runtime's hand-rolled subprocess wrapper; `"acp"`
+   * routes through the shared {@link
+   * https://agentclientprotocol.com Agent Client Protocol} client +
+   * an ACP front pinned in `runtime/acp/fronts.ts`. See FR-L39.
+   *
+   * Adapters that cannot serve the requested transport throw at
+   * invocation. ACP is currently piloted only on `claude`; other
+   * runtimes accept the literal but throw with a clear message until
+   * their front is promoted out of `pilot: false`.
+   */
+  transport?: "cli" | "acp";
+  /**
+   * Override the ACP front launcher resolved from
+   * `runtime/acp/fronts.ts`. Honored only when `transport === "acp"`.
+   * When supplied, the per-runtime `pilot` guard is bypassed — the
+   * consumer is on the hook for whatever they point at (local fork,
+   * binary download, PATH-stub for tests). Mutually compatible with
+   * `cwd` / `env`, which still merge into the spawned subprocess. See
+   * FR-L39.
+   */
+  acpFront?: AcpFrontLauncher;
   // FR-L36: per-invocation stream-stall watchdog idle threshold.
   /**
    * Maximum seconds of silence on the runtime's NDJSON event stream

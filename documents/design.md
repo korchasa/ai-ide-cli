@@ -1577,6 +1577,98 @@ three per-runtime renderers consumed by adapters.
 (`private-type-ref`) remain green; `deno publish --dry-run` runs
 last in `deno task check` to enforce.
 
+### 3.x ACP Transport (FR-L39)
+
+Opt-in alternate transport routing
+`RuntimeAdapter.invoke` / `openSession` through the Agent Client
+Protocol JSON-RPC stdio interface instead of the per-runtime CLI
+subprocess wrapper. One implementation
+(`runtime/acp/adapter.ts:invokeViaAcp` /
+`openSessionViaAcp`) backs every supported runtime; the
+`RuntimeId` parameter only picks which ACP front to spawn.
+
+- `runtime/acp/client.ts` — `AcpStdioClient` hand-rolled JSON-RPC 2.0
+  stdio client. Owns subprocess lifecycle, routes responses by id,
+  surfaces notifications via single-consumer `notifications()` async
+  iterable, answers inbound `session/request_permission` requests via
+  caller-supplied `onRequest`. `dispose()` is bounded:
+  `writer.close()` races a 1s timer (falls back to `writer.abort()`),
+  SIGTERM races a 5s timer (escalates to SIGKILL), stdout/stderr
+  readers cancelled explicitly to break npx-grandchild-holds-pipe
+  deadlock, drain awaits race a 1s timer. All race timers cleared
+  on winner. Exposes `pendingNotificationCount` getter consumed by
+  the adapter's `flushDrain()` helper.
+- `runtime/acp/fronts.ts` — frozen `Record<RuntimeId, AcpFrontLauncher>`
+  registry. Claude / Codex piloted via `npx -y` to pinned npm
+  packages (`@agentclientprotocol/claude-agent-acp@0.37.0`,
+  `@zed-industries/codex-acp@0.15.0`); OpenCode piloted via the
+  locally-installed `opencode acp` subcommand; Cursor wired but
+  `pilot: false` until `cursor-agent` becomes part of the validation
+  matrix. The `AcpFrontLauncher` interface is re-exported from
+  `mod.ts` and `runtime/index.ts` because it appears on the public
+  `RuntimeInvokeOptions.acpFront` / `RuntimeSessionOptions.acpFront`
+  override (consumer escape hatch — bypasses the pilot guard).
+- `runtime/acp/mapping.ts` — pure mappers between runtime-neutral
+  options and ACP wire shapes:
+  - `buildInitializeParams()` — `clientCapabilities.fs/terminal`
+    declined per ADR-0002.
+  - `buildSessionNewParams(runtime, opts)` — translates `cwd`,
+    `mcpServers` (via `validateMcpServers`) into ACP arrays.
+  - `pickModeForPermissionMode(runtime, declared, mode)` —
+    `session/set_mode` resolution against declared modes; Claude has
+    a static permission-mode→mode-id table; other runtimes match by
+    direct id.
+  - `pickConfigForReasoningEffort` / `pickConfigForModel` —
+    `session/set_config_option` selection. `AcpConfigOptionDecl`
+    accepts both wire shapes: claude/codex `values[].id` and opencode
+    `options[].value`. The handshake reads either
+    `sessionConfigOptions` (claude/codex) or `configOptions`
+    (opencode) from the `session/new` response.
+  - `mapSessionUpdate` — normalizes `session/update` notifications
+    into `RuntimeSessionEvent`.
+  - `collectDegradedOptions(opts)` — synthesizes `AcpDegradedOption[]`
+    for fields ACP cannot losslessly carry (`allowedTools`,
+    `disallowedTools`, `settingSources`, `systemPrompt`). Adapter
+    routes each entry through `OnCallbackError` (FR-L32) so consumers
+    can monitor coverage gaps.
+  - `buildTurnEndEvent` — synthetic `SYNTHETIC_TURN_END` event
+    emitted by the session after each `session/prompt` completes
+    (FR-L21 cross-runtime invariant).
+- `runtime/acp/permissions.ts` — inbound
+  `session/request_permission` handler collapses ACP's multi-option
+  shape down to the existing `OnRuntimeToolUseObservedCallback`
+  allow/deny contract (ADR-0002 keeps HITL out of scope). No callback
+  → first declared `reject_once`/`reject_always` option, or
+  `cancelled` if none.
+- `runtime/acp/adapter.ts` — owns `invokeViaAcp` and `openSessionViaAcp`:
+  - `spawnClient` resolves the launcher from `getAcpFront(runtime)`
+    or the `opts.acpFront` override (bypasses the `pilot` guard).
+  - External `AbortSignal` + `AbortSignal.timeout(timeoutSeconds)`
+    listeners registered separately (not via `AbortSignal.any` — the
+    composed signal's handlers do not always fire on Deno 2.8 during
+    long JSON-RPC awaits). A first-fire latch guards
+    double-invocation.
+  - **`flushDrain(client)`** — bounded best-effort drain after
+    `session/prompt` resolves: yields the event loop until
+    `client.pendingNotificationCount === 0` for two consecutive
+    ticks (cap 20 ticks / 250ms wall clock). Closes the race between
+    PromptResponse resolve and the tail `agent_message_chunk` still
+    sitting in the stdout parser.
+  - `AcpRuntimeSession` implements `RuntimeSession`: `send` wraps
+    `AcpRpcError` in `SessionDeliveryError`, `endInput` is
+    signal-only (flips `#inputClosed`, fire-and-forget dispose —
+    full-shutdown observation lives on `session.done`), `abort` is
+    idempotent (`session/cancel` notify + dispose, both fire-and-
+    forget after the `#aborted` guard). Synthetic
+    `SYNTHETIC_TURN_END` queued after each prompt completes.
+
+Public surface unchanged. New fields on `RuntimeInvokeOptions` /
+`RuntimeSessionOptions`: `transport?: "cli" | "acp"` (default `"cli"`)
+and `acpFront?: AcpFrontLauncher` (honored only when transport is
+`"acp"`). Per-runtime adapters dispatch to `invokeViaAcp` /
+`openSessionViaAcp` when `transport === "acp"`; otherwise the CLI
+path runs byte-for-byte unchanged.
+
 ## 5. Constraints
 
 - **No domain logic:** Library MUST NOT contain git, GitHub, workflow, DAG,

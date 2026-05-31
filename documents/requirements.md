@@ -2067,6 +2067,91 @@ stable — never renumber on move.
         `deno doc --lint runtime/types.ts`; `deno task check` publish
         dry-run passes `missing-jsdoc` / `private-type-ref`.
 
+### 3.37 FR-L39: ACP Transport (Claude + Codex + OpenCode pilots)
+
+- **Description:** Opt-in alternate transport that routes
+  `RuntimeAdapter.invoke` / `openSession` through the Agent Client
+  Protocol (https://agentclientprotocol.com) JSON-RPC stdio interface
+  instead of the per-runtime CLI subprocess wrapper. Three pilots
+  validated end-to-end against real binaries: Claude
+  (`@agentclientprotocol/claude-agent-acp`), Codex
+  (`@zed-industries/codex-acp`), and OpenCode (`opencode acp`
+  subcommand of the locally-installed binary). Cursor entry
+  (`cursor-agent acp`) is pinned in `runtime/acp/fronts.ts` but
+  flagged `pilot: false` until its local IDE binary becomes part
+  of the validation matrix.
+- **Motivation:** Quantify whether one universal transport can replace
+  four hand-rolled subprocess wrappers (PoC tracked under
+  `documents/tasks/2026/05/acp-transport-poc.md`). Public contract
+  stays unchanged; default `transport` is still CLI.
+- **Acceptance:**
+  - [x] `transport?: "cli" | "acp"` lives on `RuntimeInvokeOptions` and
+        `RuntimeSessionOptions`; default behaviour is unchanged when
+        unset.
+        Test: `runtime/transport_option_test.ts::transport: 'acp' dispatches Claude through the ACP adapter`.
+  - [x] Per-runtime adapters dispatch to `runtime/acp/adapter.ts` when
+        `transport === "acp"`. Non-piloted runtimes surface
+        `{error: "acp(<runtime>): … not piloted yet …"}` instead of
+        spawning a front.
+        Test: `runtime/transport_option_test.ts::transport: 'acp' rejects non-pilot runtimes (cursor — needs local IDE)`.
+  - [x] Hand-rolled JSON-RPC 2.0 stdio client in
+        `runtime/acp/client.ts` — no `npm:@agentclientprotocol/sdk`
+        dependency; routes responses by id, surfaces notifications via
+        an async iterable, answers inbound requests via a supplied
+        handler.
+        Test: `runtime/acp/client_test.ts::AcpStdioClient routes responses by id`.
+  - [x] Launcher registry `runtime/acp/fronts.ts` pins Claude to
+        `@agentclientprotocol/claude-agent-acp@0.37.0` and Codex to
+        `@zed-industries/codex-acp@0.15.0` (both `pilot: true` via
+        `npx`); OpenCode delegates to the locally-installed
+        `opencode acp` binary (`pilot: true`); Cursor entry
+        (`cursor-agent acp`) stays `pilot: false`.
+        Test: `runtime/acp/fronts_test.ts::getAcpFront returns Claude launcher with pinned version`.
+  - [x] Pure mappers in `runtime/acp/mapping.ts` translate
+        `cwd` / `mcpServers` / `permissionMode` / `reasoningEffort` /
+        `model` into `initialize` / `session/new` /
+        `session/set_mode` / `session/set_config_option` calls. ACP-lossy
+        fields (`allowedTools`, `disallowedTools`, `settingSources`,
+        `systemPrompt`) surfaced as structured `degradedOptions`
+        diagnostics routed through `onCallbackError` (FR-L32).
+        Test: `runtime/acp/mapping_test.ts::buildSessionNewParams renders stdio mcpServers as name/env array`.
+  - [x] `clientCapabilities.fs = {readTextFile: false, writeTextFile: false}`
+        and `clientCapabilities.terminal = false`. Inbound
+        `session/request_permission` answered with the first
+        `reject_once` / `reject_always` option by default, or routed
+        through `OnRuntimeToolUseObservedCallback` with allow/deny
+        collapse when supplied (ADR-0002 preserved).
+        Test: `runtime/acp/permissions_test.ts::request_permission denies by default when no callback supplied`.
+  - [x] Adapter implementation `runtime/acp/adapter.ts` exposes
+        `invokeViaAcp` + `openSessionViaAcp`; registers the spawned
+        front with the caller-supplied `ProcessRegistry` so `killAll()`
+        reaps it on shutdown.
+        Test: `runtime/acp/adapter_test.ts::invokeViaAcp drives initialize → session/new → session/prompt to a result`.
+  - [x] Real-binary smoke against
+        `@agentclientprotocol/claude-agent-acp` (gated by `E2E=1` +
+        claude auth probe, FR-L31 / FR-L34): one trivial prompt
+        completes with `is_error === false` and reply contains `"ok"`.
+        Evidence: `e2e/acp_claude_smoke_e2e_test.ts::e2e acp/claude/transport=acp returns ok`.
+  - [x] Real-binary smoke against `@zed-industries/codex-acp` (gated
+        on `E2E=1` + `OPENAI_API_KEY` OR codex auth probe;
+        `model: "gpt-5.4-mini"` + `reasoningEffort: "low"` pinned via
+        `session/set_config_option` to fit the e2e ceiling): one
+        trivial prompt completes with `is_error === false` and reply
+        contains `"ok"`.
+        Evidence: `e2e/acp_codex_smoke_e2e_test.ts::e2e acp/codex/transport=acp returns ok`.
+  - [x] Real-binary smoke against `opencode acp` (gated on `E2E=1` +
+        `opencode` on PATH + opencode auth probe; `model:
+        "openai/gpt-5.4-mini-fast"` pinned via
+        `session/set_config_option` because opencode's default model
+        is user-configurable and may suppress
+        `agent_message_chunk` for trivial prompts): one trivial
+        prompt completes with `is_error === false` and reply
+        contains `"ok"`.
+        Evidence: `e2e/acp_opencode_smoke_e2e_test.ts::e2e acp/opencode/transport=acp returns ok`.
+  - [x] `deno publish --dry-run` keeps passing — no ACP JSON-RPC types
+        leak into `mod.ts` / sub-path entries.
+        Evidence: `deno task check`.
+
 ## 4. Non-Functional Requirements
 
 - **Zero engine dependency:** `rg "from.*@korchasa/flowai-workflow" ai-ide-cli/`

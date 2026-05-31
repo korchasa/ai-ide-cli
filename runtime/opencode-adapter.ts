@@ -3,6 +3,7 @@ import {
   type OpenCodeSessionEvent,
   openOpenCodeSession,
 } from "../opencode/session.ts";
+import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
 import type {
   InteractiveOptions,
   InteractiveResult,
@@ -121,6 +122,11 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     sessionFidelity: "native",
   },
   invoke(opts) {
+    // FR-L39: opt-in ACP transport. Default `transport === "cli"` keeps
+    // the CLI path unchanged.
+    if (opts.transport === "acp") {
+      return invokeViaAcp("opencode", opts);
+    }
     rejectUnsupportedSystemPromptFile("opencode", opts);
     validateToolFilter("opencode", opts);
     warnToolFilterOnce(opts);
@@ -144,6 +150,9 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    if (opts.transport === "acp") {
+      return openSessionViaAcp("opencode", opts);
+    }
     validateToolFilter("opencode", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("opencode", opts);

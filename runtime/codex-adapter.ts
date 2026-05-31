@@ -1,5 +1,6 @@
 import { invokeCodexCli } from "../codex/process.ts";
 import { openCodexSession } from "../codex/session.ts";
+import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
 import type {
   InteractiveOptions,
   InteractiveResult,
@@ -111,6 +112,8 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     sessionFidelity: "native",
   },
   invoke(opts) {
+    // FR-L39
+    if (opts.transport === "acp") return invokeViaAcp("codex", opts);
     rejectUnsupportedSystemPromptFile("codex", opts);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
@@ -120,6 +123,7 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     return invokeCodexCli(opts);
   },
   openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    if (opts.transport === "acp") return openSessionViaAcp("codex", opts);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);

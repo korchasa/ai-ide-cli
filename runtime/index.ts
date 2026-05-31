@@ -85,6 +85,9 @@ export type {
 } from "./runtime-error-analysis.ts";
 export type { ProcessRegistry } from "../process-registry.ts";
 export type { SkillDef, SkillFrontmatter } from "../skill/types.ts";
+// FR-L39: reachable from sub-path entry because `RuntimeInvokeOptions.acpFront`
+// references `AcpFrontLauncher`.
+export type { AcpFrontLauncher } from "./acp/fronts.ts";
 
 const ADAPTERS: Record<RuntimeId, RuntimeAdapter> = {
   claude: claudeRuntimeAdapter,
