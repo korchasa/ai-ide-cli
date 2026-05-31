@@ -32,6 +32,10 @@ import {
 } from "../errors.ts";
 import { safeAwaitCallback, safeInvokeCallback } from "../callback-safety.ts";
 import { SessionEventQueue } from "../event-queue.ts";
+import {
+  analyzeRuntimeErrorSignal,
+  type RuntimeErrorAnalysis,
+} from "../runtime-error-analysis.ts";
 import { AcpRpcError, AcpStdioClient } from "./client.ts";
 import { getAcpFront } from "./fronts.ts";
 import {
@@ -252,6 +256,113 @@ function extractAgentChunkText(
 }
 
 /**
+ * FR-L37: map an ACP `PromptResponse.stopReason` to a structured
+ * runtime-error analysis. Pure — never throws, never reads from the wire.
+ *
+ * - `end_turn` / `cancelled` → `undefined` (no failure / consumer-initiated).
+ * - `max_tokens` → token-budget classification (via the shared analyzer
+ *   so the message normalisation stays consistent with CLI surfaces).
+ * - `max_turn_requests` → synthesised `runtime_error` (no neutral analog
+ *   in `RuntimeErrorKind`; medium confidence).
+ * - `refusal` → synthesised `policy` analysis.
+ * - Anything else → synthesised low-confidence `runtime_error`.
+ */
+function classifyStopReason(
+  stopReason: string,
+  runtime: RuntimeId,
+): RuntimeErrorAnalysis | undefined {
+  if (stopReason === "end_turn" || stopReason === "cancelled") return undefined;
+  if (stopReason === "max_tokens") {
+    // The synthetic text must hit the analyzer's token-budget regex so
+    // we get a `token_budget` kind (not the fallback `runtime_error`).
+    return analyzeRuntimeErrorSignal({
+      runtime,
+      source: "error_string",
+      text: "token budget exceeded",
+      assumeRuntimeError: true,
+    });
+  }
+  if (stopReason === "max_turn_requests") {
+    return {
+      runtime,
+      source: "error_string",
+      kind: "runtime_error",
+      confidence: "medium",
+      message: "max turn requests exceeded",
+    };
+  }
+  if (stopReason === "refusal") {
+    return {
+      runtime,
+      source: "error_string",
+      kind: "policy",
+      confidence: "high",
+      message: "agent refused",
+    };
+  }
+  return {
+    runtime,
+    source: "error_string",
+    kind: "runtime_error",
+    confidence: "low",
+    message: `unknown stop reason: ${stopReason}`,
+  };
+}
+
+/**
+ * FR-L37: classify a JSON-RPC error surfaced by the ACP client.
+ * `assumeRuntimeError` is set so an unrecognised but RPC-confirmed
+ * failure still surfaces a low-confidence `runtime_error` kind instead
+ * of leaking through as `undefined`.
+ */
+function classifyRpcError(
+  err: AcpRpcError,
+  runtime: RuntimeId,
+): RuntimeErrorAnalysis | undefined {
+  return analyzeRuntimeErrorSignal({
+    runtime,
+    source: "error_string",
+    text: err.message,
+    assumeRuntimeError: true,
+  });
+}
+
+/**
+ * FR-L37: classify the captured stderr tail. Falls back to `undefined`
+ * for blank/whitespace tails and for tails that the pure classifier
+ * cannot recognise — RPC analysis is the primary signal; stderr only
+ * fills in when RPC has nothing to say.
+ */
+function classifyStderrTail(
+  text: string,
+  runtime: RuntimeId,
+): RuntimeErrorAnalysis | undefined {
+  if (!text.trim()) return undefined;
+  return analyzeRuntimeErrorSignal({ runtime, source: "stderr", text });
+}
+
+/**
+ * FR-L37: pick the more specific of two candidate analyses. The RPC
+ * channel is authoritative — but when its analysis is the catch-all
+ * `runtime_error` kind (the analyzer's fallback for opaque wire
+ * messages like JSON-RPC -32603 "Internal error"), a stderr-side
+ * classification with a narrower kind takes over. Returns `undefined`
+ * when both candidates are absent.
+ */
+function pickClassification(
+  rpc: RuntimeErrorAnalysis | undefined,
+  stderr: RuntimeErrorAnalysis | undefined,
+): RuntimeErrorAnalysis | undefined {
+  if (!rpc) return stderr;
+  if (
+    rpc.kind === "runtime_error" && stderr && stderr.kind !== "runtime_error"
+  ) {
+    return stderr;
+  }
+  return rpc;
+}
+
+/**
  * Invoke an ACP front for one prompt turn and return the runtime-neutral
  * {@link RuntimeInvokeResult}.
  *
@@ -377,7 +488,12 @@ export async function invokeViaAcp(
 
     const durationMs = Math.round(performance.now() - startedAt);
     const stopReason = promptRes.stopReason ?? "end_turn";
-    const isError = stopReason === "refusal" || stopReason === "cancelled";
+    // FR-L37: `is_error` flips on any non-`end_turn` reason so consumers
+    // that ignore `runtime_error` still see the legacy boolean. The
+    // structured analysis is attached separately for callers that
+    // branch on `runtime_error.kind`.
+    const isError = stopReason !== "end_turn";
+    const stopAnalysis = classifyStopReason(stopReason, runtime);
 
     const result = {
       runtime,
@@ -388,7 +504,10 @@ export async function invokeViaAcp(
       is_error: isError,
     };
     opts.hooks?.onResult?.(result);
-    return { output: result };
+    return {
+      output: result,
+      ...(stopAnalysis ? { runtime_error: stopAnalysis } : {}),
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const stderrTail = client.stderr.trim().split("\n").slice(-10).join("\n");
@@ -396,7 +515,22 @@ export async function invokeViaAcp(
     if (abortedFor) {
       return { error: `Aborted: ${abortedFor}` };
     }
-    return { error: `acp(${runtime}): ${message}${suffix}` };
+    // FR-L37: RPC analysis is the primary signal — but only when it
+    // carries a specific kind. When the RPC error is generic (the
+    // analyzer fell back to `runtime_error` because the wire message
+    // was opaque, e.g. JSON-RPC -32603 "Internal error"), defer to the
+    // stderr tail if it classifies to something narrower. Mirrors the
+    // documented precedence rule on the Risks section of
+    // `acp-reliability-parity.md`.
+    const rpcAnalysis = err instanceof AcpRpcError
+      ? classifyRpcError(err, runtime)
+      : undefined;
+    const stderrAnalysis = classifyStderrTail(stderrTail, runtime);
+    const runtimeError = pickClassification(rpcAnalysis, stderrAnalysis);
+    return {
+      error: `acp(${runtime}): ${message}${suffix}`,
+      ...(runtimeError ? { runtime_error: runtimeError } : {}),
+    };
   } finally {
     opts.signal?.removeEventListener("abort", onAbort);
     timeoutSignal?.removeEventListener("abort", onAbort);
