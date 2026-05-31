@@ -5,6 +5,7 @@ import type { SettingSource } from "./setting-sources.ts";
 import type { ReasoningEffort } from "./reasoning-effort.ts";
 import type { McpServers } from "./mcp-injection.ts";
 import type { ExtraArgsMap } from "./adapter-types.ts";
+import type { AcpFrontLauncher } from "./acp/fronts.ts";
 
 /**
  * Options for opening a runtime-neutral streaming session via
@@ -101,6 +102,19 @@ export interface RuntimeSessionOptions {
    * regardless. See FR-L32.
    */
   onCallbackError?: OnCallbackError;
+  /**
+   * Selects the wire transport that backs the session. `"cli"` (default)
+   * routes through the runtime's hand-rolled subprocess wrapper; `"acp"`
+   * routes through the shared Agent Client Protocol JSON-RPC client +
+   * the ACP front pinned in `runtime/acp/fronts.ts`. See FR-L39.
+   */
+  transport?: "cli" | "acp";
+  /**
+   * Override the ACP front launcher resolved from
+   * `runtime/acp/fronts.ts`. Honored only when `transport === "acp"`.
+   * Same contract as {@link RuntimeInvokeOptions.acpFront}.
+   */
+  acpFront?: AcpFrontLauncher;
 }
 
 /**

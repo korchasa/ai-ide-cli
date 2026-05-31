@@ -287,7 +287,7 @@ async function executeOpenCodeProcess(
   // timer fires; the outer status-handling block throws the typed error
   // so the retry loop can branch on the message prefix.
   let streamStalled = false;
-  let stallTimer: number | undefined;
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
 
   try {
     const timeoutSignal = AbortSignal.timeout(timeoutSeconds * 1000);

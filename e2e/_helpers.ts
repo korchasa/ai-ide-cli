@@ -129,6 +129,55 @@ export function ceiling(ms: number, onFire: () => void): () => void {
   return () => clearTimeout(id);
 }
 
+/**
+ * Per-runtime auth env var consumed by the runtime's ACP front. Used by
+ * {@link e2eAcpEnabled} to gate `transport: "acp"` smokes without
+ * requiring the runtime's IDE CLI to be installed on PATH.
+ *
+ * Cursor / OpenCode ACP fronts wrap the local IDE binary
+ * (`cursor-agent acp`, `opencode acp`), so they require a binary probe
+ * AND vendor-specific auth — those gates fall back to the standard
+ * {@link e2eEnabled} flow.
+ */
+const ACP_REQUIRED_ENV: Partial<Record<RuntimeId, string>> = {
+  // FR-L39: claude-agent-acp uses the standard Anthropic API auth.
+  claude: "ANTHROPIC_API_KEY",
+  // FR-L39: codex-acp self-contains its native binary and authenticates
+  // via the OpenAI API. No `codex` CLI install required.
+  codex: "OPENAI_API_KEY",
+};
+
+/**
+ * Gate for `transport: "acp"` smoke tests. Differs from {@link e2eEnabled}:
+ * the per-runtime ACP front is launched via `npx`, so the runtime's own
+ * CLI binary is NOT required on PATH. Enabled when EITHER:
+ *
+ * 1. The API-auth env var the ACP front consumes is set (e.g.
+ *    `ANTHROPIC_API_KEY` for claude, `OPENAI_API_KEY` for codex), OR
+ * 2. The runtime's IDE CLI is on PATH and the standard auth probe
+ *    passes — the ACP front can then read stored credentials from the
+ *    CLI's config dir (`~/.claude/`, `~/.config/codex/`, …).
+ *
+ * @param runtime Runtime to gate.
+ */
+export async function e2eAcpEnabled(runtime: RuntimeId): Promise<boolean> {
+  if (Deno.env.get("E2E") !== "1") return false;
+  const allowList = (Deno.env.get("E2E_RUNTIMES") ?? "").trim();
+  if (allowList) {
+    const allow = allowList.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!allow.includes(runtime)) return false;
+  }
+  const apiEnv = ACP_REQUIRED_ENV[runtime];
+  if (apiEnv) {
+    const value = Deno.env.get(apiEnv);
+    if (typeof value === "string" && value.length > 0) return true;
+  }
+  // Fall back to the CLI auth probe — covers environments where the
+  // IDE binary stores credentials and the ACP front reads them
+  // (e.g. claude-agent-acp reads `~/.claude/`).
+  return await e2eEnabled(runtime);
+}
+
 /** Single-word reply prompts — minimal token spend per turn. */
 export const ONE_WORD_OK: string = "Reply with exactly the word: ok";
 /** Second-turn prompt used by `two-turns` scenarios. */

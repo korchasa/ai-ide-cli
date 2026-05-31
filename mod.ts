@@ -381,6 +381,11 @@ export type {
 export type { SkillDef, SkillFrontmatter } from "./skill/types.ts";
 export { parseSkill } from "./skill/parser.ts";
 
+// FR-L39: reachable from the root entry because
+// `RuntimeInvokeOptions.acpFront` / `RuntimeSessionOptions.acpFront`
+// reference `AcpFrontLauncher`.
+export type { AcpFrontLauncher } from "./runtime/acp/fronts.ts";
+
 // --- Process registry (pure tracker) ---
 export {
   defaultRegistry,
