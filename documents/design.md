@@ -384,15 +384,20 @@ classification is deferred until runtime-specific evidence is captured.
   (tool invocation — id, name, optional input), `NormalizedFinalContent`
   (complete assistant reply).
 - `extractSessionContent(event): NormalizedContent[]` — pure
-  dispatcher keyed on `event.runtime`. Synthetic events and
+  dispatcher keyed on `event.runtime`, with an ACP-shape arm (FR-L39)
+  checked before the per-runtime switch via `isAcpShapedEvent`
+  (`event.type === "session/update"` or nested
+  `raw.update.sessionUpdate` string). Synthetic events and
   unrecognized types return `[]`. Never throws on malformed payloads.
 - Per-runtime extractor functions live in `<runtime>/content.ts`
   (`claude/content.ts:extractClaudeContent`,
   `cursor/content.ts:extractCursorContent`,
   `codex/content.ts:extractCodexContent`,
-  `opencode/content.ts:extractOpenCodeContent`). The dispatcher in
-  `runtime/content.ts` is the only allowed `runtime/ → <runtime>/`
-  consumer (mirrors the `runtime/index.ts` adapter aggregation).
+  `opencode/content.ts:extractOpenCodeContent`); the shared ACP-arm
+  extractor lives in `runtime/acp/content.ts:extractAcpContent`. The
+  dispatcher in `runtime/content.ts` is the only allowed `runtime/ →
+  <runtime>/` and `runtime/ → runtime/acp/` consumer (mirrors the
+  `runtime/index.ts` adapter aggregation).
 - Per-runtime extractors:
   - **Claude / Cursor** (shared — stream-json): `assistant` event
     fans out `raw.message.content[]` preserving source order
@@ -413,6 +418,14 @@ classification is deferred until runtime-specific evidence is captured.
     content; with tool part at terminal state (`completed`/`failed`),
     with resolvable id → tool content. Mirrors `openCodeToolUseInfo`'s
     FR-L16 filtering rule.
+  - **ACP transport** (FR-L39 pilots — claude / codex / opencode):
+    `session/update` notifications with
+    `update.sessionUpdate === "agent_message_chunk"` → delta text
+    (`cumulative: false` — ACP emits deltas, not running totals);
+    with `tool_call_update` → tool content (`name` falls back from
+    `title` to `kind`; `input` threads through `rawInput`). Other
+    variants (`plan`, `current_mode_update`, future kinds) return
+    `[]`.
 - **Documented gaps** (kept visible in `runtime/CLAUDE.md` too):
   - OpenCode has no native final-text event → consumers flush the
     last `cumulative:true` text on `SYNTHETIC_TURN_END`.
@@ -1608,6 +1621,14 @@ subprocess wrapper. One implementation
   `mod.ts` and `runtime/index.ts` because it appears on the public
   `RuntimeInvokeOptions.acpFront` / `RuntimeSessionOptions.acpFront`
   override (consumer escape hatch — bypasses the pilot guard).
+- `runtime/acp/content.ts` — `extractAcpContent(runtime, type, raw)`
+  per-transport `NormalizedContent` extractor (FR-L23 + FR-L39).
+  Variant-based projection: `agent_message_chunk` → delta text
+  (`cumulative: false`), `tool_call_update` → tool content (name
+  falls back from `title` to `kind`; input threads through
+  `rawInput`). Pure; never throws. Wired into the
+  `runtime/content.ts` dispatcher ahead of the per-CLI switch via
+  `isAcpShapedEvent`.
 - `runtime/acp/mapping.ts` — pure mappers between runtime-neutral
   options and ACP wire shapes:
   - `buildInitializeParams()` — `clientCapabilities.fs/terminal`
