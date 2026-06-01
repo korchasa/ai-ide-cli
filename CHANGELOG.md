@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.8](https://github.com/korchasa/ai-ide-cli/compare/v0.8.7...v0.8.8) (2026-06-01)
+
+
+### Features
+
+* **runtime:** normalize ACP session/update content (FR-L23) ([235267f](https://github.com/korchasa/ai-ide-cli/commit/235267f8155faf6470fd34c3978271a50bc94f7d))
+* **runtime:** opt-in ACP transport (claude + codex + opencode pilots) ([2d99810](https://github.com/korchasa/ai-ide-cli/commit/2d9981034c9e13c1c5041a59864291bc8a6bf12a))
+* **runtime:** retry loop in invokeViaAcp (FR-L39) ([40994a6](https://github.com/korchasa/ai-ide-cli/commit/40994a6a1c5b2f3ff1f44ef4e9b6606c4bd0e537))
+* **runtime:** runtime_error analysis for ACP transport (FR-L37) ([44ec5da](https://github.com/korchasa/ai-ide-cli/commit/44ec5da7a7f8a92cb05f80e9a3e5be19aada1103))
+* **runtime:** transport-aware capabilities for ACP (FR-L39) ([fa7d6d0](https://github.com/korchasa/ai-ide-cli/commit/fa7d6d051594dadff52957309d08711567a37ebe))
+
+
+### Code Refactoring
+
+* **runtime:** fold extractAgentChunkText into extractAcpContent (FR-L23) ([23d31d5](https://github.com/korchasa/ai-ide-cli/commit/23d31d595e77a994c8b59863296ddc34ab95026f))
+
+
+### Tests
+
+* **e2e:** assert extractSessionContent returns text on ACP turn (FR-L23) ([0466fb6](https://github.com/korchasa/ai-ide-cli/commit/0466fb6fa7e0c5be7492846f40af1c6953dd4a64))
+* **e2e:** assert invokeViaAcp retries past broken first attempt (FR-L39) ([7e14c42](https://github.com/korchasa/ai-ide-cli/commit/7e14c42baac547202faf9f30605c81d890022347))
+
+
+### Documentation
+
+* **readme:** document opt-in ACP transport surface (FR-L39) ([58be3ab](https://github.com/korchasa/ai-ide-cli/commit/58be3abea9e18e87e81f0972d4d1d77f5f5976e4))
+* **tasks:** mark acp-surface-parity DoD complete ([9a992b8](https://github.com/korchasa/ai-ide-cli/commit/9a992b84627ed3fe950c4d734175a6704ca095f1))
+* **tasks:** plan ACP transport parity closeouts (FR-L17/L19/L20/L39) ([b2332b1](https://github.com/korchasa/ai-ide-cli/commit/b2332b13ec92a412626e76a76226762083600624))
+
 ### [0.8.7](https://github.com/korchasa/ai-ide-cli/compare/v0.8.6...v0.8.7) (2026-05-17)
 
 
