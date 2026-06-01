@@ -497,7 +497,7 @@ When the root cause is outside your control (missing API keys/URLs, missing gene
 - `deno task test` — unit tests only (`deno test -A --no-check .`). Use during TDD RED/GREEN iterations on specific files; `check` subsumes it for final verification.
 - `deno task fmt` — format in place.
 - `deno task release` — `standard-version` version bump (CI-invoked).
-- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L31). Narrow with `deno task e2e:<claude|opencode|cursor|codex>`. Manual; not part of `deno task check`. Gated by `E2E=1` + per-runtime `$PATH` probe; missing binaries surface as ignored tests.
+- `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L31). Narrow with `deno task e2e:<claude|opencode|cursor|codex>` or `deno task e2e:acp` (ACP transport smoke across claude/codex/opencode pilots, FR-L39). Manual; not part of `deno task check`. Gated by `E2E=1` + per-runtime `$PATH` probe; missing binaries surface as ignored tests.
 - `deno run -A scripts/smoke.ts <scenario>` — ad-hoc capture script for typing new runtime stream events (e.g. `cursor-events`, see FR-L30 workflow).
 
 **Iteration tip — avoid the big-bang pipeline loop.** `deno task check` takes ~40s because it runs the full suite. For fast fmt/lint/JSDoc iteration, run the cheap sub-steps individually first:
