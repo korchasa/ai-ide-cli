@@ -544,6 +544,7 @@ stable — never renumber on move.
   their native init events into the minimal `RuntimeInitInfo` shape.
   Dispatch order is fixed: `onEvent(raw)` → typed hook →
   `onToolUseObserved` (for `tool_use` blocks) → internal mutations.
+- **Tasks:** [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md)
 - **Motivation:** Typed hooks remove casts in consumer code and give
   callers a predictable observation point without subscribing to every
   raw event.
@@ -709,6 +710,7 @@ stable — never renumber on move.
     `adaptEventCallback`) so every adapter emits the same shape with no
     duplicated boilerplate. All four `events` iterables share a single
     `runtime/event-queue.ts` (`SessionEventQueue<T>`) implementation.
+- **Tasks:** [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md)
 - **Motivation:** SDK-parity bidirectional sessions — callers can push
   follow-up messages without respawning the CLI from scratch or losing
   context; fits interactive use cases (`/compact`-style flows, human
@@ -822,6 +824,7 @@ stable — never renumber on move.
     `--output-schema <path>`; OpenCode and Cursor have no schema flag and
     rely on the prompt alone (parser tolerates pure JSON, markdown-fenced
     JSON, and prose-embedded JSON via first/last-brace slice).
+- **Tasks:** [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md)
 - **Motivation:** Consumers (dashboards, IDE selectors, workflow planners)
   need to know what is actually available in a given project without
   replicating per-IDE filesystem/plugin discovery logic (skills may live
@@ -2110,7 +2113,7 @@ stable — never renumber on move.
   (`cursor-agent acp`) is pinned in `runtime/acp/fronts.ts` but
   flagged `pilot: false` until its local IDE binary becomes part
   of the validation matrix.
-- **Tasks:** [acp-transport-poc](tasks/2026/05/acp-transport-poc.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md), [acp-followups](tasks/2026/06/acp-followups.md)
+- **Tasks:** [acp-transport-poc](tasks/2026/05/acp-transport-poc.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md), [acp-followups](tasks/2026/06/acp-followups.md), [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md)
 - **Motivation:** Quantify whether one universal transport can replace
   four hand-rolled subprocess wrappers (PoC tracked under
   `documents/tasks/2026/05/acp-transport-poc.md`). Public contract
