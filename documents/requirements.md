@@ -942,7 +942,7 @@ stable — never renumber on move.
   events (including `SYNTHETIC_TURN_END`, Cursor's open-time init /
   `send_failed`) return `[]` so consumers observe turn boundaries via
   the existing synthetic-event flag, not via content.
-- **Tasks:** [codex-mcp-hitl-input-contract](tasks/2026/05/codex-mcp-hitl-input-contract.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md).
+- **Tasks:** [codex-mcp-hitl-input-contract](tasks/2026/05/codex-mcp-hitl-input-contract.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-followups](tasks/2026/06/acp-followups.md).
 - **Per-runtime source mapping** (keep in sync with the upstream
   protocols — the Codex session path uses app-server v2 camelCase
   types, NOT the snake_case NDJSON types used by `codex exec`):
@@ -1997,7 +1997,7 @@ stable — never renumber on move.
   evidence. Known subtypes are precise; otherwise adapters may return
   `kind: "runtime_error"` after they already know the failure came from the
   runtime.
-- **Tasks:** [runtime-error-handling](tasks/2026/05/runtime-error-handling.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md)
+- **Tasks:** [runtime-error-handling](tasks/2026/05/runtime-error-handling.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md), [acp-followups](tasks/2026/06/acp-followups.md)
 - **Motivation:** Runtime CLIs surface quota, rate, context-window, and
   provider-plan states through incompatible channels. OpenCode logs upstream
   HTTP 401 / 402 / 403 / 429 internally; Cursor emits Free-plan named-model
@@ -2110,7 +2110,7 @@ stable — never renumber on move.
   (`cursor-agent acp`) is pinned in `runtime/acp/fronts.ts` but
   flagged `pilot: false` until its local IDE binary becomes part
   of the validation matrix.
-- **Tasks:** [acp-transport-poc](tasks/2026/05/acp-transport-poc.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md)
+- **Tasks:** [acp-transport-poc](tasks/2026/05/acp-transport-poc.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md), [acp-followups](tasks/2026/06/acp-followups.md)
 - **Motivation:** Quantify whether one universal transport can replace
   four hand-rolled subprocess wrappers (PoC tracked under
   `documents/tasks/2026/05/acp-transport-poc.md`). Public contract
