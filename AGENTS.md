@@ -18,6 +18,11 @@
 
 # AGENTS.md — @korchasa/ai-ide-cli
 
+> **File layout note**: `CLAUDE.md` and `runtime/CLAUDE.md` are symlinks to
+> the `AGENTS.md` at the same level. Edit `AGENTS.md` directly — the Edit
+> tool refuses to write through the symlink and surfaces "Refusing to write
+> through symlink" instead of editing silently.
+
 Thin Deno/TypeScript wrapper library around agent-CLI runtimes
 (Claude Code, OpenCode, Cursor, Codex) plus a skill parser. HITL is
 out of scope (ADR-0002).
@@ -495,7 +500,7 @@ When the root cause is outside your control (missing API keys/URLs, missing gene
 
 - `deno task check` — full verification (fmt, lint, type check, **full test suite**, doc-lint, `deno publish --dry-run`). Authoritative. **Supersedes `deno task test`** — the pipeline already invokes `deno test -A`, so running both back-to-back duplicates ~40s of work.
 - `deno task test` — unit tests only (`deno test -A --no-check .`). Use during TDD RED/GREEN iterations on specific files; `check` subsumes it for final verification.
-- `deno task fmt` — format in place.
+- `deno task fmt` — format in place. **Scope**: `**/*.md` is excluded via `deno.json#fmt.exclude` — markdown changes do NOT need `deno fmt --check` verification. Treat `deno fmt --check <some.md>` returning `error: No target files found` as expected (the file is intentionally excluded), not a transient failure to retry.
 - `deno task release` — `standard-version` version bump (CI-invoked).
 - `deno task e2e` — opt-in real-binary suite under `e2e/` (FR-L31). Narrow with `deno task e2e:<claude|opencode|cursor|codex>` or `deno task e2e:acp` (ACP transport smoke across claude/codex/opencode pilots, FR-L39). Manual; not part of `deno task check`. Gated by `E2E=1` + per-runtime `$PATH` probe; missing binaries surface as ignored tests.
 - `deno run -A scripts/smoke.ts <scenario>` — ad-hoc capture script for typing new runtime stream events (e.g. `cursor-events`, see FR-L30 workflow).
@@ -530,5 +535,6 @@ constructor(foo: string) { ... }
 - **Module level**: a module *may* ship an `AGENTS.md` describing its responsibility and key decisions when the module has non-obvious local invariants (see `runtime/AGENTS.md`, `cursor/AGENTS.md`). Not mandatory — small modules whose contract fits in a JSDoc `@module` block do not need one. The root `AGENTS.md` is the source of truth; module files only document local nuances on top of it.
 - **Code level**: JSDoc for exported classes, methods, and functions — JSR slow-types enforces this on public API. Focus on *why* and *how*, not *what*. Skip trivial comments — they add noise without value.
 - **Requirement traceability**: when code implements a requirement from SRS (`documents/requirements.md`), add a `// FR-L<N>` comment **directly above the exported symbol** (function, class, const) that implements the requirement — a module-level comment above the imports does not satisfy this, because future reorganization separates the comment from the logic it traces. Code references requirements, not the reverse — SRS must not contain file paths. Exceptions: requirements verified by benchmarks or proven by file existence need no comment.
+- **Typed examples in README/docs must be grep-verified**: before writing a typed example like `const x: SomeType = { field: ... }` in README or any doc, grep for `interface SomeType` / `type SomeType =` in the source and copy field names verbatim. Do not draft API examples from memory or by analogy with sibling SDKs — field names diverge silently (`cmd` vs `command`, `name` vs `id`) and compile-fail for end-users downloading from JSR. The published example IS the API contract a reader sees first; review/CI cannot catch a typo that compiles in markdown.
 
 > **Before you start:** read `documents/requirements.md` (SRS) and `documents/design.md` (SDS) if you haven't in this session. They contain project requirements and architecture that inform every task.
