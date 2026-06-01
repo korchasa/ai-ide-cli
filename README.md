@@ -55,6 +55,17 @@ adapter.capabilities; // { permissionMode, transcript, interactive,
                       //   toolFilter, reasoningEffort }
 ```
 
+Capabilities reflect the CLI transport (the historical default). When
+selecting a non-default transport, query `capabilitiesFor(transport)`
+to see which surfaces actually round-trip on that wire:
+
+```ts
+adapter.capabilitiesFor?.("acp");
+// e.g. claude/codex/opencode pilots downgrade `transcript`,
+// `interactive`, `toolFilter`, and `capabilityInventory` to false
+// on ACP. See "Alternate Transport (ACP)" below.
+```
+
 ### Feature support matrix
 
 | Feature              | claude         | opencode       | cursor            | codex          |
@@ -276,6 +287,88 @@ maps to `--append-system-prompt-file <path>`. It is mutually exclusive
 with `systemPrompt`; OpenCode, Cursor, and Codex reject it until they
 gain native file-prompt support.
 
+## Alternate Transport (ACP)
+
+Opt into the [Agent Client Protocol](https://agentclientprotocol.com)
+JSON-RPC stdio transport instead of the hand-rolled per-runtime
+subprocess wrapper. Same `RuntimeAdapter` API, same
+`RuntimeSessionEvent` shape, same `analyzeRuntimeErrorSignal` retry
+classification — only the wire dialect changes (FR-L39).
+
+Three pilots validated end-to-end against real binaries:
+
+- **claude** — `@agentclientprotocol/claude-agent-acp@0.37.0` via `npx`.
+- **codex** — `@zed-industries/codex-acp@0.15.0` via `npx`.
+- **opencode** — `opencode acp` subcommand of the locally-installed
+  binary.
+
+Cursor (`cursor-agent acp`) is wired in `runtime/acp/fronts.ts` but
+flagged `pilot: false`; passing `transport: "acp"` to the Cursor
+adapter throws a "not piloted yet" error until its local IDE binary
+joins the validation matrix.
+
+```ts
+import { getRuntimeAdapter } from "jsr:@korchasa/ai-ide-cli/runtime";
+
+const adapter = getRuntimeAdapter("claude");
+const { output, error } = await adapter.invoke({
+  taskPrompt: "Reply with the word: ok",
+  timeoutSeconds: 60,
+  maxRetries: 1,
+  retryDelaySeconds: 1,
+  transport: "acp", // default is "cli"
+});
+```
+
+What's preserved across the ACP wire:
+
+- `cwd`, `env`, `permissionMode`, `reasoningEffort`, `model`, MCP
+  injection (`mcpServers`), tool-use observation, and streaming-input
+  sessions (`openSession`) all round-trip natively.
+- Synthetic `SYNTHETIC_TURN_END` is emitted after each
+  `session/prompt` completes (same cross-runtime invariant as the CLI
+  path).
+- `analyzeRuntimeErrorSignal` classifies three ACP failure surfaces:
+  `AcpRpcError` envelope, `PromptResponse.stopReason` (e.g.
+  `max_tokens → token_budget`), and stderr tail. Retries follow the
+  same kind-based policy as CLI (terminal on `auth` / `policy` /
+  `context_window` / `token_budget` / `plan_limit`).
+
+What downgrades on the ACP path:
+
+- `transcript`, `interactive` (TUI), `toolFilter` (`allowedTools` /
+  `disallowedTools`), and `capabilityInventory` are unavailable.
+- ACP-lossy fields (`allowedTools`, `disallowedTools`,
+  `settingSources`, `systemPrompt`) are surfaced as structured
+  `degradedOptions` diagnostics routed through `onCallbackError`
+  (FR-L32) so consumers can monitor coverage gaps.
+
+Override the resolved front when you need a local fork or a
+test stub (`acpFront` bypasses the `pilot` guard):
+
+```ts
+import type { AcpFrontLauncher } from "jsr:@korchasa/ai-ide-cli";
+
+const customFront: AcpFrontLauncher = {
+  cmd: "/path/to/local/claude-agent-acp",
+  args: ["--stdio"],
+  pilot: true,
+};
+await adapter.invoke({
+  taskPrompt: "...",
+  timeoutSeconds: 60,
+  maxRetries: 0,
+  retryDelaySeconds: 1,
+  transport: "acp",
+  acpFront: customFront,
+});
+```
+
+Discovery-sensitive paths (e.g. `npx` resolution against a
+misconfigured `acpFront`) classify as unclassified spawn errors and
+will be retried up to `maxRetries`. Prefer `maxRetries: 0` when you
+do not trust the launcher binary.
+
 > **OS signals:** the library never installs `SIGINT`/`SIGTERM` handlers
 > itself. Downstream `installSignalHandlers()` helpers typically reap
 > only the **default singleton**. Subprocesses tracked by a private
@@ -323,7 +416,9 @@ Callers should cache results — hence the `Slow` suffix.
   Requires Claude / OpenCode / Cursor / Codex CLIs on `$PATH`,
   authenticated (logged in or API key configured), and spends real
   tokens. Guarded by `E2E=1`; narrow to one runtime with
-  `deno task e2e:<claude|opencode|cursor|codex>` (sets `E2E_RUNTIMES`).
+  `deno task e2e:<claude|opencode|cursor|codex>` (sets `E2E_RUNTIMES`),
+  or to the ACP transport smoke suite with `deno task e2e:acp`
+  (claude + codex + opencode pilots, FR-L39).
   Missing binaries surface as ignored tests instead of ENOENT.
   Installed-but-unauthenticated binaries fail loudly via the FR-L34
   auth-probe at load time — no spurious assertion failures. Not wired
