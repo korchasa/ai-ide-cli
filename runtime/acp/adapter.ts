@@ -37,6 +37,7 @@ import {
   type RuntimeErrorAnalysis,
 } from "../runtime-error-analysis.ts";
 import { AcpRpcError, AcpStdioClient } from "./client.ts";
+import { extractAcpContent } from "./content.ts";
 import { getAcpFront } from "./fronts.ts";
 import {
   type AcpConfigOptionDecl,
@@ -222,37 +223,6 @@ async function flushDrain(client: AcpStdioClient): Promise<void> {
       emptyStreak = 0;
     }
   }
-}
-
-/**
- * Best-effort assistant-text chunk extractor matching the shape the Claude
- * ACP front emits at v0.37.0:
- *
- *   `session/update` params → `{ sessionId, update: { sessionUpdate:
- *      "agent_message_chunk", content: { type: "text", text: "..." } } }`
- *
- * Also accepts the simpler one-level form `params.sessionUpdate` for
- * forward compatibility with adapter stubs and future ACP fronts that
- * skip the `update` wrapper. Returns `undefined` for non-text updates so
- * the caller can keep the projection minimal.
- *
- * Parallel projection: the public `extractAcpContent` in
- * `runtime/acp/content.ts` reads the same wire shape for FR-L23 consumers
- * (`extractSessionContent`). Both intentionally coexist — the private
- * projection feeds `result.output.result` inline; deduplication is a
- * non-blocking follow-up tracked in `documents/tasks/2026/06/acp-surface-parity.md`.
- */
-function extractAgentChunkText(
-  params: Record<string, unknown> | undefined,
-): string | undefined {
-  if (!params || typeof params !== "object") return undefined;
-  const wrap = params["update"] as Record<string, unknown> | undefined ??
-    params;
-  if (wrap["sessionUpdate"] !== "agent_message_chunk") return undefined;
-  const content = wrap["content"] as Record<string, unknown> | undefined;
-  if (!content || content["type"] !== "text") return undefined;
-  const text = content["text"];
-  return typeof text === "string" ? text : undefined;
 }
 
 /**
@@ -562,12 +532,20 @@ async function attemptInvocation(
         "onEvent",
         opts.onCallbackError,
       );
-      // Best-effort text projection so `outputText`/`result` is non-empty
-      // even before content-extractor dispatch is wired for ACP. The
-      // Claude ACP front wraps the chunk under `params.update` (verified
-      // empirically against `@agentclientprotocol/claude-agent-acp@0.37.0`).
-      const text = extractAgentChunkText(note.params);
-      if (text !== undefined) collectedText.push(text);
+      // FR-L23: feed the public extractor with the literal "session/update"
+      // type so this call site agrees with the dispatcher in
+      // runtime/content.ts:isAcpShapedEvent. Filter for text content —
+      // `tool_call_update` entries return `kind: "tool"` and stay out of
+      // the concatenated text result.
+      for (
+        const c of extractAcpContent(
+          runtime,
+          "session/update",
+          note.params ?? {},
+        )
+      ) {
+        if (c.kind === "text") collectedText.push(c.text);
+      }
     }
   })();
 
