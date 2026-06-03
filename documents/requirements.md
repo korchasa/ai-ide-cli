@@ -220,11 +220,14 @@ stable — never renumber on move.
 - **Description:** Each runtime provides a `format*EventForOutput(event,
   verbosity?)` function producing one-line summaries for terminal output.
   Semi-verbose mode suppresses `tool_use` blocks, emitting only text.
-  Claude additionally provides `stampLines()` for timestamped log writes and
-  `formatFooter()` for run summary.
+  Claude additionally provides `formatFooter()` for run summary. The
+  timestamp wrapper (`stampLines()` / `tsPrefix()`) is shared across
+  every adapter under FR-L40.
 - **Acceptance:**
-  - [x] Claude: `formatEventForOutput()`, `stampLines()`, `tsPrefix()`,
-        `formatFooter()`. Evidence: `ai-ide-cli/claude/stream.ts:180-252`.
+  - [x] Claude: `formatEventForOutput()`, `formatFooter()`. Evidence:
+        `ai-ide-cli/claude/stream.ts`.
+  - [x] Shared timestamp wrapper: `stampLines()` / `tsPrefix()` in
+        `ai-ide-cli/runtime/log-format.ts` (see FR-L40).
   - [x] OpenCode: `formatOpenCodeEventForOutput()`.
         Evidence: `ai-ide-cli/opencode/process.ts:56-87`.
   - [x] Cursor: `formatCursorEventForOutput()`.
@@ -2227,6 +2230,46 @@ stable — never renumber on move.
         single-attempt error string identical to PoC shape`,
         `runtime/acp/retry_test.ts::retry sleep is abortable via
         external signal`.
+
+### 3.38 FR-L40: Unified `stream.log` Format Across Runtimes
+
+- **Description:** Every runtime adapter (Claude, OpenCode, Cursor, Codex)
+  writes `stream.log` lines as `[HH:MM:SS] ` followed by the adapter's own
+  one-line formatted summary. OpenCode previously dumped raw NDJSON;
+  Codex and Cursor previously emitted formatted summaries without
+  timestamps. Runtime-specific event-shape knowledge stays in each
+  adapter's `format<Runtime>EventForOutput`; only the timestamp wrapper
+  is shared.
+- **Scenario:** A consumer (e.g. `@korchasa/flowai-workflow`) reads
+  `stream.log` for any of the four runtimes as a human-readable trail
+  without runtime-specific parsing or per-runtime divergence in time
+  reasoning.
+- **Acceptance:**
+  - [x] Shared `stampLines(text)` helper in `runtime/log-format.ts`
+        prepends `[HH:MM:SS] ` to each non-empty line. Tests:
+        `runtime/log-format_test.ts::stampLines — single non-empty line
+        gets prefix`,
+        `runtime/log-format_test.ts::stampLines — multi-line input stamps
+        each non-empty line`,
+        `runtime/log-format_test.ts::stampLines — empty lines pass
+        through unchanged`.
+  - [x] Claude adapter wraps every `stream.log` write with `stampLines`
+        (pre-existing behaviour preserved through the move).
+  - [x] Codex adapter `stream.log` lines start with `[HH:MM:SS] `. Test:
+        `codex/process_test.ts::invokeCodexCli — stream.log lines are
+        stamped with [HH:MM:SS] prefix`.
+  - [x] Cursor adapter `stream.log` lines start with `[HH:MM:SS] `. Test:
+        `cursor/process_test.ts::invokeCursorCli — stream.log lines are
+        stamped with [HH:MM:SS] prefix`.
+  - [x] OpenCode adapter `stream.log` contains stamped formatted
+        summaries and no raw `{"type":` JSON lines. Test:
+        `opencode/process_test.ts::invokeOpenCodeCli — stream.log lines
+        are stamped summaries, not raw JSON`.
+  - [x] Claude turn markers (`--- turn N ---`), end marker
+        (`--- end ---`), and `formatFooter` summary remain claude-only
+        and depend on Claude-specific event shape (`event.type ===
+        "assistant"`, `usage`, `total_cost_usd`). Documented as
+        intentional runtime-specific divergence in SDS §7.
 
 ## 4. Non-Functional Requirements
 

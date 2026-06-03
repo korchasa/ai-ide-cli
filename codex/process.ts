@@ -65,6 +65,7 @@ import {
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { stampLines } from "../runtime/log-format.ts";
 import type { ProcessRegistry } from "../process-registry.ts";
 import {
   type CodexExecEvent,
@@ -312,9 +313,10 @@ async function executeCodexProcess(
         }
       }
 
+      // FR-L40: timestamp-prefix stream.log writes for parity with Claude.
       const logSummary = formatCodexEventForOutput(event);
       if (logFile && logSummary) {
-        await logFile.write(encoder.encode(logSummary + "\n"));
+        await logFile.write(encoder.encode(stampLines(logSummary) + "\n"));
       }
       if (onOutput) {
         const termSummary = formatCodexEventForOutput(event, verbosity);

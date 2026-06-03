@@ -61,6 +61,10 @@ ai-ide-cli/
                           (FR-L33)
     runtime-error-analysis.ts — pure runtime-error analyzer over captured
                           stdout / stderr / event / log fragments (FR-L37)
+    log-format.ts       — stampLines(text), tsPrefix(): shared
+                          `[HH:MM:SS] ` log-line wrapper used by every
+                          adapter so stream.log is uniform across
+                          Claude / Codex / Cursor / OpenCode (FR-L40)
     claude-adapter.ts   — Claude RuntimeAdapter (delegates to claude/process)
     opencode-adapter.ts — OpenCode RuntimeAdapter (delegates to opencode/process)
     cursor-adapter.ts   — Cursor RuntimeAdapter (delegates to cursor/process)
@@ -68,7 +72,9 @@ ai-ide-cli/
   claude/
     process.ts          — buildClaudeArgs, invokeClaudeCli, executeClaudeProcess
     stream.ts           — processStreamEvent, extractClaudeOutput, FileReadTracker,
-                          formatEventForOutput, stampLines, formatFooter
+                          formatEventForOutput, formatFooter
+                          (stampLines / tsPrefix re-exported from
+                          runtime/log-format.ts for back-compat; FR-L40)
     session.ts          — openClaudeSession, buildClaudeSessionArgs, ClaudeSession
                           (streaming-input session with piped stdin)
     content.ts          — extractClaudeContent (per-runtime extractor; FR-L23)
@@ -531,9 +537,12 @@ Semi-verbose skips `tool_use` blocks.
 `FileReadTracker`: per-path read counter with configurable threshold.
 `track(path)` → warning string or null. Pure class.
 
-`stampLines(text)`: prepend `[HH:MM:SS]` to each non-empty line.
 `formatFooter(output)`: `status=<ok|error> duration=<X>s cost=$<Y>
-turns=<N>`.
+turns=<N>`. Claude-specific (consumes `usage` / `total_cost_usd`).
+
+`stampLines` and `tsPrefix` re-exported from `runtime/log-format.ts` for
+backwards compatibility with `@korchasa/ai-ide-cli/claude/stream`
+imports (FR-L40); canonical home is the runtime module.
 
 ### 3.6 `claude/session.ts` — Streaming-Input Session
 
@@ -1727,3 +1736,11 @@ path runs byte-for-byte unchanged.
   imported workflow types.
 - **Publish order:** `ai-ide-cli` published before `engine` — engine's
   workspace imports auto-pin to ide-cli version at publish time.
+- **Claude-only `stream.log` markers (FR-L40 divergence):** Claude's
+  `--- turn N ---` / `--- end ---` / `formatFooter` lines are NOT
+  synthesized for Codex / Cursor / OpenCode. They depend on
+  Claude-specific event shape (`event.type === "assistant"`) and result
+  fields (`usage`, `total_cost_usd`); cross-runtime equivalents would
+  require either duplicate per-runtime knowledge or a runtime-neutral
+  "turn boundary" abstraction that none of the other three upstream
+  streams expose uniformly. Intentional divergence.

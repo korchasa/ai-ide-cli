@@ -19,6 +19,13 @@ import type {
   PermissionDenial,
   Verbosity,
 } from "../types.ts";
+import { stampLines, tsPrefix } from "../runtime/log-format.ts";
+
+// FR-L40: stampLines / tsPrefix moved to runtime/log-format.ts so every
+// adapter can wrap log writes with the same timestamp prefix. Re-exported
+// here so existing `@korchasa/ai-ide-cli/claude/stream` imports keep
+// working.
+export { stampLines, tsPrefix };
 
 // --- Typed event shapes (discriminated union) ---
 
@@ -640,24 +647,4 @@ export function formatFooter(output: CliRunOutput): string {
   const duration = (output.duration_ms / 1000).toFixed(1);
   const cost = (output.total_cost_usd ?? 0).toFixed(4);
   return `status=${status} duration=${duration}s cost=$${cost} turns=${output.num_turns}`;
-}
-
-/** Returns current time as [HH:MM:SS] prefix string. */
-export function tsPrefix(): string {
-  const d = new Date();
-  const h = String(d.getHours()).padStart(2, "0");
-  const m = String(d.getMinutes()).padStart(2, "0");
-  const s = String(d.getSeconds()).padStart(2, "0");
-  return `[${h}:${m}:${s}]`;
-}
-
-/**
- * Prepend timestamp to each non-empty line of text.
- * Empty lines pass through unchanged.
- */
-export function stampLines(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => line ? `${tsPrefix()} ${line}` : line)
-    .join("\n");
 }

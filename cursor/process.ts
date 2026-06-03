@@ -17,6 +17,7 @@ import type {
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { stampLines } from "../runtime/log-format.ts";
 import {
   analyzeRuntimeErrorSignal,
   type RuntimeErrorAnalysis,
@@ -463,9 +464,10 @@ async function executeCursorProcess(
           event as CursorStreamEvent as CursorResultEvent,
         );
       }
+      // FR-L40: timestamp-prefix stream.log writes for parity with Claude.
       const logSummary = formatCursorEventForOutput(event);
       if (logFile && logSummary) {
-        await logFile.write(encoder.encode(logSummary + "\n"));
+        await logFile.write(encoder.encode(stampLines(logSummary) + "\n"));
       }
       if (onOutput) {
         const termSummary = formatCursorEventForOutput(event, verbosity);

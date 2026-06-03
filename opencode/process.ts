@@ -34,6 +34,7 @@ import {
 } from "../runtime/callback-safety.ts";
 import { ERROR_CATEGORY_STREAM_STALL } from "../runtime/error-types.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { stampLines } from "../runtime/log-format.ts";
 import {
   buildOpenCodeConfigContent,
   validateMcpServers,
@@ -443,8 +444,17 @@ async function executeOpenCodeProcess(
         }
       }
 
-      const summary = formatOpenCodeEventForOutput(event, verbosity);
-      if (summary) onOutput?.(summary);
+      // FR-L40: stream.log gets the full (non-verbosity-filtered) summary
+      // with a [HH:MM:SS] prefix so OpenCode's file matches Claude/Codex/
+      // Cursor (previously this path wrote raw NDJSON).
+      const logSummary = formatOpenCodeEventForOutput(event);
+      if (logFile && logSummary) {
+        await logFile.write(encoder.encode(stampLines(logSummary) + "\n"));
+      }
+      if (onOutput) {
+        const termSummary = formatOpenCodeEventForOutput(event, verbosity);
+        if (termSummary) onOutput(termSummary);
+      }
     };
 
     const stdoutReader = process.stdout.getReader();
@@ -459,24 +469,12 @@ async function executeOpenCodeProcess(
             if (newlineIndex === -1) break;
             const line = stdoutBuffer.slice(0, newlineIndex);
             stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
-            await processOpenCodeLine(
-              line,
-              stdoutLines,
-              encoder,
-              logFile,
-              handleEvent,
-            );
+            await processOpenCodeLine(line, stdoutLines, handleEvent);
           }
         }
         const trailing = stdoutBuffer.trim();
         if (trailing) {
-          await processOpenCodeLine(
-            trailing,
-            stdoutLines,
-            encoder,
-            logFile,
-            handleEvent,
-          );
+          await processOpenCodeLine(trailing, stdoutLines, handleEvent);
         }
       } catch {
         // Stream closed.
@@ -607,16 +605,11 @@ async function executeOpenCodeProcess(
 async function processOpenCodeLine(
   rawLine: string,
   stdoutLines: string[],
-  encoder: TextEncoder,
-  logFile: Deno.FsFile | undefined,
   handleEvent: (event: Record<string, unknown>) => Promise<void>,
 ): Promise<void> {
   const line = rawLine.trim();
   if (!line) return;
   stdoutLines.push(line);
-  if (logFile) {
-    await logFile.write(encoder.encode(line + "\n"));
-  }
   try {
     const event = JSON.parse(line) as Record<string, unknown>;
     await handleEvent(event);

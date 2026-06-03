@@ -507,6 +507,34 @@ Deno.test("buildCodexArgs — mcpServers emits --config mcp_servers overrides", 
   assert(argsIdx >= 0, "missing mcp_servers.hitl.args override");
 });
 
+// FR-L40 — stream.log entries are timestamp-prefixed for parity with
+// the Claude adapter; codex previously wrote unstamped summaries.
+Deno.test("invokeCodexCli — stream.log lines are stamped with [HH:MM:SS] prefix", async () => {
+  const script = `#!/usr/bin/env bash
+printf '%s\\n' '{"type":"thread.started","thread_id":"thrd_log"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"a1","type":"agent_message","text":"hello"}}'
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2,"cached_input_tokens":0}}'
+`;
+  const tmp = await Deno.makeTempDir({ prefix: "codex-stream-log-" });
+  const logPath = join(tmp, "stream.log");
+  try {
+    await withStubCodex(script, async () => {
+      await invokeCodexCli(makeInvokeOpts({ streamLogPath: logPath }));
+    });
+    const content = await Deno.readTextFile(logPath);
+    const lines = content.split("\n").filter((line) => line.length > 0);
+    assert(lines.length >= 2, `expected ≥2 stream.log lines, got: ${content}`);
+    for (const line of lines) {
+      assert(
+        /^\[\d{2}:\d{2}:\d{2}\] /.test(line),
+        `codex stream.log line missing [HH:MM:SS] prefix: ${line}`,
+      );
+    }
+  } finally {
+    await Deno.remove(tmp, { recursive: true });
+  }
+});
+
 Deno.test("buildCodexArgs — mcpServers http emits --config mcp_servers.<name>.url", () => {
   const args = buildCodexArgs(makeInvokeOpts({
     mcpServers: {

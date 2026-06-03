@@ -439,6 +439,63 @@ Deno.test(
   },
 );
 
+// FR-L40 — stream.log is timestamp-prefixed formatted summaries (was raw
+// NDJSON before; cross-runtime parity with Claude/Codex/Cursor).
+Deno.test(
+  "invokeOpenCodeCli — stream.log lines are stamped summaries, not raw JSON",
+  async () => {
+    await withStubOpenCodeBinary(
+      [
+        JSON.stringify({
+          type: "step_start",
+          sessionID: "ses_log",
+          timestamp: 1000,
+          part: { type: "step-start" },
+        }),
+        JSON.stringify({
+          type: "text",
+          sessionID: "ses_log",
+          timestamp: 1100,
+          part: { type: "text", text: "hello" },
+        }),
+        JSON.stringify({
+          type: "step_finish",
+          sessionID: "ses_log",
+          timestamp: 1200,
+          part: { type: "step-finish", reason: "stop", cost: 0 },
+        }),
+      ],
+      async (dir) => {
+        const logPath = `${dir}/stream.log`;
+        const result = await invokeOpenCodeCli(
+          makeInvokeOpts({ streamLogPath: logPath }),
+        );
+        assert(result.output);
+        assertEquals(result.output!.is_error, false);
+        const content = await Deno.readTextFile(logPath);
+        const lines = content.split("\n").filter((line) => line.length > 0);
+        assert(
+          lines.length >= 2,
+          `expected ≥2 stream.log lines, got: ${content}`,
+        );
+        for (const line of lines) {
+          assert(
+            /^\[\d{2}:\d{2}:\d{2}\] /.test(line),
+            `opencode stream.log line missing [HH:MM:SS] prefix: ${line}`,
+          );
+          assert(
+            !line.includes(`{"type":`),
+            `opencode stream.log still contains raw JSON: ${line}`,
+          );
+        }
+        if (result.output!.transcript_path) {
+          await Deno.remove(result.output!.transcript_path);
+        }
+      },
+    );
+  },
+);
+
 // FR-L25: reasoning effort → --variant pass-through.
 
 Deno.test("buildOpenCodeArgs — reasoningEffort emits --variant with the abstract value", () => {

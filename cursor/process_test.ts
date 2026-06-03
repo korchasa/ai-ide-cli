@@ -501,3 +501,29 @@ Deno.test("invokeCursorCli — onToolUseObserved is not called when capability n
     assertEquals(output?.session_id, "sess-1");
   });
 });
+
+// FR-L40 — stream.log entries are timestamp-prefixed for parity with the
+// Claude adapter; cursor previously wrote unstamped summaries.
+Deno.test("invokeCursorCli — stream.log lines are stamped with [HH:MM:SS] prefix", async () => {
+  await withStubCursorEmittingNdjson(STUB_NDJSON, async (dir) => {
+    const logPath = `${dir}/stream.log`;
+    const { error } = await invokeCursorCli({
+      processRegistry: defaultRegistry,
+      taskPrompt: "do something",
+      timeoutSeconds: 30,
+      maxRetries: 1,
+      retryDelaySeconds: 1,
+      streamLogPath: logPath,
+    });
+    assertEquals(error, undefined);
+    const content = await Deno.readTextFile(logPath);
+    const lines = content.split("\n").filter((line) => line.length > 0);
+    assert(lines.length >= 2, `expected ≥2 stream.log lines, got: ${content}`);
+    for (const line of lines) {
+      assert(
+        /^\[\d{2}:\d{2}:\d{2}\] /.test(line),
+        `cursor stream.log line missing [HH:MM:SS] prefix: ${line}`,
+      );
+    }
+  });
+});
