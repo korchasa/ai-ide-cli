@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.9](https://github.com/korchasa/ai-ide-cli/compare/v0.8.8...v0.8.9) (2026-06-03)
+
+
+### Features
+
+* **runtime:** unify stream.log format across runtimes (FR-L40) ([d974c77](https://github.com/korchasa/ai-ide-cli/commit/d974c770df509582664bc20c49468cc9391a1eb5))
+
 ### [0.8.8](https://github.com/korchasa/ai-ide-cli/compare/v0.8.7...v0.8.8) (2026-06-01)
 
 
