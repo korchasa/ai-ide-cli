@@ -1,5 +1,69 @@
 import { assertEquals, assertThrows } from "@std/assert";
-import { parseCapabilityInventoryResponse } from "./capabilities.ts";
+import {
+  type FetchCapabilitiesOptions,
+  fetchInventoryViaInvoke,
+  parseCapabilityInventoryResponse,
+} from "./capabilities.ts";
+import { ProcessRegistry } from "../process-registry.ts";
+import type { CliRunOutput } from "../types.ts";
+
+/** Build a minimal successful invoke result carrying `result` text. */
+function okResult(result: string): { output: CliRunOutput } {
+  return {
+    output: {
+      runtime: "claude",
+      result,
+      session_id: "sess-x",
+      duration_ms: 0,
+      num_turns: 1,
+      is_error: false,
+    },
+  };
+}
+
+const INVENTORY_JSON =
+  '{"skills":[{"name":"alpha"}],"commands":[{"name":"beta"}]}';
+
+// FR-L20: on the ACP transport the driver must (a) thread `transport`
+// into the captured invoke so it routes through `invokeViaAcp`, and
+// (b) suppress the schema `extraArgs` (those CLI flags have no ACP wire
+// home and would trip AcpUnsupportedOptionError).
+Deno.test("fetchInventoryViaInvoke threads transport and drops schema extraArgs on ACP", async () => {
+  let received: Record<string, unknown> | undefined;
+  const inv = await fetchInventoryViaInvoke(
+    "claude",
+    (opts) => {
+      received = opts as unknown as Record<string, unknown>;
+      return Promise.resolve(okResult(INVENTORY_JSON));
+    },
+    {
+      processRegistry: new ProcessRegistry(),
+      transport: "acp",
+    } as FetchCapabilitiesOptions,
+    { "--json-schema": "{}", "--max-turns": "1" },
+  );
+  assertEquals(received?.transport, "acp");
+  assertEquals(received?.extraArgs, undefined);
+  assertEquals(inv.skills, [{ name: "alpha" }]);
+  assertEquals(inv.commands, [{ name: "beta" }]);
+});
+
+// FR-L20: the CLI transport (default / unset) keeps the schema flags so
+// Claude / Codex still get structured-output enforcement.
+Deno.test("fetchInventoryViaInvoke passes schema extraArgs through on CLI transport", async () => {
+  let received: Record<string, unknown> | undefined;
+  await fetchInventoryViaInvoke(
+    "claude",
+    (opts) => {
+      received = opts as unknown as Record<string, unknown>;
+      return Promise.resolve(okResult('{"skills":[],"commands":[]}'));
+    },
+    { processRegistry: new ProcessRegistry() } as FetchCapabilitiesOptions,
+    { "--json-schema": "{}" },
+  );
+  assertEquals(received?.transport, undefined);
+  assertEquals(received?.extraArgs, { "--json-schema": "{}" });
+});
 
 Deno.test("parseCapabilityInventoryResponse — pure minified JSON", () => {
   const json =

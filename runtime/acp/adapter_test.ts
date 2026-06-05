@@ -2,6 +2,7 @@ import { assert, assertEquals, assertRejects } from "@std/assert";
 import { ProcessRegistry } from "../../process-registry.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./adapter.ts";
 import { AcpUnsupportedOptionError } from "./errors.ts";
+import type { RuntimeInitInfo } from "../types.ts";
 
 interface StubScript {
   /** Bash script body, executed by the PATH-stub. */
@@ -83,6 +84,50 @@ Deno.test("invokeViaAcp drives initialize → session/new → session/prompt to 
     assertEquals(result.output.runtime, "claude");
     assertEquals(result.output.is_error, false);
     assert(result.output.result.includes("ok"));
+  });
+});
+
+// FR-L17: the ACP invoke path must surface `model` on the onInit hook,
+// matching the CLI adapters (which echo the runtime's effective model).
+Deno.test("onInit fires with model from opts on ACP path", async () => {
+  await withStubAcpFront({ script: HANDSHAKE_SCRIPT }, async () => {
+    const registry = new ProcessRegistry();
+    const captured: RuntimeInitInfo[] = [];
+    await invokeViaAcp("claude", {
+      processRegistry: registry,
+      taskPrompt: "say ok",
+      model: "claude-haiku-4-5-20251001",
+      timeoutSeconds: 30,
+      maxRetries: 0,
+      retryDelaySeconds: 0,
+      hooks: { onInit: (info) => captured.push(info) },
+    });
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0], {
+      runtime: "claude",
+      sessionId: "sess-1",
+      model: "claude-haiku-4-5-20251001",
+    });
+  });
+});
+
+// FR-L17: when the caller did not pin a model, the field stays absent
+// (mirrors CLI behaviour when the runtime discloses no model).
+Deno.test("onInit omits model when opts.model is unset on ACP path", async () => {
+  await withStubAcpFront({ script: HANDSHAKE_SCRIPT }, async () => {
+    const registry = new ProcessRegistry();
+    const captured: RuntimeInitInfo[] = [];
+    await invokeViaAcp("claude", {
+      processRegistry: registry,
+      taskPrompt: "say ok",
+      timeoutSeconds: 30,
+      maxRetries: 0,
+      retryDelaySeconds: 0,
+      hooks: { onInit: (info) => captured.push(info) },
+    });
+    assertEquals(captured.length, 1);
+    assertEquals(captured[0], { runtime: "claude", sessionId: "sess-1" });
+    assert(!("model" in captured[0]));
   });
 });
 

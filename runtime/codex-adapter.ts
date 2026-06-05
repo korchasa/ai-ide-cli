@@ -106,11 +106,12 @@ function codexSkillsDir(): string {
  */
 // FR-L39: transport-scoped capability vector for the Codex ACP front
 // (`@zed-industries/codex-acp`). Same downgrade rationale as the
-// Claude pilot — transcript / interactive / toolFilter /
-// capabilityInventory are unavailable on the ACP path while
-// session, reasoning-effort, MCP injection, and tool-use observation
-// round-trip natively. The toolFilter dimension was already `false`
-// on Codex's CLI baseline; carrying it forward unchanged keeps the
+// Claude pilot — transcript / interactive / toolFilter are unavailable
+// on the ACP path while session, reasoning-effort, MCP injection, and
+// tool-use observation round-trip natively. `capabilityInventory` is
+// `true` (FR-L20) — `fetchCapabilitiesSlow` routes through
+// `invokeViaAcp`. The toolFilter dimension was already `false` on
+// Codex's CLI baseline; carrying it forward unchanged keeps the
 // vector explicit.
 const CODEX_ACP_CAPABILITIES: RuntimeCapabilities = {
   permissionMode: true,
@@ -118,7 +119,8 @@ const CODEX_ACP_CAPABILITIES: RuntimeCapabilities = {
   interactive: false,
   toolUseObservation: true,
   session: true,
-  capabilityInventory: false,
+  // FR-L20: fetchCapabilitiesSlow routes through invokeViaAcp on ACP.
+  capabilityInventory: true,
   toolFilter: false,
   reasoningEffort: true,
   mcpInjection: true,

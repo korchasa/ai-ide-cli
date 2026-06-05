@@ -105,8 +105,9 @@ async function removeInjectedSkills(paths: string[]): Promise<void> {
 // - `transcript: false` — ACP has no exported transcript file.
 // - `interactive: false` — no TUI launcher on the ACP path.
 // - `toolFilter: false` — no client-side tool allow/deny-list on the wire.
-// - `capabilityInventory: false` — `fetchCapabilitiesSlow` is unwired.
-// `permissionMode` (session/set_mode), `toolUseObservation`
+// `capabilityInventory: true` (FR-L20) — `fetchCapabilitiesSlow` routes its
+// single LLM turn through `invokeViaAcp` (the inventory driver is
+// transport-agnostic). `permissionMode` (session/set_mode), `toolUseObservation`
 // (session/request_permission), `session`, `reasoningEffort`
 // (session/set_config_option `thought_level`), and `mcpInjection`
 // (session/new `mcpServers[]`) round-trip natively.
@@ -116,7 +117,8 @@ const CLAUDE_ACP_CAPABILITIES: RuntimeCapabilities = {
   interactive: false,
   toolUseObservation: true,
   session: true,
-  capabilityInventory: false,
+  // FR-L20: fetchCapabilitiesSlow routes through invokeViaAcp on ACP.
+  capabilityInventory: true,
   toolFilter: false,
   reasoningEffort: true,
   mcpInjection: true,

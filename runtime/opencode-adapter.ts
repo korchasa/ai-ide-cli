@@ -116,8 +116,9 @@ function opencodeSkillsDir(): string {
 
 // FR-L39: transport-scoped capability vector for the OpenCode ACP
 // front (`opencode acp`). Mirrors the cross-pilot downgrade rule:
-// transcript / interactive / toolFilter / capabilityInventory
-// drop to `false` because none survive the ACP wire dialect; the
+// transcript / interactive / toolFilter drop to `false` because none
+// survive the ACP wire dialect; `capabilityInventory` is `true`
+// (FR-L20) — `fetchCapabilitiesSlow` routes through `invokeViaAcp`. The
 // remaining surfaces (permissionMode, toolUseObservation, session,
 // reasoningEffort, mcpInjection) round-trip natively.
 const OPENCODE_ACP_CAPABILITIES: RuntimeCapabilities = {
@@ -126,7 +127,8 @@ const OPENCODE_ACP_CAPABILITIES: RuntimeCapabilities = {
   interactive: false,
   toolUseObservation: true,
   session: true,
-  capabilityInventory: false,
+  // FR-L20: fetchCapabilitiesSlow routes through invokeViaAcp on ACP.
+  capabilityInventory: true,
   toolFilter: false,
   reasoningEffort: true,
   mcpInjection: true,

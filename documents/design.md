@@ -1745,6 +1745,23 @@ subprocess wrapper. One implementation
     RPC wins unless its kind is generic `runtime_error` AND
     stderr classifies to something narrower
     (`pickClassification`).
+  - **`onInit.model` (FR-L17)** — after `handshake` resolves,
+    `invokeViaAcp` fires `hooks.onInit({ runtime, sessionId, model })`
+    with `model` set from `opts.model` (best-effort — ACP fronts do not
+    echo the effective model) and omitted when unset, matching the CLI
+    adapters and `RuntimeInitInfo.model?`. `openSessionViaAcp` has no
+    `hooks` (session options omit them) so it fires no `onInit`.
+  - **`capabilityInventory` over ACP (FR-L20)** — the three pilots
+    advertise `capabilityInventory: true` on `capabilitiesFor("acp")`.
+    The driver is transport-agnostic: `FetchCapabilitiesOptions.transport`
+    threads through `fetchInventoryViaInvoke` into the captured
+    `(inner) => this.invoke(inner)` callback, so the single inventory turn
+    routes through `invokeViaAcp` when `transport: "acp"`. The CLI schema
+    flags (`--json-schema` / `--output-schema` / `--max-turns`) are
+    suppressed on ACP — they have no wire home and would otherwise trip
+    `AcpUnsupportedOptionError` via the `extraArgs` unsupported entry; the
+    tolerant `parseCapabilityInventoryResponse` is the only enforcement
+    layer on that path (same posture as OpenCode / Cursor under CLI).
 
 Public surface unchanged. New fields on `RuntimeInvokeOptions` /
 `RuntimeSessionOptions`: `transport?: "cli" | "acp"` (default `"cli"`)

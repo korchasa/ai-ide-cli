@@ -447,7 +447,15 @@ async function attemptInvocation(
 
   try {
     const { sessionId } = await handshake(client, runtime, opts);
-    opts.hooks?.onInit?.({ runtime, sessionId });
+    // FR-L17: surface the requested model on the onInit hook, matching the
+    // CLI adapters. Best-effort — ACP fronts do not echo the effective
+    // model, so we report what we asked for (`opts.model`). The field stays
+    // absent when unset, mirroring CLI behaviour (`RuntimeInitInfo.model?`).
+    opts.hooks?.onInit?.({
+      runtime,
+      sessionId,
+      ...(opts.model ? { model: opts.model } : {}),
+    });
 
     const degraded = collectDegradedOptions(opts);
     reportDegradedOptions(runtime, degraded, opts.onCallbackError);

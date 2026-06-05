@@ -2,9 +2,11 @@
  * @module
  * Cross-runtime contract tests for `RuntimeAdapter.capabilitiesFor`
  * (FR-L39). Every pilot must downgrade transport-bound capabilities
- * (transcript / interactive / toolFilter / capabilityInventory) when
- * the consumer opts into the ACP transport, while preserving session
- * and reasoning-effort. Cursor stays `pilot: false` and throws.
+ * (transcript / interactive / toolFilter) when the consumer opts into
+ * the ACP transport, while preserving session and reasoning-effort.
+ * `capabilityInventory` is advertised `true` on ACP (FR-L20) because
+ * `fetchCapabilitiesSlow` routes through `invokeViaAcp`. Cursor stays
+ * `pilot: false` and throws.
  */
 
 import { assert, assertEquals, assertThrows } from "@std/assert";
@@ -29,7 +31,7 @@ Deno.test("capabilitiesFor('cli') returns the static CLI baseline byte-for-byte 
   }
 });
 
-Deno.test("capabilitiesFor('acp') downgrades transcript/interactive/toolFilter/capabilityInventory for every pilot", () => {
+Deno.test("capabilitiesFor('acp') downgrades transcript/interactive/toolFilter for every pilot", () => {
   for (const runtime of PILOTS) {
     const adapter = getRuntimeAdapter(runtime);
     const acp = adapter.capabilitiesFor!("acp");
@@ -48,10 +50,21 @@ Deno.test("capabilitiesFor('acp') downgrades transcript/interactive/toolFilter/c
       false,
       `${runtime} ACP has no client-side tool-policy`,
     );
+  }
+});
+
+// FR-L20: the inventory driver (`fetchInventoryViaInvoke`) is
+// transport-agnostic — it only needs an `invoke` function — so the ACP
+// path advertises `capabilityInventory: true` and routes through
+// `invokeViaAcp`.
+Deno.test("capabilitiesFor('acp') advertises capabilityInventory: true for every pilot (FR-L20)", () => {
+  for (const runtime of PILOTS) {
+    const adapter = getRuntimeAdapter(runtime);
+    const acp = adapter.capabilitiesFor!("acp");
     assertEquals(
       acp.capabilityInventory,
-      false,
-      `${runtime} fetchCapabilitiesSlow unwired on ACP`,
+      true,
+      `${runtime} ACP routes fetchCapabilitiesSlow through invokeViaAcp`,
     );
   }
 });

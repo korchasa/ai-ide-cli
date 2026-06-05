@@ -1,6 +1,8 @@
 ---
 date: "2026-06-01"
-status: to do
+status: superseded
+superseded_by:
+  - 2026/06/acp-resume-via-session-load.md
 implements: [FR-L17, FR-L19, FR-L20, FR-L39]
 tags: [acp, parity, runtime, hooks, capability-inventory]
 related_tasks:
@@ -8,9 +10,34 @@ related_tasks:
   - 2026/06/acp-surface-parity.md
   - 2026/06/acp-reliability-parity.md
   - 2026/06/acp-followups.md
+  - 2026/06/acp-unsupported-option-error.md
 ---
 
 # ACP Transport — Parity Closeouts (excl. Cursor)
+
+> **SUPERSEDED (2026-06-06).** This plan predates
+> `acp-unsupported-option-error.md` (shipped 2026-06-06), which made the
+> silent-drop fields throw `AcpUnsupportedOptionError` synchronously —
+> directly contradicting items 1 (resume fallback) and 2
+> (degradation-completeness). Reconciliation:
+>
+> - **Item 3 (`onInit.model`)** — DONE. Shipped against the current code
+>   state. ACP invoke path fires `onInit({runtime, sessionId, model})`.
+> - **Item 4 (`capabilityInventory` on ACP)** — DONE. Three pilots
+>   advertise `capabilityInventory: true`; `FetchCapabilitiesOptions.transport`
+>   routes the inventory turn through `invokeViaAcp`; CLI schema flags
+>   suppressed on ACP.
+> - **Item 2 (degradation-completeness)** — DROPPED as obsolete. `agent`,
+>   `systemPromptFile`, `streamStallTimeoutSeconds`, `streamLogPath`,
+>   `onOutput`, `verbosity` now THROW by design (fail-fast), not degrade.
+>   Adding them to `collectDegradedOptions` would revert that decision.
+> - **Item 1 (resume via `session/load`)** — MOVED to
+>   `acp-resume-via-session-load.md`. It needs a real design decision on
+>   throw-timing (the fail-fast throw fires before `initialize`, but the
+>   `loadSession` capability is only known after), not a verbatim port.
+>
+> The DoD checkboxes below are left at their reconciled state for the
+> record; the canonical follow-up is the resume successor task.
 
 ## Goal
 
@@ -196,13 +223,13 @@ Empirical capability gates (verified against the deno cache pin):
   (`reportDegradedOptions` in `adapter.ts`) stays unchanged.
   *(FR-L39. Test: `runtime/acp/mapping_test.ts::collectDegradedOptions flags every silently-dropped field`. Evidence: `deno test -A --no-check runtime/acp/`.)*
 
-- [ ] **`hooks.onInit.model` populated on ACP path** — `handshake`
+- [x] **`hooks.onInit.model` populated on ACP path** — `handshake`
   fires `opts.hooks?.onInit?.({runtime, sessionId, model: opts.model})`.
   When `opts.model` is `undefined`, the field stays absent (matches
   CLI behaviour when the runtime didn't disclose a model).
   *(FR-L17. Test: `runtime/acp/adapter_test.ts::onInit fires with model from opts on ACP path`. Evidence: `deno test -A --no-check runtime/acp/`.)*
 
-- [ ] **`fetchCapabilitiesSlow` advertised + wired on ACP** —
+- [x] **`fetchCapabilitiesSlow` advertised + wired on ACP** —
   pilot `*_ACP_CAPABILITIES` vectors set
   `capabilityInventory: true`. The existing
   `adapter.fetchCapabilitiesSlow(opts)` already passes
@@ -211,7 +238,7 @@ Empirical capability gates (verified against the deno cache pin):
   capability flag. Cursor stays untouched (still `pilot: false`).
   *(FR-L20. Test: `runtime/transport_capabilities_test.ts::ACP pilots advertise capabilityInventory: true`. Evidence: `deno test -A --no-check runtime/`.)*
 
-- [ ] **`fetchCapabilitiesSlow` real-binary e2e (Claude only)** —
+- [x] **`fetchCapabilitiesSlow` real-binary e2e (Claude only)** —
   one Claude ACP call returns a non-empty `CapabilityInventory`
   (`skills.length >= 1 || commands.length >= 1`). Gated by `E2E=1`.
   *(FR-L20. Test: `e2e/acp_capabilities_e2e_test.ts::fetchCapabilitiesSlow returns non-empty inventory under ACP`. Evidence: `E2E=1 E2E_RUNTIMES=claude deno test -A --no-check e2e/acp_capabilities_e2e_test.ts`.)*

@@ -14,7 +14,11 @@
 
 import type { ProcessRegistry } from "../process-registry.ts";
 import type { RuntimeId } from "../types.ts";
-import type { ExtraArgsMap, RuntimeInvokeResult } from "./types.ts";
+import type {
+  ExtraArgsMap,
+  RuntimeInvokeResult,
+  TransportOption,
+} from "./types.ts";
 
 /** One entry in a capability inventory: skill or slash command. */
 export interface CapabilityRef {
@@ -62,6 +66,11 @@ export interface FetchCapabilitiesOptions {
   env?: Record<string, string>;
   /** Model override (runtime-specific identifier). */
   model?: string;
+  // FR-L20: select the wire the inventory turn runs on. `"acp"` routes the
+  // single LLM turn through `invokeViaAcp` on pilots advertising
+  // `capabilityInventory: true`; unset / `"cli"` keeps the CLI subprocess.
+  /** Transport for the inventory invocation. Default: `"cli"`. */
+  transport?: TransportOption;
 }
 
 /** System prompt sent alongside the inventory request. */
@@ -206,15 +215,22 @@ export async function fetchInventoryViaInvoke(
     cwd?: string;
     env?: Record<string, string>;
     model?: string;
+    transport?: TransportOption;
     processRegistry: ProcessRegistry;
   }) => Promise<RuntimeInvokeResult>,
   opts: FetchCapabilitiesOptions,
   extraArgs?: ExtraArgsMap,
 ): Promise<CapabilityInventory> {
+  // FR-L20: the schema `extraArgs` (`--json-schema` / `--output-schema` /
+  // `--max-turns`) are CLI-only flags with no ACP wire home — passing them
+  // on the ACP transport would trip `AcpUnsupportedOptionError`. Drop them
+  // and rely on the tolerant `parseCapabilityInventoryResponse`, the same
+  // posture OpenCode / Cursor already use under CLI.
+  const onAcp = opts.transport === "acp";
   const result = await invoke({
     systemPrompt: CAPABILITY_INVENTORY_SYSTEM_PROMPT,
     taskPrompt: CAPABILITY_INVENTORY_PROMPT,
-    extraArgs,
+    extraArgs: onAcp ? undefined : extraArgs,
     timeoutSeconds: opts.timeoutSeconds ?? 120,
     maxRetries: 0,
     retryDelaySeconds: 0,
@@ -222,6 +238,7 @@ export async function fetchInventoryViaInvoke(
     cwd: opts.cwd,
     env: opts.env,
     model: opts.model,
+    transport: opts.transport,
     processRegistry: opts.processRegistry,
   });
 

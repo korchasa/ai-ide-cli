@@ -565,6 +565,10 @@ stable — never renumber on move.
         `info.runtime` and `onResult` fires exactly once with a defined
         `CliRunOutput` for every adapter. Evidence:
         `ai-ide-cli/e2e/lifecycle_hooks_e2e_test.ts`.
+  - [x] ACP path populates `info.model` from `opts.model` when set; the
+        field stays absent otherwise (mirrors CLI when the runtime
+        discloses no model). Evidence:
+        `ai-ide-cli/runtime/acp/adapter_test.ts::"onInit fires with model from opts on ACP path"`.
 
 ### 3.18 FR-L18: Setting-Source Isolation (Claude)
 
@@ -850,6 +854,15 @@ stable — never renumber on move.
     `CAPABILITY_INVENTORY_{SYSTEM_PROMPT, PROMPT, SCHEMA}`,
     `parseCapabilityInventoryResponse`, `fetchInventoryViaInvoke`
     exported from `mod.ts`. Evidence: `ai-ide-cli/mod.ts`.
+  - [x] ACP transport: pilots (claude / codex / opencode) advertise
+    `capabilityInventory: true` on `capabilitiesFor("acp")`;
+    `FetchCapabilitiesOptions.transport` threads into the captured `invoke`
+    (routing through `invokeViaAcp`) and the CLI schema flags
+    (`--json-schema` / `--output-schema` / `--max-turns`) are suppressed on
+    ACP (no wire home). Evidence:
+    `ai-ide-cli/runtime/transport_capabilities_test.ts`,
+    `ai-ide-cli/runtime/capabilities_test.ts::"fetchInventoryViaInvoke threads transport and drops schema extraArgs on ACP"`,
+    `ai-ide-cli/e2e/acp_capabilities_e2e_test.ts`.
 
 ### 3.21 FR-L21: Neutral Turn-End Signal
 
