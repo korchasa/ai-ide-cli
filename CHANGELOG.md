@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.11](https://github.com/korchasa/ai-ide-cli/compare/v0.8.10...v0.8.11) (2026-06-05)
+
+
+### Features
+
+* **runtime/acp:** capability-gated resume via session/load (FR-L19) ([a1cdcf0](https://github.com/korchasa/ai-ide-cli/commit/a1cdcf00ed552d17b8e2198b4ace0dd96a846611))
+* **runtime:** onInit.model + capabilityInventory on ACP transport (FR-L17 + FR-L20) ([461341c](https://github.com/korchasa/ai-ide-cli/commit/461341cbb2e90645aa787c099a1b13ee91e0326f))
+
 ### [0.8.10](https://github.com/korchasa/ai-ide-cli/compare/v0.8.9...v0.8.10) (2026-06-05)
 
 
