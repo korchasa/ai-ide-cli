@@ -1,6 +1,6 @@
 ---
 date: "2026-06-06"
-status: in progress
+status: done
 implements: [FR-L19, FR-L39]
 tags: [acp, resume, session-load, capability-gate, fail-fast]
 supersedes:
@@ -145,7 +145,7 @@ core decision. Candidate approaches to weigh in variant analysis:
 - [x] FR-L19: `// FR-L19` traceability comments at the `handshake`
       load-routing + capability-gate sites and the `attemptInvocation`
       re-throw site.
-- [ ] FR-L19: real-binary e2e `e2e/acp_resume_e2e_test.ts` proves
+- [x] FR-L19: real-binary e2e `e2e/acp_resume_e2e_test.ts` proves
       conversation history survives reopen on Claude (only pilot with
       `loadSession: true`). Gated `E2E=1` + `e2eAcpEnabled("claude")`.
       Test: `e2e/acp_resume_e2e_test.ts::acp resume via session/load
