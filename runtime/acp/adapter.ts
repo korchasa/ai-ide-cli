@@ -501,6 +501,13 @@ async function attemptInvocation(
       ...(stopAnalysis ? { runtime_error: stopAnalysis } : {}),
     };
   } catch (err) {
+    // FR-L19: the post-init capability gate (resumeSessionId vs
+    // loadSession) throws AcpUnsupportedOptionError from inside
+    // `handshake`. Surface it as a THROWN error — same contract as the
+    // entry-time tuple throw — instead of wrapping it in an error result
+    // (and do not retry: capability-unsupported is terminal). The
+    // `finally` below still disposes the spawned client.
+    if (err instanceof AcpUnsupportedOptionError) throw err;
     const message = err instanceof Error ? err.message : String(err);
     const stderrTail = client.stderr.trim().split("\n").slice(-10).join("\n");
     const suffix = stderrTail ? `\nstderr tail:\n${stderrTail}` : "";
@@ -673,7 +680,17 @@ export async function openSessionViaAcp(
     },
   });
 
-  const { sessionId } = await handshake(client, runtime, opts);
+  // FR-L19: handshake may throw AcpUnsupportedOptionError from the
+  // post-init resume gate (resumeSessionId set, loadSession unadvertised).
+  // The client is already spawned here, so dispose it before rethrowing —
+  // the session factory has no `finally` to lean on.
+  let sessionId: string;
+  try {
+    ({ sessionId } = await handshake(client, runtime, opts));
+  } catch (err) {
+    await client.dispose();
+    throw err;
+  }
   reportDegradedOptions(
     runtime,
     collectDegradedOptions(opts),

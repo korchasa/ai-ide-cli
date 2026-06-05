@@ -17,6 +17,7 @@ import { AcpStdioClient } from "./client.ts";
 import { getAcpFront } from "./fronts.ts";
 import {
   type AcpConfigOptionDecl,
+  type AcpInitializeResult,
   type AcpModeDecl,
   buildInitializeParams,
   buildSessionNewParams,
@@ -24,6 +25,7 @@ import {
   pickConfigForReasoningEffort,
   pickModeForPermissionMode,
 } from "./mapping.ts";
+import { AcpUnsupportedOptionError } from "./errors.ts";
 
 /** Subset of the `session/new` response the handshake reads. */
 export interface SessionNewResult {
@@ -88,6 +90,14 @@ export function spawnClient(opts: {
  * are irrelevant to a one-shot capture. The invoke/session path passes
  * `false` (default) and keeps the full handshake.
  *
+ * FR-L19: when `opts.resumeSessionId` is set the handshake routes
+ * `session/load` instead of `session/new` — but only if the front
+ * advertised `agentCapabilities.loadSession` in its `initialize`
+ * response. The capability is unknowable before `initialize`, so the
+ * gate lives here (post-init) rather than at adapter entry; a front that
+ * does not advertise it throws {@link AcpUnsupportedOptionError} for
+ * `resumeSessionId`, fail-closed.
+ *
  * @param client Connected ACP stdio client from {@link spawnClient}.
  * @param runtime Runtime id (drives the per-front option mappers).
  * @param opts Invocation options the handshake reads.
@@ -106,19 +116,43 @@ export async function handshake(
     | "permissionMode"
     | "model"
     | "reasoningEffort"
+    | "resumeSessionId"
   >,
   hsOpts?: { skipModeAndConfig?: boolean },
 ): Promise<{ sessionId: string }> {
-  await client.request("initialize", {
+  const initRes = await client.request<AcpInitializeResult>("initialize", {
     ...buildInitializeParams(),
   } as unknown as Record<string, unknown>);
 
-  const sessionParams = buildSessionNewParams(runtime, opts);
-  const sessionRes = await client.request<SessionNewResult>(
-    "session/new",
-    sessionParams as unknown as Record<string, unknown>,
-  );
-  const sessionId = sessionRes.sessionId;
+  let sessionRes: SessionNewResult;
+  let sessionId: string;
+  if (opts.resumeSessionId) {
+    // FR-L19: capability-gated resume. `loadSession` is read strictly as
+    // `=== true` — absent / non-boolean means "not supported", so fronts
+    // that omit it (codex / opencode today) keep throwing, only later in
+    // the lifecycle than the entry-time tuple did.
+    if (initRes.agentCapabilities?.loadSession !== true) {
+      throw new AcpUnsupportedOptionError(runtime, ["resumeSessionId"]);
+    }
+    // FR-L19: `session/load` mirrors `session/new` params and only adds
+    // `sessionId` — reuse the one mapper, no duplicate.
+    const loadParams = {
+      ...buildSessionNewParams(runtime, opts),
+      sessionId: opts.resumeSessionId,
+    };
+    sessionRes = await client.request<SessionNewResult>(
+      "session/load",
+      loadParams as unknown as Record<string, unknown>,
+    );
+    sessionId = opts.resumeSessionId;
+  } else {
+    const sessionParams = buildSessionNewParams(runtime, opts);
+    sessionRes = await client.request<SessionNewResult>(
+      "session/new",
+      sessionParams as unknown as Record<string, unknown>,
+    );
+    sessionId = sessionRes.sessionId;
+  }
 
   if (hsOpts?.skipModeAndConfig) return { sessionId };
 

@@ -717,7 +717,7 @@ stable — never renumber on move.
     `adaptEventCallback`) so every adapter emits the same shape with no
     duplicated boilerplate. All four `events` iterables share a single
     `runtime/event-queue.ts` (`SessionEventQueue<T>`) implementation.
-- **Tasks:** [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md)
+- **Tasks:** [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md), [acp-resume-via-session-load](tasks/2026/06/acp-resume-via-session-load.md)
 - **Motivation:** SDK-parity bidirectional sessions — callers can push
   follow-up messages without respawning the CLI from scratch or losing
   context; fits interactive use cases (`/compact`-style flows, human
@@ -808,6 +808,20 @@ stable — never renumber on move.
     `ai-ide-cli/cursor/session_test.ts`,
     `ai-ide-cli/codex/session_test.ts`,
     `ai-ide-cli/e2e/` (real-binary matrix, FR-L31).
+  - [x] ACP resume is capability-gated (FR-L19 + FR-L39): `resumeSessionId`
+    on `transport: "acp"` routes `session/load` only on fronts advertising
+    `agentCapabilities.loadSession` (Claude today), read fail-closed
+    (`=== true`); fronts omitting it (Codex / OpenCode) throw
+    `AcpUnsupportedOptionError`. The gate is post-`initialize` (the
+    capability is unknowable before it) — `resumeSessionId` is therefore
+    NOT in `ACP_UNSUPPORTED_{INVOKE,SESSION}_OPTIONS`; the throw moves from
+    adapter entry to inside `handshake`, surfaced as the same thrown error
+    class (invoke re-throws it without retry; the session factory disposes
+    the spawned front first). Evidence:
+    `ai-ide-cli/runtime/acp/handshake.ts`,
+    `ai-ide-cli/runtime/acp/adapter_test.ts`,
+    `ai-ide-cli/e2e/acp_resume_e2e_test.ts` (history-survives-reopen,
+    `E2E=1` Claude).
 
 ### 3.20 FR-L20: Capability Inventory (LLM-probed)
 

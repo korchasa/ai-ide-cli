@@ -16,10 +16,12 @@ import {
 import { SYNTHETIC_TURN_END } from "../types.ts";
 
 Deno.test("ACP_UNSUPPORTED_INVOKE_OPTIONS pins the invoke surface set", () => {
+  // FR-L19: `resumeSessionId` is NOT in this tuple — it moved to a
+  // post-`initialize` capability gate inside `handshake` (loadSession is
+  // only known after the front advertises its agentCapabilities).
   assertEquals(ACP_UNSUPPORTED_INVOKE_OPTIONS, [
     "agent",
     "systemPromptFile",
-    "resumeSessionId",
     "extraArgs",
     "strictMcpConfig",
     "streamStallTimeoutSeconds",
@@ -30,23 +32,25 @@ Deno.test("ACP_UNSUPPORTED_INVOKE_OPTIONS pins the invoke surface set", () => {
 });
 
 Deno.test("ACP_UNSUPPORTED_SESSION_OPTIONS pins the session surface set", () => {
+  // FR-L19: `resumeSessionId` moved to the post-init capability gate.
   assertEquals(ACP_UNSUPPORTED_SESSION_OPTIONS, [
     "agent",
-    "resumeSessionId",
     "extraArgs",
     "strictMcpConfig",
   ]);
 });
 
-Deno.test("collectUnsupportedOptions returns [resumeSessionId, strictMcpConfig] when both are set on invoke", () => {
-  // Empty extraArgs is skipped; the two set fields surface in tuple order.
+Deno.test("collectUnsupportedOptions skips resumeSessionId and returns only [strictMcpConfig] on invoke", () => {
+  // FR-L19: empty extraArgs is skipped; resumeSessionId is no longer an
+  // entry-time unsupported field (capability-gated post-init), so only
+  // strictMcpConfig surfaces here.
   assertEquals(
     collectUnsupportedOptions("invoke", {
       resumeSessionId: "x",
       strictMcpConfig: true,
       extraArgs: {},
     }),
-    ["resumeSessionId", "strictMcpConfig"],
+    ["strictMcpConfig"],
   );
 });
 

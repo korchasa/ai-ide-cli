@@ -1,6 +1,6 @@
 ---
 date: "2026-06-06"
-status: to do
+status: in progress
 implements: [FR-L19, FR-L39]
 tags: [acp, resume, session-load, capability-gate, fail-fast]
 supersedes:
@@ -13,9 +13,7 @@ related_tasks:
 
 # ACP Transport — Resume via `session/load` (capability-gated)
 
-> **Planning stub** — captures goal, context, and the unresolved design
-> tension. Solution + variant selection deferred to a dedicated
-> `/flowai:plan` session. Do NOT implement from this file as-is.
+> Variant **A** (two-phase validation) selected & implemented 2026-06-06.
 
 ## Goal
 
@@ -105,26 +103,150 @@ core decision. Candidate approaches to weigh in variant analysis:
 
 ## Definition of Done
 
-> Filled during the `/flowai:plan` session once a variant is selected.
-> Placeholder acceptance below — do NOT treat as final.
+> Variant **A** (two-phase validation) selected 2026-06-06. The cheap
+> entry-time throw stays for unconditionally-unsupported fields;
+> `resumeSessionId` moves to a post-`initialize` capability gate inside
+> `handshake`.
 
-- [ ] Reconcile the throw-timing tension (variant selected + recorded).
-- [ ] `resumeSessionId` routes to `session/load` on pilots advertising
-      `loadSession`; throws `AcpUnsupportedOptionError` otherwise.
-      Test: `runtime/acp/adapter_test.ts` (stub: loadSession advertised
-      vs not). Evidence: `deno test -A --no-check runtime/acp/`.
-- [ ] `acp-unsupported-option-error.md` tests updated to match the new
-      `resumeSessionId` timing contract (whatever variant decides).
-- [ ] Real-binary e2e: `e2e/acp_resume_e2e_test.ts` proves conversation
-      history survives reopen on Claude. Evidence:
+- [x] Reconcile the throw-timing tension — Variant **A** recorded in
+      `## Solution`.
+- [x] FR-L19: `resumeSessionId` removed from
+      `ACP_UNSUPPORTED_INVOKE_OPTIONS` /
+      `ACP_UNSUPPORTED_SESSION_OPTIONS` so entry-time
+      `collectUnsupportedOptions` no longer throws on it. Test:
+      `runtime/acp/mapping_test.ts::ACP_UNSUPPORTED_INVOKE_OPTIONS pins
+      the invoke surface set`. Evidence:
+      `deno test -A --no-check runtime/acp/mapping_test.ts`.
+- [x] FR-L19: `handshake` reads `agentCapabilities.loadSession` from the
+      `initialize` response; with `resumeSessionId` set it routes
+      `session/load` (reusing `buildSessionNewParams` + `sessionId`) when
+      `loadSession === true`, else throws
+      `AcpUnsupportedOptionError(runtime, ["resumeSessionId"])`. Without
+      `resumeSessionId` the `session/new` path is unchanged. Test:
+      `runtime/acp/adapter_test.ts::invokeViaAcp routes resumeSessionId to
+      session/load when loadSession advertised`,
+      `runtime/acp/adapter_test.ts::invokeViaAcp throws when loadSession
+      not advertised`. Evidence: `deno test -A --no-check runtime/acp/`.
+- [x] FR-L19: `invokeViaAcp` propagates the post-init
+      `AcpUnsupportedOptionError` (its `attemptInvocation` catch
+      re-throws this class instead of wrapping it as an error result, and
+      does NOT retry); `openSessionViaAcp` disposes the spawned client
+      then rethrows. Test:
+      `runtime/acp/adapter_test.ts::openSessionViaAcp throws when
+      loadSession not advertised`. Evidence:
+      `deno test -A --no-check runtime/acp/`.
+- [x] FR-L19: existing `resumeSessionId` synchronous-throw tests updated
+      to the post-init timing contract (the entry-throw test now stubs an
+      `initialize` without `loadSession`; the multi-field and
+      throw-precedes-warn tests drop `resumeSessionId` from the
+      entry-time tuple expectations). Test: `runtime/acp/adapter_test.ts`,
+      `runtime/acp/mapping_test.ts`. Evidence:
+      `deno test -A --no-check runtime/acp/`.
+- [x] FR-L19: `// FR-L19` traceability comments at the `handshake`
+      load-routing + capability-gate sites and the `attemptInvocation`
+      re-throw site.
+- [ ] FR-L19: real-binary e2e `e2e/acp_resume_e2e_test.ts` proves
+      conversation history survives reopen on Claude (only pilot with
+      `loadSession: true`). Gated `E2E=1` + `e2eAcpEnabled("claude")`.
+      Test: `e2e/acp_resume_e2e_test.ts::acp resume via session/load
+      preserves history on claude`. Evidence:
       `E2E=1 E2E_RUNTIMES=claude deno test -A --no-check e2e/acp_resume_e2e_test.ts`.
-- [ ] SRS FR-L19 acceptance + SDS ACP section + `runtime/AGENTS.md`
-      updated. Evidence: `git diff documents/ runtime/AGENTS.md`.
-- [ ] `deno task check` green.
+- [x] FR-L19: SRS `### 3.19 FR-L19` Acceptance gains a capability-gated
+      ACP-resume bullet; SDS ACP section + `runtime/CLAUDE.md` document
+      the post-init gate + `session/load` routing. Test:
+      `manual — korchasa` (doc review). Evidence:
+      `git diff documents/ runtime/CLAUDE.md`.
+- [x] FR-L19: `documents/index.md` FR-L19 row present/updated. Test:
+      `manual — korchasa`. Evidence: `grep -n "FR-L19" documents/index.md`.
+- [x] `deno task check` green. Test: implicit. Evidence:
+      `deno run -A scripts/check.ts`.
 
 ## Solution
 
-_Deferred — to be filled by `/flowai:plan` after variant selection._
+Implement Variant **A — two-phase validation**. The entry-time
+`collectUnsupportedOptions` throw is retained for every field that is
+unconditionally unsupported on the ACP wire; `resumeSessionId` is the
+sole field whose support depends on runtime-advertised capability, so it
+moves to a dedicated gate inside `handshake`, immediately after the
+`initialize` response (the only point where `agentCapabilities.loadSession`
+is known).
+
+### Files
+
+Modified:
+
+- `runtime/acp/mapping.ts` — remove `"resumeSessionId"` from
+  `ACP_UNSUPPORTED_INVOKE_OPTIONS` and `ACP_UNSUPPORTED_SESSION_OPTIONS`;
+  update the field-note JSDoc on `ACP_UNSUPPORTED_INVOKE_OPTIONS` to point
+  at the new post-init gate. Type the `initialize` response
+  (`AcpInitializeResult { agentCapabilities?: { loadSession?: boolean } }`).
+- `runtime/acp/handshake.ts` — capture the `initialize` response; add
+  `"resumeSessionId"` to the `opts` `Pick`; branch: `resumeSessionId` set
+  → gate on `loadSession` (route `session/load` with
+  `{...buildSessionNewParams(runtime, opts), sessionId: resumeSessionId}`
+  when advertised, else `throw new AcpUnsupportedOptionError(runtime,
+  ["resumeSessionId"])`); unset → unchanged `session/new`. Mode/config
+  RPCs run over whichever response (load or new) as before. `// FR-L19`
+  comments at the gate + routing sites. Import `AcpUnsupportedOptionError`
+  from `./errors.ts` (leaf — no cycle).
+- `runtime/acp/adapter.ts` — `attemptInvocation` catch: re-throw
+  `AcpUnsupportedOptionError` before any error-result wrapping (so the
+  post-init gate surfaces as a thrown error, not `{error}`; the `finally`
+  still disposes the client). `openSessionViaAcp`: wrap the `handshake`
+  call in try/`dispose`/rethrow so a post-init throw tears the spawned
+  front down. `// FR-L19` comments at both sites.
+- `runtime/acp/adapter_test.ts` — rewrite the entry-throw resume test to
+  stub `initialize` without `loadSession` (post-init throw); fix the
+  multi-field + throw-precedes-warn tests to drop `resumeSessionId` from
+  entry-tuple expectations (use `strictMcpConfig` to keep the
+  precede-warn invariant); add 2 new tests (invoke + session) for the
+  `loadSession`-advertised `session/load` route and the not-advertised
+  throw.
+- `runtime/acp/mapping_test.ts` — drop `"resumeSessionId"` from the two
+  tuple-pin assertions and the `collectUnsupportedOptions` invoke case.
+- `documents/requirements.md` — FR-L19 Acceptance bullet; surgical
+  `**Tasks:**` back-pointer.
+- `documents/design.md` — ACP section note on the post-init resume gate.
+- `documents/index.md` — FR-L19 row refresh.
+- `runtime/CLAUDE.md` — ACP-transport bullet: capability-gated resume via
+  `session/load` (claude only today; codex/opencode still throw).
+
+Created:
+
+- `e2e/acp_resume_e2e_test.ts` — opens an ACP session on Claude, sends a
+  memorable fact, captures `sessionId`, disposes, reopens with
+  `resumeSessionId`, asks the agent to recall the fact, asserts the reply
+  references it. Gated by `E2E=1` + `e2eAcpEnabled("claude")`.
+
+### Commit plan (single commit — one cohesive contract change)
+
+1. **RED** — update `mapping_test.ts` tuple assertions (drop
+   `resumeSessionId`) and add the two new adapter routing tests +
+   rewrite the entry-throw test. Run `deno test -A --no-check
+   runtime/acp/` → fails (resumeSessionId still in tuples, no routing).
+2. **GREEN** — remove `resumeSessionId` from both tuples; add the
+   `handshake` capability gate + `session/load` route; re-throw in
+   `attemptInvocation`; dispose-and-rethrow in `openSessionViaAcp`.
+   Re-run `runtime/acp/` tests → green.
+3. **REFACTOR** — extract `buildSessionLoadParams` only if the inline
+   spread reads poorly; otherwise inline. No behaviour change.
+4. **DOCS** — SRS bullet, SDS note, index row, `runtime/CLAUDE.md`
+   bullet, surgical `**Tasks:**` back-pointer.
+5. **e2e** — write `e2e/acp_resume_e2e_test.ts` (gated; not in `check`).
+6. **CHECK** — `deno run -A scripts/check.ts` green.
+
+### Error-handling notes
+
+- Post-init gate throws the SAME `AcpUnsupportedOptionError` class the
+  entry-time path uses — consumers keep one `instanceof` check. Only the
+  timing differs (post-spawn for `resumeSessionId`, pre-spawn for every
+  other field). `attemptInvocation`'s re-throw preserves the thrown-error
+  contract (not converted to `{error}`); the `finally` block guarantees
+  the spawned client is disposed regardless.
+- `loadSession` is read strictly as `=== true` — a missing or non-boolean
+  field is treated as "not supported" (fail-closed), so codex/opencode
+  (which omit it) keep throwing exactly as before, only later in the
+  lifecycle.
 
 ## Follow-ups
 

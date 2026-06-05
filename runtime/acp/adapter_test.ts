@@ -232,23 +232,109 @@ Deno.test("invokeViaAcp refuses non-pilot runtimes with a clear message", async 
   );
 });
 
-Deno.test("invokeViaAcp throws AcpUnsupportedOptionError when resumeSessionId is set", async () => {
-  // No stub needed — the throw fires before any subprocess spawn.
-  const err = await assertRejects(
-    () =>
-      invokeViaAcp("claude", {
-        processRegistry: new ProcessRegistry(),
-        taskPrompt: "x",
-        resumeSessionId: "abc",
-        timeoutSeconds: 30,
-        maxRetries: 0,
-        retryDelaySeconds: 0,
-      }),
-    AcpUnsupportedOptionError,
-    "resumeSessionId",
-  );
-  assertEquals(err.fields, ["resumeSessionId"]);
-  assertEquals(err.runtime, "claude");
+// FR-L19: resume is capability-gated post-initialize. A front that does
+// NOT advertise `loadSession` makes `resumeSessionId` throw — but now
+// AFTER spawn + initialize, not synchronously at adapter entry. The throw
+// still propagates as the SAME AcpUnsupportedOptionError class (the
+// invoke retry loop re-throws it instead of wrapping it in an error
+// result).
+const NO_LOAD_SESSION_SCRIPT = `
+shift; shift
+respond() {
+  local id="$1" payload="$2"
+  printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
+}
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\\1/')
+  method=$(printf '%s' "$line" | sed -E 's/.*"method":"([^"]+)".*/\\1/')
+  case "$method" in
+    initialize)
+      respond "$id" '{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}'
+      ;;
+    *)
+      respond "$id" 'null'
+      ;;
+  esac
+done
+`;
+
+// FR-L19: a front advertising loadSession routes resumeSessionId to
+// session/load. This stub FAILS session/new (so a mis-route is caught)
+// and succeeds session/load, echoing modes so the mode RPC still runs.
+const LOAD_SESSION_SCRIPT = `
+shift; shift
+respond() {
+  local id="$1" payload="$2"
+  printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
+}
+fail() {
+  local id="$1" msg="$2"
+  printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32000,"message":"%s"}}\\n' "$id" "$msg"
+}
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\\1/')
+  method=$(printf '%s' "$line" | sed -E 's/.*"method":"([^"]+)".*/\\1/')
+  case "$method" in
+    initialize)
+      respond "$id" '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
+      ;;
+    session/new)
+      fail "$id" "session/new must not be called when resuming"
+      ;;
+    session/load)
+      respond "$id" '{"modes":{"availableModes":[{"id":"plan"},{"id":"code"}],"currentModeId":"code"},"sessionConfigOptions":[]}'
+      ;;
+    session/set_mode|session/set_config_option)
+      respond "$id" 'null'
+      ;;
+    session/prompt)
+      printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"recalled"}}}\\n'
+      respond "$id" '{"stopReason":"end_turn"}'
+      ;;
+    *)
+      respond "$id" 'null'
+      ;;
+  esac
+done
+`;
+
+Deno.test("invokeViaAcp throws AcpUnsupportedOptionError when resumeSessionId set but loadSession not advertised", async () => {
+  await withStubAcpFront({ script: NO_LOAD_SESSION_SCRIPT }, async () => {
+    const err = await assertRejects(
+      () =>
+        invokeViaAcp("claude", {
+          processRegistry: new ProcessRegistry(),
+          taskPrompt: "x",
+          resumeSessionId: "abc",
+          timeoutSeconds: 30,
+          maxRetries: 0,
+          retryDelaySeconds: 0,
+        }),
+      AcpUnsupportedOptionError,
+      "resumeSessionId",
+    );
+    assertEquals(err.fields, ["resumeSessionId"]);
+    assertEquals(err.runtime, "claude");
+  });
+});
+
+Deno.test("invokeViaAcp routes resumeSessionId to session/load when loadSession advertised", async () => {
+  await withStubAcpFront({ script: LOAD_SESSION_SCRIPT }, async () => {
+    const result = await invokeViaAcp("claude", {
+      processRegistry: new ProcessRegistry(),
+      taskPrompt: "recall the fact",
+      resumeSessionId: "sess-resumed",
+      timeoutSeconds: 30,
+      maxRetries: 0,
+      retryDelaySeconds: 0,
+    });
+    // session/new is wired to FAIL — reaching a clean output proves the
+    // resume routed through session/load instead.
+    assert(result.output, `expected output, got ${JSON.stringify(result)}`);
+    assertEquals(result.output.session_id, "sess-resumed");
+    assertEquals(result.output.is_error, false);
+    assert(result.output.result.includes("recalled"));
+  });
 });
 
 Deno.test("invokeViaAcp lists multiple unsupported fields in declaration order", async () => {
@@ -257,7 +343,6 @@ Deno.test("invokeViaAcp lists multiple unsupported fields in declaration order",
       invokeViaAcp("claude", {
         processRegistry: new ProcessRegistry(),
         taskPrompt: "x",
-        resumeSessionId: "abc",
         strictMcpConfig: true,
         extraArgs: { "--foo": "bar" },
         timeoutSeconds: 30,
@@ -266,9 +351,10 @@ Deno.test("invokeViaAcp lists multiple unsupported fields in declaration order",
       }),
     AcpUnsupportedOptionError,
   );
-  // Tuple order (agent, systemPromptFile, resumeSessionId, extraArgs,
-  // strictMcpConfig, …) — not alphabetical, not call order.
-  assertEquals(err.fields, ["resumeSessionId", "extraArgs", "strictMcpConfig"]);
+  // FR-L19: resumeSessionId is no longer an entry-time field, so the
+  // pre-spawn tuple surfaces only extraArgs + strictMcpConfig (tuple
+  // order — not alphabetical, not call order).
+  assertEquals(err.fields, ["extraArgs", "strictMcpConfig"]);
 });
 
 Deno.test("invokeViaAcp does NOT throw on empty extraArgs map", async () => {
@@ -305,14 +391,15 @@ Deno.test("invokeViaAcp throw precedes degraded-options warn", async () => {
   let warned = false;
   const err = await assertRejects(
     () =>
-      // Both a degraded field (allowedTools) AND an unsupported one
-      // (resumeSessionId) are set. The throw must win — the warn loop must
-      // never run.
+      // Both a degraded field (allowedTools) AND an entry-time unsupported
+      // one (strictMcpConfig) are set. The pre-spawn throw must win — the
+      // warn loop must never run. (FR-L19: resumeSessionId is no longer an
+      // entry-time field, so strictMcpConfig carries this invariant now.)
       invokeViaAcp("claude", {
         processRegistry: new ProcessRegistry(),
         taskPrompt: "x",
         allowedTools: ["Read"],
-        resumeSessionId: "abc",
+        strictMcpConfig: true,
         onCallbackError: () => {
           warned = true;
         },
@@ -322,8 +409,43 @@ Deno.test("invokeViaAcp throw precedes degraded-options warn", async () => {
       }),
     AcpUnsupportedOptionError,
   );
-  assertEquals(err.fields, ["resumeSessionId"]);
+  assertEquals(err.fields, ["strictMcpConfig"]);
   assert(!warned, "degraded-options warn fired despite the unsupported throw");
+});
+
+// FR-L19: session path mirrors the invoke path — resume gated on
+// loadSession, post-init, tearing the spawned front down on the throw.
+Deno.test("openSessionViaAcp throws when resumeSessionId set but loadSession not advertised", async () => {
+  await withStubAcpFront({ script: NO_LOAD_SESSION_SCRIPT }, async () => {
+    const err = await assertRejects(
+      () =>
+        openSessionViaAcp("claude", {
+          processRegistry: new ProcessRegistry(),
+          resumeSessionId: "abc",
+        }),
+      AcpUnsupportedOptionError,
+      "resumeSessionId",
+    );
+    assertEquals(err.fields, ["resumeSessionId"]);
+  });
+});
+
+Deno.test("openSessionViaAcp routes resumeSessionId to session/load when advertised", async () => {
+  await withStubAcpFront({ script: LOAD_SESSION_SCRIPT }, async () => {
+    const session = await openSessionViaAcp("claude", {
+      processRegistry: new ProcessRegistry(),
+      resumeSessionId: "sess-resumed",
+    });
+    try {
+      // session/new is wired to FAIL; a live handle proves session/load
+      // routed instead. sessionId echoes the resumed id.
+      assertEquals(session.sessionId, "sess-resumed");
+      assertEquals(session.runtime, "claude");
+    } finally {
+      session.abort();
+      await session.done;
+    }
+  });
 });
 
 Deno.test("openSessionViaAcp throws AcpUnsupportedOptionError when strictMcpConfig is set", async () => {

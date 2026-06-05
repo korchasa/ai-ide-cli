@@ -45,6 +45,22 @@ export interface AcpInitializeParams {
   clientInfo: { name: string; version: string };
 }
 
+/**
+ * Subset of the ACP `initialize` response the handshake reads.
+ *
+ * `agentCapabilities.loadSession` is the capability gate for FR-L19
+ * resume — a front that advertises `true` accepts `session/load`; absent
+ * or non-`true` is treated as unsupported (fail-closed).
+ */
+// FR-L19
+export interface AcpInitializeResult {
+  /** Capabilities the front advertises. */
+  agentCapabilities?: {
+    /** Whether the front implements `session/load` (resume). */
+    loadSession?: boolean;
+  };
+}
+
 /** ACP MCP-server descriptor (`session/new.params.mcpServers[]`). */
 export interface AcpMcpServer {
   /** Server name referenced as `<name>.<tool>` in tool calls. */
@@ -306,20 +322,24 @@ export function collectDegradedOptions(
  * - `agent` is a runtime-internal subagent selector (Claude / OpenCode
  *   `--agent`). ACP fronts launch their own process and accept no
  *   sub-agent override on the wire.
- * - `resumeSessionId` could in principle map to ACP `session/load` once
- *   we implement it (Follow-ups). Until then: throw.
+ * - `resumeSessionId` is NOT here (FR-L19): its support is
+ *   runtime-advertised (`agentCapabilities.loadSession`), known only
+ *   after `initialize`. It is gated post-init inside
+ *   `runtime/acp/handshake.ts` — routed to `session/load` when the front
+ *   advertises the capability, else throwing the SAME
+ *   `AcpUnsupportedOptionError` (later in the lifecycle, after spawn).
  * - `extraArgs` has no destination on the wire (ACP carries no CLI argv).
  *
  * Set membership — not heuristics — is the source of truth. Adding a new
  * field to `RuntimeInvokeOptions` does NOT silently bypass the check, but
  * a missing entry here would: each new field needs an explicit
- * classify-and-mention decision (degraded vs unsupported vs honoured).
+ * classify-and-mention decision (degraded vs unsupported vs honoured vs
+ * capability-gated).
  */
 // FR-L39
 export const ACP_UNSUPPORTED_INVOKE_OPTIONS = [
   "agent",
   "systemPromptFile",
-  "resumeSessionId",
   "extraArgs",
   "strictMcpConfig",
   "streamStallTimeoutSeconds",
@@ -332,12 +352,12 @@ export const ACP_UNSUPPORTED_INVOKE_OPTIONS = [
  * Session-options counterpart. Strict subset of the invoke list —
  * `RuntimeSessionOptions` omits the one-shot fields (`streamLogPath`,
  * `verbosity`, `onOutput`, `streamStallTimeoutSeconds`,
- * `systemPromptFile`).
+ * `systemPromptFile`). `resumeSessionId` is capability-gated post-init
+ * (FR-L19), not listed here.
  */
 // FR-L39
 export const ACP_UNSUPPORTED_SESSION_OPTIONS = [
   "agent",
-  "resumeSessionId",
   "extraArgs",
   "strictMcpConfig",
 ] as const;

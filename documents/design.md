@@ -1673,14 +1673,25 @@ subprocess wrapper. One implementation
     `ACP_UNSUPPORTED_INVOKE_OPTIONS` / `ACP_UNSUPPORTED_SESSION_OPTIONS`
     — the **error** counterpart to the warn-only
     `collectDegradedOptions`. Classifies silent-drop fields the ACP
-    wire cannot carry at all (`resumeSessionId`, `strictMcpConfig`,
-    `extraArgs`, `agent`, `systemPromptFile`,
-    `streamStallTimeoutSeconds`, `streamLogPath`, `verbosity`,
-    `onOutput`). Pure, presence-based (empty `extraArgs` map exempt).
-    Adapter entry (`invokeViaAcp` / `openSessionViaAcp`) throws
-    `AcpUnsupportedOptionError` (`runtime/acp/errors.ts`) synchronously
-    when the result is non-empty — before any front spawns and before
-    the degraded-options warn path.
+    wire cannot carry at all (`strictMcpConfig`, `extraArgs`, `agent`,
+    `systemPromptFile`, `streamStallTimeoutSeconds`, `streamLogPath`,
+    `verbosity`, `onOutput`). Pure, presence-based (empty `extraArgs`
+    map exempt). Adapter entry (`invokeViaAcp` / `openSessionViaAcp`)
+    throws `AcpUnsupportedOptionError` (`runtime/acp/errors.ts`)
+    synchronously when the result is non-empty — before any front spawns
+    and before the degraded-options warn path.
+  - **Capability-gated resume (FR-L19).** `resumeSessionId` is
+    deliberately NOT in the two tuples above: support depends on the
+    front-advertised `agentCapabilities.loadSession`, known only after
+    `initialize`. `handshake` gates it post-init — routes `session/load`
+    (params = `buildSessionNewParams` + `sessionId`) when `loadSession
+    === true` (fail-closed), else throws the SAME
+    `AcpUnsupportedOptionError`. The throw therefore moves from adapter
+    entry to inside `handshake` for this one field: `invokeViaAcp`
+    re-throws it from `attemptInvocation` (no retry; the `finally`
+    disposes the spawned client), and `openSessionViaAcp` disposes the
+    client before rethrowing. Claude advertises `loadSession` today;
+    Codex / OpenCode keep throwing, only later in the lifecycle.
   - `buildTurnEndEvent` — synthetic `SYNTHETIC_TURN_END` event
     emitted by the session after each `session/prompt` completes
     (FR-L21 cross-runtime invariant).
@@ -1695,9 +1706,11 @@ subprocess wrapper. One implementation
   invoke/session path AND the commands fast-channel reuse one
   spawn-and-handshake path (keeps the `adapter.ts → content.ts →
   commands.ts` graph acyclic). `handshake(client, runtime, opts,
-  { skipModeAndConfig? })` runs `initialize` → `session/new`; the flag
-  short-circuits the `session/set_mode` + `session/set_config_option`
-  RPCs for one-shot captures.
+  { skipModeAndConfig? })` runs `initialize` → `session/new` (or
+  `session/load` when `opts.resumeSessionId` is set and the front
+  advertises `loadSession`, FR-L19); the flag short-circuits the
+  `session/set_mode` + `session/set_config_option` RPCs for one-shot
+  captures.
 - `runtime/acp/adapter.ts` — owns `invokeViaAcp` and `openSessionViaAcp`:
   - `spawnClient` (from `handshake.ts`) resolves the launcher from
     `getAcpFront(runtime)` or the `opts.acpFront` override (bypasses
