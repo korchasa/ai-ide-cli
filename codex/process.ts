@@ -60,6 +60,7 @@ import type {
   RuntimeLifecycleHooks,
   RuntimeToolUseDecision,
 } from "../runtime/types.ts";
+import type { RuntimeErrorCategory } from "../runtime/error-types.ts";
 import {
   type OnCallbackError,
   safeAwaitCallback,
@@ -82,6 +83,7 @@ import {
   extractCodexUsage,
   formatCodexEventForOutput,
 } from "./run-state.ts";
+import { ERROR_CATEGORY_INVALID_REQUEST } from "../runtime/error-types.ts";
 import { findCodexSessionFile } from "./transcript.ts";
 
 // Re-exports preserve the historical entry-point shape so existing
@@ -119,7 +121,7 @@ export async function invokeCodexCli(
 
   for (let attempt = 1; attempt <= opts.maxRetries; attempt++) {
     try {
-      const output = await executeCodexProcess(
+      const { output, errorCategory } = await executeCodexProcess(
         args,
         mergedTaskPrompt,
         opts.timeoutSeconds,
@@ -137,6 +139,13 @@ export async function invokeCodexCli(
       );
       if (output.is_error) {
         lastError = `Codex CLI returned error: ${output.result}`;
+        // FR-L41: permanent upstream rejection (HTTP 400 invalid_request_error,
+        // e.g. unsupported model): retrying the same arguments cannot
+        // succeed, so skip the remaining attempts and surface the typed
+        // category so consumers also short-circuit their continuation loop.
+        if (errorCategory === ERROR_CATEGORY_INVALID_REQUEST) {
+          return { output, error: lastError, error_category: errorCategory };
+        }
         if (attempt < opts.maxRetries) {
           const delay = opts.retryDelaySeconds * Math.pow(2, attempt - 1);
           try {
@@ -149,7 +158,11 @@ export async function invokeCodexCli(
           }
           continue;
         }
-        return { output, error: lastError };
+        return {
+          output,
+          error: lastError,
+          ...(errorCategory ? { error_category: errorCategory } : {}),
+        };
       }
       opts.hooks?.onResult?.(output);
       return { output };
@@ -197,7 +210,7 @@ async function executeCodexProcess(
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   onCallbackError?: OnCallbackError,
-): Promise<CliRunOutput> {
+): Promise<{ output: CliRunOutput; errorCategory?: RuntimeErrorCategory }> {
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
   const syncedEnv = withSyncedPWD(env, cwd);
   const cmd = new Deno.Command("codex", {
@@ -366,22 +379,27 @@ async function executeCodexProcess(
     // Tool-use abort takes precedence: synthesize a denial output.
     if (state.denied) {
       return {
-        runtime: "codex",
-        result: state.denied.reason,
-        session_id: state.threadId,
-        duration_ms: Math.max(0, Date.now() - state.startMs),
-        num_turns: state.turnCount,
-        is_error: true,
-        usage: extractCodexUsage(state),
-        permission_denials: [
-          {
-            tool_name: state.denied.tool,
-            tool_input: { id: state.denied.id, reason: state.denied.reason },
-          },
-        ],
-        transcript_path: state.threadId
-          ? await findCodexSessionFile(state.threadId, state.startMs)
-          : undefined,
+        output: {
+          runtime: "codex",
+          result: state.denied.reason,
+          session_id: state.threadId,
+          duration_ms: Math.max(0, Date.now() - state.startMs),
+          num_turns: state.turnCount,
+          is_error: true,
+          usage: extractCodexUsage(state),
+          permission_denials: [
+            {
+              tool_name: state.denied.tool,
+              tool_input: {
+                id: state.denied.id,
+                reason: state.denied.reason,
+              },
+            },
+          ],
+          transcript_path: state.threadId
+            ? await findCodexSessionFile(state.threadId, state.startMs)
+            : undefined,
+        },
       };
     }
 
@@ -410,7 +428,7 @@ async function executeCodexProcess(
         state.startMs,
       );
     }
-    return output;
+    return { output, errorCategory: state.errorCategory };
   } finally {
     registry.unregister(process);
   }

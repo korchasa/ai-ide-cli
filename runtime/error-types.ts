@@ -11,9 +11,21 @@
 /** Stream-stall category — OpenCode subprocess emitted no JSON events for the configured idle threshold. */
 export const ERROR_CATEGORY_STREAM_STALL = "stream_stall" as const;
 
+// FR-L41: permanent-rejection literal — adapters skip retry and consumers
+// skip continuation when `error_category === "invalid_request"`.
+/**
+ * Permanent upstream rejection (e.g. Codex/OpenAI `invalid_request_error`
+ * with HTTP 400 — unsupported model, malformed parameter). Retrying with the
+ * same arguments cannot succeed, so adapters MUST skip their internal retry
+ * loop and consumers MUST skip continuation/--resume attempts.
+ */
+export const ERROR_CATEGORY_INVALID_REQUEST = "invalid_request" as const;
+
 /**
  * Union of every typed error category surfaced by adapter invocations.
  * Extend in lock-step with new detectors; consumers should treat unknown
  * categories as opaque strings to stay forward-compatible.
  */
-export type RuntimeErrorCategory = typeof ERROR_CATEGORY_STREAM_STALL;
+export type RuntimeErrorCategory =
+  | typeof ERROR_CATEGORY_STREAM_STALL
+  | typeof ERROR_CATEGORY_INVALID_REQUEST;

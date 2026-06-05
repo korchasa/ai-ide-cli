@@ -557,3 +557,42 @@ Deno.test("buildCodexArgs — mcpServers http emits --config mcp_servers.<name>.
   assert(urlIdx >= 0, "missing mcp_servers.api.url override");
   assert(headersIdx >= 0, "missing mcp_servers.api.http_headers override");
 });
+
+// --- FR-L41: permanent upstream errors skip the internal retry loop ---
+
+Deno.test("FR-L41 invokeCodexCli — invalid_request_error skips retry and surfaces error_category", async () => {
+  const counterFile = await Deno.makeTempFile({ prefix: "codex-attempt-" });
+  await Deno.writeTextFile(counterFile, "0");
+  const errJson =
+    '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"model not supported"}}';
+  const script = `#!/usr/bin/env bash
+n=$(cat ${counterFile})
+echo $((n+1)) > ${counterFile}
+printf '%s\\n' '{"type":"thread.started","thread_id":"thrd_perm"}'
+printf '%s\\n' '{"type":"error","message":${JSON.stringify(errJson)}}'
+printf '%s\\n' '{"type":"turn.failed","error":{"message":${
+    JSON.stringify(errJson)
+  }}}'
+`;
+  try {
+    await withStubCodex(script, async () => {
+      const result = await invokeCodexCli(
+        makeInvokeOpts({
+          maxRetries: 4,
+          retryDelaySeconds: 0,
+        }),
+      );
+      const attempts = Number(await Deno.readTextFile(counterFile));
+      assertEquals(
+        attempts,
+        1,
+        "permanent 400 must NOT trigger a second codex invocation",
+      );
+      assert(result.output);
+      assertEquals(result.output.is_error, true);
+      assertEquals(result.error_category, "invalid_request");
+    });
+  } finally {
+    await Deno.remove(counterFile).catch(() => {});
+  }
+});

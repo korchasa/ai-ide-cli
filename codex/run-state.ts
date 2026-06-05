@@ -14,6 +14,10 @@
  */
 
 import type { CliRunOutput, CliRunUsage, Verbosity } from "../types.ts";
+import {
+  ERROR_CATEGORY_INVALID_REQUEST,
+  type RuntimeErrorCategory,
+} from "../runtime/error-types.ts";
 import type {
   CodexExecAgentMessageItem,
   CodexExecCommandExecutionItem,
@@ -54,6 +58,13 @@ export interface CodexRunState {
   turnCount: number;
   /** Error message captured from `turn.failed` or top-level `error` events. */
   errorMessage?: string;
+  /**
+   * Typed error category derived from the Codex error/turn.failed payload (FR-L41).
+   * Currently detects `invalid_request_error` (HTTP 400) — permanent
+   * upstream rejection (unsupported model, malformed parameter) that the
+   * runner MUST NOT retry. Stays `undefined` for transient/unknown errors.
+   */
+  errorCategory?: RuntimeErrorCategory;
   /** Wall-clock start time in milliseconds since epoch, for duration reporting. */
   startMs: number;
   /**
@@ -113,15 +124,17 @@ export function applyCodexEvent(
       state.errorMessage = typeof message === "string"
         ? message
         : "Codex turn failed";
+      state.errorCategory ??= classifyCodexErrorText(message);
       return;
     }
     case "error": {
+      const e = event as CodexExecErrorEvent;
       if (!state.errorMessage) {
-        const e = event as CodexExecErrorEvent;
         state.errorMessage = typeof e.message === "string"
           ? e.message
           : "Codex reported an error";
       }
+      state.errorCategory ??= classifyCodexErrorText(e.message);
       return;
     }
     case "item.completed": {
@@ -136,6 +149,46 @@ export function applyCodexEvent(
     default:
       return;
   }
+}
+
+// FR-L41: detect permanent upstream `invalid_request_error` (HTTP 400) so the
+// runner skips retries and surfaces a typed `error_category`.
+/**
+ * Classify the textual error payload Codex surfaces in `error.message` /
+ * top-level `error` events into a typed {@link RuntimeErrorCategory}.
+ *
+ * Codex serialises upstream OpenAI/ChatGPT API failures as a JSON envelope
+ * (e.g. `{"type":"error","status":400,"error":{"type":"invalid_request_error",
+ * "message":"..."}}`). When the envelope is present we read `error.type`;
+ * when only a flat string is available we fall back to substring matching
+ * on the canonical type id. Returns `undefined` for transient or unknown
+ * errors so the caller defaults to retry semantics.
+ */
+export function classifyCodexErrorText(
+  message: unknown,
+): RuntimeErrorCategory | undefined {
+  if (typeof message !== "string" || message.length === 0) return undefined;
+  // Envelope form: try a JSON parse first. Most error events from
+  // `codex exec --experimental-json` ship the upstream API body verbatim.
+  const trimmed = message.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as {
+        status?: number;
+        error?: { type?: string };
+      };
+      if (parsed.error?.type === "invalid_request_error") {
+        return ERROR_CATEGORY_INVALID_REQUEST;
+      }
+      if (parsed.status === 400) return ERROR_CATEGORY_INVALID_REQUEST;
+    } catch {
+      // Fall through to substring matching.
+    }
+  }
+  if (message.includes("invalid_request_error")) {
+    return ERROR_CATEGORY_INVALID_REQUEST;
+  }
+  return undefined;
 }
 
 /**

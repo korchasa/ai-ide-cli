@@ -365,8 +365,12 @@ human-readable `error` string byte-for-byte. Cursor stderr process failures
 are wired too: Free-plan named-model errors map to `plan_limit`, unknown
 stderr maps to generic `runtime_error`. Stream stalls remain
 `error_category: "stream_stall"` with no `runtime_error`; non-fatal HTTP 503
-log lines stay unclassified. Claude / Codex plain error-string
-classification is deferred until runtime-specific evidence is captured.
+log lines stay unclassified. Codex classifies permanent HTTP 400
+`invalid_request_error` → `error_category: "invalid_request"` (FR-L41) via
+`classifyCodexErrorText`, skipping the retry loop and propagating the category
+so consumers short-circuit continuation; transient/unknown Codex payloads and
+Claude plain error-strings stay deferred until runtime-specific evidence is
+captured.
 
 **`runtime/setting-sources.ts`:**
 

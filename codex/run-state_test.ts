@@ -12,10 +12,12 @@
 import { assertEquals } from "@std/assert";
 import {
   applyCodexEvent,
+  classifyCodexErrorText,
   createCodexRunState,
   extractCodexOutput,
   extractCodexUsage,
 } from "./run-state.ts";
+import { ERROR_CATEGORY_INVALID_REQUEST } from "../runtime/error-types.ts";
 
 // FR-L13
 Deno.test("reasoning tokens accumulate and surface on extractCodexUsage", () => {
@@ -80,4 +82,74 @@ Deno.test("extractCodexOutput surfaces reasoning_tokens on CliRunOutput.usage", 
   assertEquals(out.session_id, "thrd_x");
   assertEquals(out.is_error, false);
   assertEquals(out.num_turns, 1);
+});
+
+// --- FR-L41: classify permanent Codex API errors ---
+
+Deno.test("FR-L41 classifyCodexErrorText — envelope with invalid_request_error returns invalid_request", () => {
+  const text =
+    '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"model not supported"}}';
+  assertEquals(
+    classifyCodexErrorText(text),
+    ERROR_CATEGORY_INVALID_REQUEST,
+  );
+});
+
+Deno.test("FR-L41 classifyCodexErrorText — envelope with status 400 returns invalid_request even without typed inner", () => {
+  const text = '{"type":"error","status":400,"error":{"message":"oops"}}';
+  assertEquals(
+    classifyCodexErrorText(text),
+    ERROR_CATEGORY_INVALID_REQUEST,
+  );
+});
+
+Deno.test("FR-L41 classifyCodexErrorText — flat string substring match", () => {
+  assertEquals(
+    classifyCodexErrorText("Upstream rejected: invalid_request_error model"),
+    ERROR_CATEGORY_INVALID_REQUEST,
+  );
+});
+
+Deno.test("FR-L41 classifyCodexErrorText — transient 503 envelope returns undefined", () => {
+  const text = '{"type":"error","status":503,"error":{"type":"server_error"}}';
+  assertEquals(classifyCodexErrorText(text), undefined);
+});
+
+Deno.test("FR-L41 classifyCodexErrorText — empty/non-string inputs return undefined", () => {
+  assertEquals(classifyCodexErrorText(""), undefined);
+  assertEquals(classifyCodexErrorText(undefined), undefined);
+  assertEquals(classifyCodexErrorText(null), undefined);
+  assertEquals(classifyCodexErrorText({ malformed: true }), undefined);
+});
+
+Deno.test("FR-L41 applyCodexEvent — error event sets errorCategory on invalid_request envelope", () => {
+  const s = createCodexRunState();
+  applyCodexEvent({
+    type: "error",
+    message:
+      '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"bad model"}}',
+  }, s);
+  assertEquals(s.errorCategory, ERROR_CATEGORY_INVALID_REQUEST);
+  assertEquals(s.errorMessage !== undefined, true);
+});
+
+Deno.test("FR-L41 applyCodexEvent — turn.failed event sets errorCategory on invalid_request envelope", () => {
+  const s = createCodexRunState();
+  applyCodexEvent({
+    type: "turn.failed",
+    error: {
+      message:
+        '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"x"}}',
+    },
+  }, s);
+  assertEquals(s.errorCategory, ERROR_CATEGORY_INVALID_REQUEST);
+});
+
+Deno.test("FR-L41 applyCodexEvent — transient turn.failed leaves errorCategory undefined", () => {
+  const s = createCodexRunState();
+  applyCodexEvent({
+    type: "turn.failed",
+    error: { message: "Network unreachable" },
+  }, s);
+  assertEquals(s.errorCategory, undefined);
 });

@@ -2116,7 +2116,7 @@ stable — never renumber on move.
   (`cursor-agent acp`) is pinned in `runtime/acp/fronts.ts` but
   flagged `pilot: false` until its local IDE binary becomes part
   of the validation matrix.
-- **Tasks:** [acp-transport-poc](tasks/2026/05/acp-transport-poc.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md), [acp-followups](tasks/2026/06/acp-followups.md), [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md)
+- **Tasks:** [acp-transport-poc](tasks/2026/05/acp-transport-poc.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md), [acp-followups](tasks/2026/06/acp-followups.md), [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md), [acp-unsupported-option-error](tasks/2026/06/acp-unsupported-option-error.md)
 - **Motivation:** Quantify whether one universal transport can replace
   four hand-rolled subprocess wrappers (PoC tracked under
   `documents/tasks/2026/05/acp-transport-poc.md`). Public contract
@@ -2410,3 +2410,71 @@ never throws on malformed payloads.
 Timing asymmetry (documented in code as well): Claude and Cursor
 dispatch tool content at assistant-decision time (before the tool
 runs); OpenCode and Codex dispatch at completion time.
+
+
+
+### 3.39 FR-L41: Codex Permanent-Error Classification (`invalid_request`)
+
+- **Description:** The Codex adapter classifies permanent upstream
+  API rejections into a new typed `RuntimeErrorCategory`
+  literal — `ERROR_CATEGORY_INVALID_REQUEST = "invalid_request"`
+  (`runtime/error-types.ts`) — and surfaces it via
+  `RuntimeInvokeResult.error_category` so consumers branch on the
+  typed category without substring-matching the human-readable
+  message.
+
+  **Wire decoding.** `codex exec --experimental-json` ships the
+  upstream OpenAI/ChatGPT failure body verbatim inside the `message`
+  field of `type: "error"` and inside `error.message` of
+  `type: "turn.failed"`. The envelope is the standard
+  ```
+  {"type":"error","status":<int>,"error":{"type":"<openai_err_type>","message":"..."}}
+  ```
+  `classifyCodexErrorText(msg)` (exported from
+  `codex/run-state.ts`) tries to JSON-parse `msg` first: returns
+  `"invalid_request"` when `error.type === "invalid_request_error"`
+  OR `status === 400`. When the envelope is missing it falls back to
+  a substring test on `"invalid_request_error"`. Transient or
+  unrecognised payloads return `undefined` so the legacy retry
+  semantics keep applying.
+
+  **State surface.** `CodexRunState.errorCategory` accumulates the
+  first classifier hit from `applyCodexEvent` (priority: earliest
+  `turn.failed` / `error` event wins). The runner
+  (`codex/process.ts:executeCodexProcess`) returns
+  `{ output, errorCategory? }` instead of bare `output`, and
+  `invokeCodexCli` honours the category:
+  - On `ERROR_CATEGORY_INVALID_REQUEST`: skip the remaining
+    `maxRetries` attempts and return immediately with
+    `{ output, error, error_category }`.
+  - On any other `is_error: true`: keep the legacy
+    exponential-backoff retry; on exhaustion propagate the category
+    when one was detected.
+
+  **Public re-exports.** `ERROR_CATEGORY_INVALID_REQUEST` is exported
+  from both `mod.ts` and `runtime/index.ts` so consumers can branch
+  on the literal without importing through an internal path. JSR
+  slow-types lint (`private-type-ref`) requires both because
+  `RuntimeErrorCategory` references the value-typed literal.
+
+- **Motivation:** A flowai-workflow run against `lumatale.com`
+  configured `model: gpt-5.3-codex` (typo, no such model). The Codex
+  CLI returned HTTP 400 `invalid_request_error` on every invocation,
+  but the engine treated the resulting `is_error: true` as a
+  validation-failure signal and drove the continuation loop —
+  22 identical bad-model invocations across one node before the
+  budget caught up. The runtime adapter is the only layer with
+  enough context to tell a permanent 400 apart from a transient 5xx;
+  surfacing that fact through the existing typed-category channel
+  lets BOTH the adapter (skip retry) AND the consumer (skip
+  continuation) short-circuit without coupling to error-message
+  strings.
+- **Dep:** FR-L2, FR-L36, FR-L37.
+- **Acceptance criteria:**
+  - **Tests:** `codex/run-state_test.ts`, `codex/process_test.ts`
+    (FR-L41; regression-locked; envelope classification, flat-string
+    substring, 503 transient skip, malformed-input safety,
+    `applyCodexEvent` propagation for both `error` and
+    `turn.failed`, `invokeCodexCli` performs exactly one upstream
+    invocation on a permanent 400 and surfaces
+    `error_category: "invalid_request"`).
