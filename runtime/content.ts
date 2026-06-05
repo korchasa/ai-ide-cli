@@ -21,6 +21,7 @@
  */
 
 import type { RuntimeSessionEvent } from "./types.ts";
+import type { Command } from "./commands.ts";
 import { extractClaudeContent } from "../claude/content.ts";
 import { extractCursorContent } from "../cursor/content.ts";
 import { extractCodexContent } from "../codex/content.ts";
@@ -82,11 +83,37 @@ export interface NormalizedFinalContent {
   text: string;
 }
 
+// FR-L42
+/**
+ * Snapshot of the slash-commands a runtime advertises at runtime.
+ * Emitted by the ACP transport when the agent pushes an
+ * `available_commands_update` notification — typically once shortly
+ * after `session/new` and again on plugin / skill set mutation.
+ *
+ * Consumers running an interactive UI use this to drive a live
+ * picker without spawning an LLM turn. The fast-channel does NOT
+ * substitute for FR-L20 `fetchCapabilitiesSlow`, which also returns
+ * skills; both helpers co-exist and the consumer picks explicitly.
+ *
+ * `invokeViaAcp` intentionally does NOT fold this kind into
+ * `output.result` — the commands list is metadata, not assistant
+ * output. Consumers wanting the snapshot subscribe via
+ * `RuntimeSession.events` and call {@link extractSessionContent} per
+ * event.
+ */
+export interface NormalizedCommandsContent {
+  /** Discriminator. */
+  kind: "commands";
+  /** Captured commands, in the order the transport reported them. */
+  commands: Command[];
+}
+
 /** Union of all normalized content shapes emitted by this extractor. */
 export type NormalizedContent =
   | NormalizedTextContent
   | NormalizedToolContent
-  | NormalizedFinalContent;
+  | NormalizedFinalContent
+  | NormalizedCommandsContent;
 
 // FR-L23
 /**

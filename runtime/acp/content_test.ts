@@ -107,6 +107,152 @@ Deno.test("extractAcpContent — unknown sessionUpdate variant → []", () => {
   assertEquals(extractAcpContent("claude", "session/update", raw), []);
 });
 
+// FR-L42: available_commands_update arm.
+Deno.test("extractAcpContent — available_commands_update → commands content (every pilot)", () => {
+  for (const runtime of PILOTS) {
+    const raw = {
+      sessionId: "s-1",
+      update: {
+        sessionUpdate: "available_commands_update",
+        availableCommands: [
+          { name: "/help", description: "Show help" },
+          {
+            name: "/clear",
+            description: "Reset chat",
+            input: { hint: "topic" },
+          },
+        ],
+      },
+    };
+    assertEquals(
+      extractAcpContent(runtime, "session/update", raw),
+      [{
+        kind: "commands",
+        commands: [
+          { name: "/help", description: "Show help" },
+          {
+            name: "/clear",
+            description: "Reset chat",
+            input: { hint: "topic" },
+          },
+        ],
+      }] satisfies NormalizedContent[],
+      `pilot ${runtime} available_commands_update`,
+    );
+  }
+});
+
+Deno.test("extractAcpContent — available_commands_update skips entries missing name", () => {
+  const raw = {
+    update: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [
+        { description: "no-name" },
+        { name: "/ok", description: "kept" },
+      ],
+    },
+  };
+  assertEquals(
+    extractAcpContent("claude", "session/update", raw),
+    [{
+      kind: "commands",
+      commands: [{ name: "/ok", description: "kept" }],
+    }],
+  );
+});
+
+Deno.test("extractAcpContent — available_commands_update skips entries missing description", () => {
+  const raw = {
+    update: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [
+        { name: "/lonely" },
+        { name: "/full", description: "ok" },
+      ],
+    },
+  };
+  assertEquals(
+    extractAcpContent("claude", "session/update", raw),
+    [{ kind: "commands", commands: [{ name: "/full", description: "ok" }] }],
+  );
+});
+
+Deno.test("extractAcpContent — available_commands_update with non-string name/description skipped", () => {
+  const raw = {
+    update: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [
+        { name: 42, description: "bad-name" },
+        { name: "/ok", description: 7 },
+        { name: "/good", description: "kept" },
+      ],
+    },
+  };
+  assertEquals(
+    extractAcpContent("claude", "session/update", raw),
+    [{ kind: "commands", commands: [{ name: "/good", description: "kept" }] }],
+  );
+});
+
+Deno.test("extractAcpContent — available_commands_update with empty list → []", () => {
+  const raw = {
+    update: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [],
+    },
+  };
+  // Empty list yields no NormalizedCommandsContent entry — consumers
+  // distinguishing "channel pushed nothing" from "channel never fired"
+  // observe both as `[]` here; the dispatcher is stateless. Live
+  // signalling lives on RuntimeSession.events.
+  assertEquals(extractAcpContent("claude", "session/update", raw), []);
+});
+
+Deno.test("extractAcpContent — available_commands_update missing availableCommands → []", () => {
+  const raw = {
+    update: {
+      sessionUpdate: "available_commands_update",
+    },
+  };
+  assertEquals(extractAcpContent("claude", "session/update", raw), []);
+});
+
+Deno.test("extractAcpContent — available_commands_update with non-array availableCommands → []", () => {
+  const raw = {
+    update: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: "not-an-array",
+    },
+  };
+  assertEquals(extractAcpContent("claude", "session/update", raw), []);
+});
+
+Deno.test("extractAcpContent — available_commands_update preserves input.hint when present", () => {
+  const raw = {
+    update: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [
+        { name: "/x", description: "x", input: { hint: "arg" } },
+        // Non-object input is dropped (defensive — schema says optional)
+        { name: "/y", description: "y", input: "not-an-object" },
+        // Missing hint inside input — keep input absent
+        { name: "/z", description: "z", input: {} },
+      ],
+    },
+  };
+  assertEquals(
+    extractAcpContent("claude", "session/update", raw),
+    [{
+      kind: "commands",
+      commands: [
+        { name: "/x", description: "x", input: { hint: "arg" } },
+        { name: "/y", description: "y" },
+        { name: "/z", description: "z" },
+      ],
+    }],
+  );
+});
+
 Deno.test("extractAcpContent — payload without sessionUpdate variant → []", () => {
   const raw = { foo: "bar" };
   assertEquals(extractAcpContent("claude", "session/cancel", raw), []);

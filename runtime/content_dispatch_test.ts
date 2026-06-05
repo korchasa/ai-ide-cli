@@ -56,3 +56,34 @@ Deno.test("extractSessionContent — malformed raw never throws", () => {
     }
   }
 });
+
+// FR-L42: `commands` kind is exhaustive in the NormalizedContent union.
+Deno.test("extractSessionContent — commands kind is exhaustive in NormalizedContent union", async () => {
+  const { extractSessionContent: extract } = await import("./content.ts");
+  const ev = event("claude", "session/update", {
+    update: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [{ name: "/help", description: "Show help" }],
+    },
+  });
+  const out = extract(ev);
+  assertEquals(out.length, 1);
+  // Exhaustiveness check at compile time. If a future commit removes
+  // the "commands" branch from NormalizedContent, the `never` assignment
+  // breaks the build — this test fails to type-check (not just at
+  // runtime), which is the desired regression guard.
+  for (const c of out) {
+    switch (c.kind) {
+      case "text":
+      case "tool":
+      case "final":
+      case "commands":
+        break;
+      default: {
+        const _never: never = c;
+        throw new Error(`non-exhaustive NormalizedContent kind: ${_never}`);
+      }
+    }
+  }
+  assertEquals(out[0].kind, "commands");
+});

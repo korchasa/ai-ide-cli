@@ -35,6 +35,7 @@
       - `{kind:"text", text, cumulative}` — streaming assistant text. `cumulative: true` (Claude/OpenCode/Cursor) means the consumer should replace its buffer; `false` (Codex) means append the delta.
       - `{kind:"tool", id, name, input?}` — tool/command invocation. Order preserved when multiple blocks live in one event.
       - `{kind:"final", text}` — complete assistant reply for the just-ended turn.
+      - `{kind:"commands", commands}` (FR-L42) — slash-command snapshot pushed by the ACP `available_commands_update` notification. Each `commands[]` entry has `{name, description, input?: {hint?}}` mirroring the ACP wire shape. Empty or fully-malformed lists collapse to `[]` (consumers cannot distinguish "channel pushed nothing" from "channel never fired"; raw payload remains accessible via `event.raw`). `invokeViaAcp`'s `collectedText` filter intentionally drops this kind — commands are metadata, not assistant output.
     - **Per-runtime source events**:
       - **Claude**: `assistant` event fans out `message.content[]` in order (`text` → text content, `tool_use` → tool content, `thinking` skipped); `result` event emits `final` (empty string included — consumer decides whether to render).
       - **Cursor** (FR-L30, forked from Claude): `assistant` event fans out `message.content[]` text blocks only (Cursor never inlines tool blocks); `tool_call` events with `subtype: "started"` emit `NormalizedToolContent` via `unwrapCursorToolCall`; `subtype: "completed"` skipped to mirror Claude's decision-time emission; `result` event emits `final`.

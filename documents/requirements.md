@@ -2116,7 +2116,7 @@ stable — never renumber on move.
   (`cursor-agent acp`) is pinned in `runtime/acp/fronts.ts` but
   flagged `pilot: false` until its local IDE binary becomes part
   of the validation matrix.
-- **Tasks:** [acp-transport-poc](tasks/2026/05/acp-transport-poc.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md), [acp-followups](tasks/2026/06/acp-followups.md), [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md), [acp-unsupported-option-error](tasks/2026/06/acp-unsupported-option-error.md)
+- **Tasks:** [acp-transport-poc](tasks/2026/05/acp-transport-poc.md), [acp-surface-parity](tasks/2026/06/acp-surface-parity.md), [acp-reliability-parity](tasks/2026/06/acp-reliability-parity.md), [acp-followups](tasks/2026/06/acp-followups.md), [acp-parity-closeouts](tasks/2026/06/acp-parity-closeouts.md), [acp-unsupported-option-error](tasks/2026/06/acp-unsupported-option-error.md), [acp-available-commands-discovery](tasks/2026/06/acp-available-commands-discovery.md)
 - **Motivation:** Quantify whether one universal transport can replace
   four hand-rolled subprocess wrappers (PoC tracked under
   `documents/tasks/2026/05/acp-transport-poc.md`). Public contract

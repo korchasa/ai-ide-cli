@@ -15,6 +15,7 @@
 
 import type { RuntimeId } from "../../types.ts";
 import type { NormalizedContent } from "../content.ts";
+import { parseAvailableCommands } from "./commands.ts";
 
 /**
  * Extract normalized content from one ACP `session/update` notification.
@@ -32,6 +33,11 @@ import type { NormalizedContent } from "../content.ts";
  *   {@link NormalizedToolContent}. `name` falls back to the human-friendly
  *   `title` when present, otherwise the structured `kind` tag. `input`
  *   threads through `rawInput` when the front surfaces it.
+ * - `available_commands_update` (FR-L42) → one
+ *   {@link NormalizedCommandsContent} carrying the projected
+ *   {@link Command} list. An empty / malformed list collapses to `[]`
+ *   so consumers cannot accidentally render an empty picker as a
+ *   "fresh capture".
  *
  * Any other variant — `plan`, `current_mode_update`, future kinds — returns
  * `[]`. Future kinds will gain dedicated branches additively; consumers
@@ -78,6 +84,10 @@ export function extractAcpContent(
       name: titleOrKind,
       ...(isObject(input) ? { input } : {}),
     }];
+  }
+  if (variant === "available_commands_update") {
+    const commands = parseAvailableCommands(update);
+    return commands.length === 0 ? [] : [{ kind: "commands", commands }];
   }
   return [];
 }

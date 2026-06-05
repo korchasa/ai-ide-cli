@@ -88,11 +88,20 @@ export type {
 } from "./runtime/callback-safety.ts";
 export { extractSessionContent } from "./runtime/content.ts";
 export type {
+  NormalizedCommandsContent,
   NormalizedContent,
   NormalizedFinalContent,
   NormalizedTextContent,
   NormalizedToolContent,
 } from "./runtime/content.ts";
+// FR-L42: commands fast-channel neutral surface.
+export { CommandsUnavailableError } from "./runtime/commands.ts";
+export type {
+  Command,
+  CommandsSnapshot,
+  CommandsUnavailableReason,
+  FetchCommandsOptions,
+} from "./runtime/commands.ts";
 export {
   REASONING_EFFORT_FLAGS,
   REASONING_EFFORT_VALUES,
