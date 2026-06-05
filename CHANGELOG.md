@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.10](https://github.com/korchasa/ai-ide-cli/compare/v0.8.9...v0.8.10) (2026-06-05)
+
+
+### Features
+
+* **codex:** classify permanent invalid_request as non-retryable (FR-L41) ([2a4d4a2](https://github.com/korchasa/ai-ide-cli/commit/2a4d4a2e3cbeeca7d01c2c0a447fb3f53dd85005))
+* **runtime/acp:** throw AcpUnsupportedOptionError on unsupported options (FR-L39) ([2394e8e](https://github.com/korchasa/ai-ide-cli/commit/2394e8e66e7449bea40e5d7febe6e478f58a4d73))
+* **runtime:** commands fast-channel helper + adapter.fetchCommands (FR-L42) ([6ffb476](https://github.com/korchasa/ai-ide-cli/commit/6ffb4764ecaef2906adae5d415903dd757db0883))
+* **runtime:** commands fast-channel neutral surface + ACP content arm (FR-L42) ([1d930d9](https://github.com/korchasa/ai-ide-cli/commit/1d930d9d39cb2b0537a08b11dba0c333619b630d))
+
+
+### Documentation
+
+* **tasks:** plan ACP unsupported-option error + available-commands discovery (FR-L39/L40) ([3e96f62](https://github.com/korchasa/ai-ide-cli/commit/3e96f621930f5d9f05bb47f2cc505214ff16c226))
+
 ### [0.8.9](https://github.com/korchasa/ai-ide-cli/compare/v0.8.8...v0.8.9) (2026-06-03)
 
 
