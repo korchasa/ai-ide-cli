@@ -298,6 +298,86 @@ export function collectDegradedOptions(
 }
 
 /**
+ * Invoke-only options the ACP wire cannot carry. Adapter throws
+ * `AcpUnsupportedOptionError` when any is set. Distinct from
+ * {@link collectDegradedOptions} (warn-only, lossy-but-handled).
+ *
+ * Field notes:
+ * - `agent` is a runtime-internal subagent selector (Claude / OpenCode
+ *   `--agent`). ACP fronts launch their own process and accept no
+ *   sub-agent override on the wire.
+ * - `resumeSessionId` could in principle map to ACP `session/load` once
+ *   we implement it (Follow-ups). Until then: throw.
+ * - `extraArgs` has no destination on the wire (ACP carries no CLI argv).
+ *
+ * Set membership — not heuristics — is the source of truth. Adding a new
+ * field to `RuntimeInvokeOptions` does NOT silently bypass the check, but
+ * a missing entry here would: each new field needs an explicit
+ * classify-and-mention decision (degraded vs unsupported vs honoured).
+ */
+// FR-L39
+export const ACP_UNSUPPORTED_INVOKE_OPTIONS = [
+  "agent",
+  "systemPromptFile",
+  "resumeSessionId",
+  "extraArgs",
+  "strictMcpConfig",
+  "streamStallTimeoutSeconds",
+  "streamLogPath",
+  "verbosity",
+  "onOutput",
+] as const;
+
+/**
+ * Session-options counterpart. Strict subset of the invoke list —
+ * `RuntimeSessionOptions` omits the one-shot fields (`streamLogPath`,
+ * `verbosity`, `onOutput`, `streamStallTimeoutSeconds`,
+ * `systemPromptFile`).
+ */
+// FR-L39
+export const ACP_UNSUPPORTED_SESSION_OPTIONS = [
+  "agent",
+  "resumeSessionId",
+  "extraArgs",
+  "strictMcpConfig",
+] as const;
+
+/**
+ * Pure: return the names of fields that are set on `opts` and listed in
+ * the relevant pinned tuple. Presence-based — anything other than
+ * `undefined` / `null` counts as set (empty array / empty string / `0` /
+ * `false` all encode caller intent). The sole exception is `extraArgs`:
+ * a map with zero entries does NOT count, because the engine cascade
+ * resolves an unset `extraArgs` to `{}`. Never throws.
+ *
+ * @param kind Whether to validate against the invoke or session tuple.
+ * @param opts Option bag read by field name.
+ */
+// FR-L39
+export function collectUnsupportedOptions(
+  kind: "invoke" | "session",
+  opts: Record<string, unknown>,
+): string[] {
+  const set = kind === "invoke"
+    ? ACP_UNSUPPORTED_INVOKE_OPTIONS
+    : ACP_UNSUPPORTED_SESSION_OPTIONS;
+  const out: string[] = [];
+  for (const field of set) {
+    const value = opts[field];
+    if (value === undefined || value === null) continue;
+    if (
+      field === "extraArgs" &&
+      typeof value === "object" &&
+      Object.keys(value as Record<string, unknown>).length === 0
+    ) {
+      continue;
+    }
+    out.push(field);
+  }
+  return out;
+}
+
+/**
  * Map one inbound `session/update` notification (or higher-level method)
  * into the runtime-neutral event envelope. Unknown methods pass through
  * untouched so consumers see them under `raw`.

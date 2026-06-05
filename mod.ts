@@ -399,6 +399,17 @@ export { parseSkill } from "./skill/parser.ts";
 // reference `AcpFrontLauncher`.
 export type { AcpFrontLauncher } from "./runtime/acp/fronts.ts";
 
+// FR-L39: `transport: "acp"` throws this synchronously on unsupported
+// options — reachable from `RuntimeAdapter.invoke` / `openSession`, so JSR
+// slow-types requires the class on the public surface. The pinned tuples
+// and helper let consumers pre-flight their own validation.
+export { AcpUnsupportedOptionError } from "./runtime/acp/errors.ts";
+export {
+  ACP_UNSUPPORTED_INVOKE_OPTIONS,
+  ACP_UNSUPPORTED_SESSION_OPTIONS,
+  collectUnsupportedOptions,
+} from "./runtime/acp/mapping.ts";
+
 // --- Process registry (pure tracker) ---
 export {
   defaultRegistry,

@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { ProcessRegistry } from "../../process-registry.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./adapter.ts";
+import { AcpUnsupportedOptionError } from "./errors.ts";
 
 interface StubScript {
   /** Bash script body, executed by the PATH-stub. */
@@ -184,6 +185,127 @@ Deno.test("invokeViaAcp refuses non-pilot runtimes with a clear message", async 
     Error,
     "not piloted",
   );
+});
+
+Deno.test("invokeViaAcp throws AcpUnsupportedOptionError when resumeSessionId is set", async () => {
+  // No stub needed — the throw fires before any subprocess spawn.
+  const err = await assertRejects(
+    () =>
+      invokeViaAcp("claude", {
+        processRegistry: new ProcessRegistry(),
+        taskPrompt: "x",
+        resumeSessionId: "abc",
+        timeoutSeconds: 30,
+        maxRetries: 0,
+        retryDelaySeconds: 0,
+      }),
+    AcpUnsupportedOptionError,
+    "resumeSessionId",
+  );
+  assertEquals(err.fields, ["resumeSessionId"]);
+  assertEquals(err.runtime, "claude");
+});
+
+Deno.test("invokeViaAcp lists multiple unsupported fields in declaration order", async () => {
+  const err = await assertRejects(
+    () =>
+      invokeViaAcp("claude", {
+        processRegistry: new ProcessRegistry(),
+        taskPrompt: "x",
+        resumeSessionId: "abc",
+        strictMcpConfig: true,
+        extraArgs: { "--foo": "bar" },
+        timeoutSeconds: 30,
+        maxRetries: 0,
+        retryDelaySeconds: 0,
+      }),
+    AcpUnsupportedOptionError,
+  );
+  // Tuple order (agent, systemPromptFile, resumeSessionId, extraArgs,
+  // strictMcpConfig, …) — not alphabetical, not call order.
+  assertEquals(err.fields, ["resumeSessionId", "extraArgs", "strictMcpConfig"]);
+});
+
+Deno.test("invokeViaAcp does NOT throw on empty extraArgs map", async () => {
+  await withStubAcpFront({ script: HANDSHAKE_SCRIPT }, async () => {
+    const result = await invokeViaAcp("claude", {
+      processRegistry: new ProcessRegistry(),
+      taskPrompt: "say ok",
+      extraArgs: {},
+      timeoutSeconds: 30,
+      maxRetries: 0,
+      retryDelaySeconds: 0,
+    });
+    assert(result.output, `expected output, got ${JSON.stringify(result)}`);
+  });
+});
+
+Deno.test("invokeViaAcp does NOT throw on degraded-but-handled options", async () => {
+  await withStubAcpFront({ script: HANDSHAKE_SCRIPT }, async () => {
+    // allowedTools + systemPrompt stay on the warn path, not the throw path.
+    const result = await invokeViaAcp("claude", {
+      processRegistry: new ProcessRegistry(),
+      taskPrompt: "say ok",
+      allowedTools: ["Read"],
+      systemPrompt: "be terse",
+      timeoutSeconds: 30,
+      maxRetries: 0,
+      retryDelaySeconds: 0,
+    });
+    assert(result.output, `expected output, got ${JSON.stringify(result)}`);
+  });
+});
+
+Deno.test("invokeViaAcp throw precedes degraded-options warn", async () => {
+  let warned = false;
+  const err = await assertRejects(
+    () =>
+      // Both a degraded field (allowedTools) AND an unsupported one
+      // (resumeSessionId) are set. The throw must win — the warn loop must
+      // never run.
+      invokeViaAcp("claude", {
+        processRegistry: new ProcessRegistry(),
+        taskPrompt: "x",
+        allowedTools: ["Read"],
+        resumeSessionId: "abc",
+        onCallbackError: () => {
+          warned = true;
+        },
+        timeoutSeconds: 30,
+        maxRetries: 0,
+        retryDelaySeconds: 0,
+      }),
+    AcpUnsupportedOptionError,
+  );
+  assertEquals(err.fields, ["resumeSessionId"]);
+  assert(!warned, "degraded-options warn fired despite the unsupported throw");
+});
+
+Deno.test("openSessionViaAcp throws AcpUnsupportedOptionError when strictMcpConfig is set", async () => {
+  const err = await assertRejects(
+    () =>
+      openSessionViaAcp("claude", {
+        processRegistry: new ProcessRegistry(),
+        strictMcpConfig: true,
+      }),
+    AcpUnsupportedOptionError,
+    "strictMcpConfig",
+  );
+  assertEquals(err.fields, ["strictMcpConfig"]);
+});
+
+Deno.test("openSessionViaAcp accepts the session-allowed surface unchanged", async () => {
+  await withStubAcpFront({ script: HANDSHAKE_SCRIPT }, async () => {
+    const session = await openSessionViaAcp("claude", {
+      processRegistry: new ProcessRegistry(),
+    });
+    try {
+      assertEquals(session.sessionId, "sess-1");
+    } finally {
+      session.abort();
+      await session.done;
+    }
+  });
 });
 
 Deno.test("openSessionViaAcp returns a session with sessionId synchronously after handshake", async () => {

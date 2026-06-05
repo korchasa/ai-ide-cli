@@ -39,11 +39,13 @@ import {
 import { AcpRpcError } from "./client.ts";
 import type { AcpStdioClient } from "./client.ts";
 import { extractAcpContent } from "./content.ts";
+import { AcpUnsupportedOptionError } from "./errors.ts";
 import { handshake, spawnClient } from "./handshake.ts";
 import {
   type AcpDegradedOption,
   buildTurnEndEvent,
   collectDegradedOptions,
+  collectUnsupportedOptions,
   mapSessionUpdate,
 } from "./mapping.ts";
 import { createPermissionHandler } from "./permissions.ts";
@@ -315,6 +317,17 @@ export async function invokeViaAcp(
   // just print a useless timeout without unblocking us.
   if (opts.signal?.aborted) {
     return { error: "Aborted before start" };
+  }
+  // FR-L39: fail fast on options the ACP wire cannot carry — surfacing the
+  // mistake at the call site beats a silent drop that drifts behaviour
+  // downstream. Runs BEFORE any subprocess spawn and BEFORE the
+  // degraded-options warn path, so the throw always wins.
+  const unsupported = collectUnsupportedOptions(
+    "invoke",
+    opts as unknown as Record<string, unknown>,
+  );
+  if (unsupported.length > 0) {
+    throw new AcpUnsupportedOptionError(runtime, unsupported);
   }
   const maxRetries = opts.maxRetries ?? 0;
   const baseDelayMs = (opts.retryDelaySeconds ?? 1) * 1000;
@@ -617,6 +630,17 @@ export async function openSessionViaAcp(
   runtime: RuntimeId,
   opts: RuntimeSessionOptions,
 ): Promise<RuntimeSession> {
+  // FR-L39: mirror the invoke-path guard. The throw lives at the factory
+  // entry (not in AcpRuntimeSession's constructor): the class is
+  // module-private, so unit tests cannot bypass validation by constructing
+  // it directly. Validates BEFORE spawnClient so no front is started.
+  const unsupported = collectUnsupportedOptions(
+    "session",
+    opts as unknown as Record<string, unknown>,
+  );
+  if (unsupported.length > 0) {
+    throw new AcpUnsupportedOptionError(runtime, unsupported);
+  }
   const turnCounter = { value: 0 };
   const permissionHandler = createPermissionHandler({
     runtime,

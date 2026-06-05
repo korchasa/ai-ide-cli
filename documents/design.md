@@ -1669,6 +1669,18 @@ subprocess wrapper. One implementation
     `disallowedTools`, `settingSources`, `systemPrompt`). Adapter
     routes each entry through `OnCallbackError` (FR-L32) so consumers
     can monitor coverage gaps.
+  - `collectUnsupportedOptions(kind, opts)` + the pinned tuples
+    `ACP_UNSUPPORTED_INVOKE_OPTIONS` / `ACP_UNSUPPORTED_SESSION_OPTIONS`
+    — the **error** counterpart to the warn-only
+    `collectDegradedOptions`. Classifies silent-drop fields the ACP
+    wire cannot carry at all (`resumeSessionId`, `strictMcpConfig`,
+    `extraArgs`, `agent`, `systemPromptFile`,
+    `streamStallTimeoutSeconds`, `streamLogPath`, `verbosity`,
+    `onOutput`). Pure, presence-based (empty `extraArgs` map exempt).
+    Adapter entry (`invokeViaAcp` / `openSessionViaAcp`) throws
+    `AcpUnsupportedOptionError` (`runtime/acp/errors.ts`) synchronously
+    when the result is non-empty — before any front spawns and before
+    the degraded-options warn path.
   - `buildTurnEndEvent` — synthetic `SYNTHETIC_TURN_END` event
     emitted by the session after each `session/prompt` completes
     (FR-L21 cross-runtime invariant).

@@ -1,16 +1,86 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
 import {
   ACP_CLIENT_NAME,
+  ACP_UNSUPPORTED_INVOKE_OPTIONS,
+  ACP_UNSUPPORTED_SESSION_OPTIONS,
   buildInitializeParams,
   buildSessionNewParams,
   buildTurnEndEvent,
   collectDegradedOptions,
+  collectUnsupportedOptions,
   mapSessionUpdate,
   pickConfigForModel,
   pickConfigForReasoningEffort,
   pickModeForPermissionMode,
 } from "./mapping.ts";
 import { SYNTHETIC_TURN_END } from "../types.ts";
+
+Deno.test("ACP_UNSUPPORTED_INVOKE_OPTIONS pins the invoke surface set", () => {
+  assertEquals(ACP_UNSUPPORTED_INVOKE_OPTIONS, [
+    "agent",
+    "systemPromptFile",
+    "resumeSessionId",
+    "extraArgs",
+    "strictMcpConfig",
+    "streamStallTimeoutSeconds",
+    "streamLogPath",
+    "verbosity",
+    "onOutput",
+  ]);
+});
+
+Deno.test("ACP_UNSUPPORTED_SESSION_OPTIONS pins the session surface set", () => {
+  assertEquals(ACP_UNSUPPORTED_SESSION_OPTIONS, [
+    "agent",
+    "resumeSessionId",
+    "extraArgs",
+    "strictMcpConfig",
+  ]);
+});
+
+Deno.test("collectUnsupportedOptions returns [resumeSessionId, strictMcpConfig] when both are set on invoke", () => {
+  // Empty extraArgs is skipped; the two set fields surface in tuple order.
+  assertEquals(
+    collectUnsupportedOptions("invoke", {
+      resumeSessionId: "x",
+      strictMcpConfig: true,
+      extraArgs: {},
+    }),
+    ["resumeSessionId", "strictMcpConfig"],
+  );
+});
+
+Deno.test("collectUnsupportedOptions treats null and empty extraArgs as unset", () => {
+  assertEquals(
+    collectUnsupportedOptions("invoke", {
+      agent: null,
+      extraArgs: {},
+    }),
+    [],
+  );
+});
+
+Deno.test("collectUnsupportedOptions surfaces empty-string systemPromptFile as set", () => {
+  // Presence-based: empty string encodes caller intent, so it counts.
+  assertEquals(
+    collectUnsupportedOptions("invoke", { systemPromptFile: "" }),
+    ["systemPromptFile"],
+  );
+});
+
+Deno.test("collectUnsupportedOptions flags non-empty extraArgs", () => {
+  assertEquals(
+    collectUnsupportedOptions("invoke", { extraArgs: { "--foo": "bar" } }),
+    ["extraArgs"],
+  );
+});
+
+Deno.test("collectUnsupportedOptions session list is a strict subset (streamLogPath not flagged)", () => {
+  assertEquals(
+    collectUnsupportedOptions("session", { streamLogPath: "/tmp/x" }),
+    [],
+  );
+});
 
 Deno.test("buildInitializeParams declines fs and terminal", () => {
   const params = buildInitializeParams();

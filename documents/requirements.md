@@ -2230,6 +2230,18 @@ stable — never renumber on move.
         single-attempt error string identical to PoC shape`,
         `runtime/acp/retry_test.ts::retry sleep is abortable via
         external signal`.
+  - [x] `transport: "acp"` adapters throw `AcpUnsupportedOptionError`
+        synchronously at entry (before any front spawns) when the
+        caller sets any field from `ACP_UNSUPPORTED_INVOKE_OPTIONS` /
+        `ACP_UNSUPPORTED_SESSION_OPTIONS` — silent-drop options the
+        wire cannot carry (`resumeSessionId`, `strictMcpConfig`,
+        `extraArgs`, `agent`, `systemPromptFile`,
+        `streamStallTimeoutSeconds`, `streamLogPath`, `verbosity`,
+        `onOutput`). The error carries `runtime` + `fields[]`; the
+        throw precedes the lossy `collectDegradedOptions` warn path,
+        which stays unchanged for `allowedTools` / `disallowedTools` /
+        `settingSources` / `systemPrompt`.
+        Test: `runtime/acp/adapter_test.ts::invokeViaAcp throws AcpUnsupportedOptionError when resumeSessionId is set`.
 
 ### 3.38 FR-L40: Unified `stream.log` Format Across Runtimes
 

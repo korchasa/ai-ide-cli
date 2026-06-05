@@ -1,6 +1,6 @@
 ---
 date: "2026-06-02"
-status: to do
+status: done
 implements: [FR-L39]
 tags: [acp, transport, validation, fail-fast, ergonomics]
 related_tasks:
@@ -131,7 +131,7 @@ in `extraArgs` to Claude throws synchronously.
 > them in the RED step. The plan fixes the test paths; nothing here
 > claims existing coverage.
 
-- [ ] `runtime/acp/mapping.ts` exports
+- [x] `runtime/acp/mapping.ts` exports
   `ACP_UNSUPPORTED_INVOKE_OPTIONS` and
   `ACP_UNSUPPORTED_SESSION_OPTIONS` — readonly tuples of field names
   on the two option types respectively. *(FR-L39. Test:
@@ -139,7 +139,7 @@ in `extraArgs` to Claude throws synchronously.
   the invoke surface set` and
   `…::ACP_UNSUPPORTED_SESSION_OPTIONS pins the session surface set`.
   Evidence: `deno test -A --no-check runtime/acp/mapping_test.ts`.)*
-- [ ] `runtime/acp/mapping.ts` exports
+- [x] `runtime/acp/mapping.ts` exports
   `collectUnsupportedOptions(kind, opts)` returning `string[]` —
   names of fields that are set on `opts` and listed in the relevant
   `ACP_UNSUPPORTED_*_OPTIONS` tuple. Pure, no side effects. Treats
@@ -151,7 +151,7 @@ in `extraArgs` to Claude throws synchronously.
   extraArgs as unset` and `…::collectUnsupportedOptions surfaces
   empty-string systemPromptFile as set`. Evidence: `deno test -A
   --no-check runtime/acp/mapping_test.ts`.)*
-- [ ] `runtime/acp/errors.ts` exports `AcpUnsupportedOptionError
+- [x] `runtime/acp/errors.ts` exports `AcpUnsupportedOptionError
   extends Error` with `runtime: RuntimeId` and `fields: string[]`
   members; message reads `acp(<runtime>): unsupported option(s):
   <field1>, <field2> — drop them or use transport: "cli"`.
@@ -159,7 +159,7 @@ in `extraArgs` to Claude throws synchronously.
   `runtime/acp/errors_test.ts::AcpUnsupportedOptionError carries
   runtime and field list`. Evidence: `deno test -A --no-check
   runtime/acp/errors_test.ts`.)*
-- [ ] `runtime/acp/adapter.ts:invokeViaAcp` calls
+- [x] `runtime/acp/adapter.ts:invokeViaAcp` calls
   `collectUnsupportedOptions(runtime, "invoke", opts)` at function
   entry, BEFORE spawning the front; throws
   `AcpUnsupportedOptionError` synchronously when the list is
@@ -169,42 +169,42 @@ in `extraArgs` to Claude throws synchronously.
   AcpUnsupportedOptionError when resumeSessionId is set` and `…::
   …extraArgs is non-empty`. Evidence: `deno test -A --no-check
   runtime/acp/adapter_test.ts`.)*
-- [ ] `runtime/acp/adapter.ts:openSessionViaAcp` mirrors the same
+- [x] `runtime/acp/adapter.ts:openSessionViaAcp` mirrors the same
   check with the session field set. *(FR-L39. Test:
   `runtime/acp/adapter_test.ts::openSessionViaAcp throws
   AcpUnsupportedOptionError when strictMcpConfig is set`. Evidence:
   `deno test -A --no-check runtime/acp/adapter_test.ts`.)*
-- [ ] When BOTH unsupported AND degraded options are set, the throw
+- [x] When BOTH unsupported AND degraded options are set, the throw
   wins (caller never sees the `degradedOptions` warning). Adapter
   validates BEFORE `reportDegradedOptions` is called, so the warn
   path is not triggered. *(FR-L39. Test:
   `runtime/acp/adapter_test.ts::invokeViaAcp throw precedes
   degraded-options warn`. Evidence: `deno test -A --no-check
   runtime/acp/adapter_test.ts`.)*
-- [ ] `mod.ts` re-exports `AcpUnsupportedOptionError`,
+- [x] `mod.ts` re-exports `AcpUnsupportedOptionError`,
   `ACP_UNSUPPORTED_INVOKE_OPTIONS`, `ACP_UNSUPPORTED_SESSION_OPTIONS`
   so JSR `private-type-ref` stays clean — every public symbol
   reachable from `RuntimeAdapter.invoke` / `openSession` signature
   must be exported. *(FR-L39. Test: `deno publish --dry-run` clean.
   Evidence: `deno run -A scripts/check.ts`.)*
-- [ ] FR-L39 in `documents/requirements.md` gets one new Acceptance
+- [x] FR-L39 in `documents/requirements.md` gets one new Acceptance
   bullet for the error contract; surgical `**Tasks:**` back-pointer
   bullet appended to the existing FR-L39 list. *(FR-L39. Test:
   `grep -c "acp-unsupported-option-error" documents/requirements.md`
   returns `>= 1`. Evidence: `manual — korchasa`.)*
-- [ ] SDS §3.3 `runtime/acp/` summary lists `collectUnsupportedOptions`
+- [x] SDS §3.3 `runtime/acp/` summary lists `collectUnsupportedOptions`
   alongside `collectDegradedOptions`, noting "warn vs error split".
   *(FR-L39. Test: `grep -n "collectUnsupportedOptions"
   documents/design.md`. Evidence: `manual — korchasa`.)*
-- [ ] `runtime/CLAUDE.md` ACP transport bullet gains one line stating
+- [x] `runtime/CLAUDE.md` ACP transport bullet gains one line stating
   the synchronous-throw contract and naming
   `AcpUnsupportedOptionError`. *(FR-L39. Test: `grep -n
   "AcpUnsupportedOptionError" runtime/CLAUDE.md`. Evidence:
   `manual — korchasa`.)*
-- [ ] `documents/index.md` row for FR-L39 summary updated only if
+- [x] `documents/index.md` row for FR-L39 summary updated only if
   stale (idempotent). *(FR-L39. Test: `manual` — row check. Evidence:
   `manual — korchasa`.)*
-- [ ] `deno task check` green (fmt, lint, type check, full test
+- [x] `deno task check` green (fmt, lint, type check, full test
   suite, doc-lint, `deno publish --dry-run`). *(FR-L39. Test:
   implicit — pipeline gate. Evidence: `deno run -A scripts/check.ts`.)*
 
