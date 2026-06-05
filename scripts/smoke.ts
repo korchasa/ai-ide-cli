@@ -635,6 +635,51 @@ scenario(
   },
 );
 
+// --- FR-L42: ACP available_commands_update capture ---
+scenario(
+  "acp-commands",
+  "capture available_commands_update from the claude ACP front",
+  async () => {
+    // Drives the real `@agentclientprotocol/claude-agent-acp` front via
+    // the public `fetchCommands` fast-channel: `initialize` →
+    // `session/new` → await first `available_commands_update`. The helper
+    // throws `CommandsUnavailableError(timeout)` (→ non-zero scenario
+    // exit) when the front never pushes the variant, so a malformed
+    // capture cannot pass silently. Wrapper-depth divergence
+    // (`params.update.*` vs flat `params.*`) is absorbed by the
+    // both-shapes parser in `runtime/acp/commands.ts`.
+    const adapter = getRuntimeAdapter("claude");
+    if (!adapter.fetchCommands) {
+      throw new Error("claude adapter is missing fetchCommands");
+    }
+    const snapshot = await adapter.fetchCommands({
+      transport: "acp",
+      processRegistry: defaultRegistry,
+      timeoutMs: 20_000,
+      cwd: Deno.cwd(),
+    });
+
+    const dumpPath = `/tmp/acp-commands-${Date.now()}.json`;
+    await Deno.writeTextFile(
+      dumpPath,
+      JSON.stringify(snapshot, null, 2) + "\n",
+    );
+
+    console.log(`\nCaptured ${snapshot.commands.length} command(s).`);
+    console.log(`Session: ${snapshot.sessionId}`);
+    console.log(`Raw dump: ${dumpPath}`);
+    for (const cmd of snapshot.commands.slice(0, 20)) {
+      const hint = cmd.input?.hint ? ` (hint: ${cmd.input.hint})` : "";
+      console.log(`  ${cmd.name.padEnd(28)} ${cmd.description}${hint}`);
+    }
+
+    assert(
+      snapshot.commands.length > 0,
+      "claude ACP front pushed no available_commands_update entries",
+    );
+  },
+);
+
 // --- Runner ---
 
 async function main() {

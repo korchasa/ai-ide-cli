@@ -53,6 +53,26 @@ export interface RuntimeCapabilities {
    */
   mcpInjection: boolean;
   /**
+   * Whether the runtime exposes a zero-LLM-cost fast-channel for the
+   * live slash-command list via `RuntimeAdapter.fetchCommands`
+   * (FR-L42). Transport-scoped: read it through
+   * {@link RuntimeAdapter.capabilitiesFor} for the transport the
+   * consumer actually picks.
+   *
+   * - `transport: "cli"` → `false` for every runtime today. The Claude
+   *   `system/init` NDJSON event carries a `slash_commands[]` array that
+   *   could back a CLI fast-path, but that is a deliberate follow-up —
+   *   no adapter wires it yet.
+   * - `transport: "acp"` → `true` for the ACP-piloted runtimes
+   *   (`claude` / `codex` / `opencode`), which push the ACP
+   *   `available_commands_update` notification; `false` for `cursor`
+   *   (front not piloted).
+   *
+   * Distinct from `capabilityInventory` (the expensive LLM-probed
+   * `fetchCapabilitiesSlow` path covering skills + commands).
+   */
+  commandsFastChannel: boolean;
+  /**
    * Backing-transport fidelity for `RuntimeAdapter.openSession`.
    *
    * - `"native"` — adapter wraps a real long-lived streaming-input

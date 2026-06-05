@@ -12,6 +12,12 @@
 import { invokeClaudeCli } from "../claude/process.ts";
 import { openClaudeSession } from "../claude/session.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
+import { fetchAcpCommands } from "./acp/commands.ts";
+import {
+  type CommandsSnapshot,
+  CommandsUnavailableError,
+  type FetchCommandsOptions,
+} from "./commands.ts";
 import type { ClaudeStreamEvent } from "../claude/stream.ts";
 import type {
   InteractiveOptions,
@@ -114,6 +120,8 @@ const CLAUDE_ACP_CAPABILITIES: RuntimeCapabilities = {
   toolFilter: false,
   reasoningEffort: true,
   mcpInjection: true,
+  // FR-L42: ACP front pushes `available_commands_update`.
+  commandsFastChannel: true,
   sessionFidelity: "native",
 };
 
@@ -130,6 +138,9 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     reasoningEffort: true,
     // FR-L35
     mcpInjection: true,
+    // FR-L42: no CLI fast-channel (Claude `system/init` fast-path is a
+    // deliberate follow-up — see capability-types.ts JSDoc).
+    commandsFastChannel: false,
     sessionFidelity: "native",
   },
   capabilitiesFor(transport: TransportOption): RuntimeCapabilities {
@@ -265,6 +276,14 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
         "--json-schema": JSON.stringify(CAPABILITY_INVENTORY_SCHEMA),
         "--max-turns": "1",
       },
+    );
+  },
+
+  // FR-L42: zero-LLM-cost commands fast-channel via the ACP front.
+  fetchCommands(opts: FetchCommandsOptions): Promise<CommandsSnapshot> {
+    if (opts.transport === "acp") return fetchAcpCommands("claude", opts);
+    return Promise.reject(
+      new CommandsUnavailableError("claude", opts.transport, "no_fast_channel"),
     );
   },
 

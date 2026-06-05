@@ -4,6 +4,12 @@ import {
   openOpenCodeSession,
 } from "../opencode/session.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
+import { fetchAcpCommands } from "./acp/commands.ts";
+import {
+  type CommandsSnapshot,
+  CommandsUnavailableError,
+  type FetchCommandsOptions,
+} from "./commands.ts";
 import type {
   InteractiveOptions,
   InteractiveResult,
@@ -124,6 +130,8 @@ const OPENCODE_ACP_CAPABILITIES: RuntimeCapabilities = {
   toolFilter: false,
   reasoningEffort: true,
   mcpInjection: true,
+  // FR-L42: ACP front pushes `available_commands_update`.
+  commandsFastChannel: true,
   sessionFidelity: "native",
 };
 
@@ -140,6 +148,8 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     reasoningEffort: true,
     // FR-L35
     mcpInjection: true,
+    // FR-L42: no CLI fast-channel.
+    commandsFastChannel: false,
     sessionFidelity: "native",
   },
   capabilitiesFor(transport: TransportOption): RuntimeCapabilities {
@@ -171,6 +181,18 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       "opencode",
       (inner) => this.invoke(inner),
       opts,
+    );
+  },
+
+  // FR-L42: zero-LLM-cost commands fast-channel via the ACP front.
+  fetchCommands(opts: FetchCommandsOptions): Promise<CommandsSnapshot> {
+    if (opts.transport === "acp") return fetchAcpCommands("opencode", opts);
+    return Promise.reject(
+      new CommandsUnavailableError(
+        "opencode",
+        opts.transport,
+        "no_fast_channel",
+      ),
     );
   },
 

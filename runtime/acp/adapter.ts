@@ -36,43 +36,20 @@ import {
   analyzeRuntimeErrorSignal,
   type RuntimeErrorAnalysis,
 } from "../runtime-error-analysis.ts";
-import { AcpRpcError, AcpStdioClient } from "./client.ts";
+import { AcpRpcError } from "./client.ts";
+import type { AcpStdioClient } from "./client.ts";
 import { extractAcpContent } from "./content.ts";
-import { getAcpFront } from "./fronts.ts";
+import { handshake, spawnClient } from "./handshake.ts";
 import {
-  type AcpConfigOptionDecl,
   type AcpDegradedOption,
-  type AcpModeDecl,
-  buildInitializeParams,
-  buildSessionNewParams,
   buildTurnEndEvent,
   collectDegradedOptions,
   mapSessionUpdate,
-  pickConfigForModel,
-  pickConfigForReasoningEffort,
-  pickModeForPermissionMode,
 } from "./mapping.ts";
 import { createPermissionHandler } from "./permissions.ts";
 
-/** Subset of the `session/new` response we read. */
-interface SessionNewResult {
-  sessionId: string;
-  modes?: { availableModes?: AcpModeDecl[]; currentModeId?: string };
-  /** Field name used by claude / codex ACP fronts. */
-  sessionConfigOptions?: AcpConfigOptionDecl[];
-  /** Field name used by opencode ACP front (1.15.x). */
-  configOptions?: AcpConfigOptionDecl[];
-}
-
 interface PromptResult {
   stopReason?: string;
-}
-
-function notPiloted(runtime: RuntimeId): Error {
-  return new Error(
-    `acp transport: ${runtime} front is not piloted yet (FR-L39). ` +
-      `Promote it in runtime/acp/fronts.ts after empirical validation.`,
-  );
 }
 
 function reportDegradedOptions(
@@ -93,100 +70,6 @@ function reportDegradedOptions(
       // FR-L32: error sink itself must never break the streaming loop.
     }
   }
-}
-
-function spawnClient(opts: {
-  runtime: RuntimeId;
-  cwd?: string;
-  env?: Record<string, string>;
-  processRegistry: RuntimeInvokeOptions["processRegistry"];
-  onStderr?: (line: string) => void;
-  onRequest?: ConstructorParameters<typeof AcpStdioClient>[0]["onRequest"];
-  acpFront?: RuntimeInvokeOptions["acpFront"];
-}): AcpStdioClient {
-  // FR-L39: when the consumer supplies an `acpFront` override, bypass
-  // the per-runtime pilot guard — they're explicitly opting into the
-  // launcher they pointed us at (local fork, binary download, test
-  // stub). Otherwise resolve from the pinned registry and refuse
-  // non-piloted runtimes.
-  const front = opts.acpFront ?? getAcpFront(opts.runtime);
-  if (!opts.acpFront && !front.pilot) throw notPiloted(opts.runtime);
-  const mergedEnv = { ...(front.env ?? {}), ...(opts.env ?? {}) };
-  return new AcpStdioClient({
-    cmd: front.cmd,
-    args: front.args,
-    cwd: opts.cwd,
-    env: mergedEnv,
-    processRegistry: opts.processRegistry,
-    onStderr: opts.onStderr,
-    onRequest: opts.onRequest,
-  });
-}
-
-async function handshake(
-  client: AcpStdioClient,
-  runtime: RuntimeId,
-  opts: Pick<
-    RuntimeInvokeOptions,
-    | "cwd"
-    | "mcpServers"
-    | "extraArgs"
-    | "env"
-    | "permissionMode"
-    | "model"
-    | "reasoningEffort"
-  >,
-): Promise<{ sessionId: string }> {
-  await client.request("initialize", {
-    ...buildInitializeParams(),
-  } as unknown as Record<string, unknown>);
-
-  const sessionParams = buildSessionNewParams(runtime, opts);
-  const sessionRes = await client.request<SessionNewResult>(
-    "session/new",
-    sessionParams as unknown as Record<string, unknown>,
-  );
-  const sessionId = sessionRes.sessionId;
-
-  const declaredModes = sessionRes.modes?.availableModes;
-  const modeId = pickModeForPermissionMode(
-    runtime,
-    declaredModes,
-    opts.permissionMode,
-  );
-  if (modeId) {
-    await client.request("session/set_mode", {
-      sessionId,
-      modeId,
-    });
-  }
-
-  // Claude / Codex put the declared options under `sessionConfigOptions`;
-  // OpenCode (1.15.x) uses `configOptions`. Accept either so the same
-  // mapper logic works across all fronts.
-  const declaredCfg = sessionRes.sessionConfigOptions ??
-    sessionRes.configOptions;
-  const effortCfg = pickConfigForReasoningEffort(runtime, declaredCfg, {
-    reasoningEffort: opts.reasoningEffort,
-    extraArgs: opts.extraArgs,
-  });
-  if (effortCfg) {
-    await client.request("session/set_config_option", {
-      sessionId,
-      configId: effortCfg.configId,
-      value: effortCfg.value,
-    });
-  }
-  const modelCfg = pickConfigForModel(declaredCfg, opts.model);
-  if (modelCfg) {
-    await client.request("session/set_config_option", {
-      sessionId,
-      configId: modelCfg.configId,
-      value: modelCfg.value,
-    });
-  }
-
-  return { sessionId };
 }
 
 function buildPromptParams(

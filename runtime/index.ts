@@ -55,6 +55,15 @@ export type {
   FetchCapabilitiesOptions,
 } from "./capabilities.ts";
 export type { ReasoningEffort } from "./reasoning-effort.ts";
+// FR-L42: commands fast-channel types are reachable from this sub-path
+// entry because `RuntimeAdapter.fetchCommands` references them.
+export { CommandsUnavailableError } from "./commands.ts";
+export type {
+  Command,
+  CommandsSnapshot,
+  CommandsUnavailableReason,
+  FetchCommandsOptions,
+} from "./commands.ts";
 // FR-L35: per-invocation MCP server registration types are reachable
 // from this sub-path entry too — required by JSR slow-types because
 // `RuntimeInvokeOptions.mcpServers` references `McpServers`.

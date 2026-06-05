@@ -164,7 +164,7 @@ Existing related FRs:
 > them in the RED step. The plan fixes the test paths; nothing here
 > claims existing coverage.
 
-- [ ] **SRS FR-L42 section added** — `documents/requirements.md` gains
+- [x] **SRS FR-L42 section added** — `documents/requirements.md` gains
   `### 3.40 FR-L42: Commands Fast-Channel Discovery` with
   `**Description:**`, `**Motivation:**`, `**Acceptance:**` matching
   the DoD bullets below. (FR-L42. Test: `manual — korchasa` (doc
@@ -192,7 +192,7 @@ Existing related FRs:
   `runtime/commands_test.ts::neutral types compile and re-export`.
   Evidence: `deno publish --dry-run`.)
 
-- [ ] **`commandsFastChannel` capability flag** —
+- [x] **`commandsFastChannel` capability flag** —
   `runtime/capability-types.ts:RuntimeCapabilities` gains
   `commandsFastChannel: boolean` (JSDoc explains transport-scoped
   semantics and absence of CLI fast-path). Every adapter's CLI
@@ -223,7 +223,7 @@ Existing related FRs:
   available_commands_update entries and skips malformed`. Evidence:
   `deno test -A --no-check runtime/acp/`.)
 
-- [ ] **Internal ACP-side helper** — `runtime/acp/commands.ts` exports
+- [x] **Internal ACP-side helper** — `runtime/acp/commands.ts` exports
   internal `fetchAcpCommands(runtime, opts):
   Promise<CommandsSnapshot>` that opens an ACP session, awaits the
   first `available_commands_update` notification (or a configurable
@@ -242,7 +242,7 @@ Existing related FRs:
   `runtime/acp/commands_test.ts::fetchAcpCommands aborts on signal`.
   Evidence: `deno test -A --no-check runtime/acp/`.)
 
-- [ ] **`RuntimeAdapter.fetchCommands` method (canonical entry
+- [x] **`RuntimeAdapter.fetchCommands` method (canonical entry
   point)** — `RuntimeAdapter` (in `runtime/adapter-types.ts`) gains
   `fetchCommands?(opts: FetchCommandsOptions):
   Promise<CommandsSnapshot>` symmetric to `fetchCapabilitiesSlow?`.
@@ -286,7 +286,7 @@ Existing related FRs:
   `e2e/acp_commands_e2e_test.ts::fetchCommands soft-probe codex &
   opencode pilots`. Evidence: `E2E=1 deno task e2e:acp`.)
 
-- [ ] **FR-comment markers** — every new exported symbol carries a
+- [x] **FR-comment markers** — every new exported symbol carries a
   leading `// FR-L42` comment (per AGENTS.md "Requirement
   traceability"). At minimum: `runtime/commands.ts` (3 symbols),
   `runtime/acp/commands.ts` (2 symbols), `runtime/content.ts`
@@ -295,26 +295,26 @@ Existing related FRs:
   `manual — korchasa` (grep audit). Evidence: `grep -rE "// FR-L42"
   runtime/ e2e/ | wc -l` returns ≥ 6.)
 
-- [ ] **README feature matrix updated** — README gains a row noting
+- [x] **README feature matrix updated** — README gains a row noting
   "Commands fast-channel (FR-L42)" with the pilot support matrix
   derived from the soft e2e run: claude ✓, codex ?, opencode ?,
   cursor ✗ (pilot not yet). (FR-L42. Test: `manual — korchasa` (doc
   review). Evidence: `git diff README.md`.)
 
-- [ ] **`deno task check` green** (fmt, lint, type check, full test
+- [x] **`deno task check` green** (fmt, lint, type check, full test
   suite, doc-lint, `deno publish --dry-run`). Includes `deno doc
   --lint` on the new `./runtime/commands` sub-path. (FR-L23 +
   FR-L39 + FR-L42. Test: implicit. Evidence: `deno run -A
   scripts/check.ts`.)
 
-- [ ] **SDS component section** — `documents/design.md` gains
+- [x] **SDS component section** — `documents/design.md` gains
   `### 3.X runtime/commands.ts — Commands Fast-Channel` under
   `## 3. Components` describing the dispatcher, the neutral types,
   and the transport-scoped capability semantics. (FR-L42. Test:
   `manual — korchasa` (doc review). Evidence: `git diff
   documents/design.md`.)
 
-- [ ] **`runtime/CLAUDE.md` describes the new channel** — adds:
+- [x] **`runtime/CLAUDE.md` describes the new channel** — adds:
   (a) a bullet under "Normalized content" covering the
   `available_commands_update` arm with the explicit note that
   `invokeViaAcp`'s `collectedText` filter intentionally excludes

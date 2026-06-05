@@ -1642,9 +1642,10 @@ subprocess wrapper. One implementation
   Variant-based projection: `agent_message_chunk` → delta text
   (`cumulative: false`), `tool_call_update` → tool content (name
   falls back from `title` to `kind`; input threads through
-  `rawInput`). Pure; never throws. Wired into the
-  `runtime/content.ts` dispatcher ahead of the per-CLI switch via
-  `isAcpShapedEvent`.
+  `rawInput`), `available_commands_update` → `NormalizedCommandsContent`
+  (`kind: "commands"`, FR-L42) via `parseAvailableCommands`. Pure;
+  never throws. Wired into the `runtime/content.ts` dispatcher ahead of
+  the per-CLI switch via `isAcpShapedEvent`.
 - `runtime/acp/mapping.ts` — pure mappers between runtime-neutral
   options and ACP wire shapes:
   - `buildInitializeParams()` — `clientCapabilities.fs/terminal`
@@ -1677,9 +1678,18 @@ subprocess wrapper. One implementation
   allow/deny contract (ADR-0002 keeps HITL out of scope). No callback
   → first declared `reject_once`/`reject_always` option, or
   `cancelled` if none.
+- `runtime/acp/handshake.ts` — shared `spawnClient` + `handshake`
+  primitives (FR-L39 / FR-L42), extracted from the adapter so the
+  invoke/session path AND the commands fast-channel reuse one
+  spawn-and-handshake path (keeps the `adapter.ts → content.ts →
+  commands.ts` graph acyclic). `handshake(client, runtime, opts,
+  { skipModeAndConfig? })` runs `initialize` → `session/new`; the flag
+  short-circuits the `session/set_mode` + `session/set_config_option`
+  RPCs for one-shot captures.
 - `runtime/acp/adapter.ts` — owns `invokeViaAcp` and `openSessionViaAcp`:
-  - `spawnClient` resolves the launcher from `getAcpFront(runtime)`
-    or the `opts.acpFront` override (bypasses the `pilot` guard).
+  - `spawnClient` (from `handshake.ts`) resolves the launcher from
+    `getAcpFront(runtime)` or the `opts.acpFront` override (bypasses
+    the `pilot` guard).
   - External `AbortSignal` + `AbortSignal.timeout(timeoutSeconds)`
     listeners registered separately (not via `AbortSignal.any` — the
     composed signal's handlers do not always fire on Deno 2.8 during
@@ -1730,6 +1740,39 @@ and `acpFront?: AcpFrontLauncher` (honored only when transport is
 `"acp"`). Per-runtime adapters dispatch to `invokeViaAcp` /
 `openSessionViaAcp` when `transport === "acp"`; otherwise the CLI
 path runs byte-for-byte unchanged.
+
+### 3.x Commands Fast-Channel (FR-L42)
+
+Zero-LLM-cost slash-command discovery, complementary to the expensive
+LLM-probed `fetchCapabilitiesSlow` (FR-L20). Commands only — skills
+stay on the slow path.
+
+- `runtime/commands.ts` — neutral surface (public, `./runtime/commands`
+  sub-path): `Command` (`{ name, description, input?: { hint? } }`),
+  `CommandsSnapshot` (`{ runtime, sessionId?, commands }`),
+  `FetchCommandsOptions` (`transport`, optional `processRegistry`
+  defaulting to `defaultRegistry`, `acpFront`, `cwd`, `env`,
+  `timeoutMs`, `signal`), and `CommandsUnavailableError`
+  (`reason: "no_fast_channel" | "timeout" | "front_not_piloted"`). Pure
+  types; re-exported from `mod.ts` and `runtime/index.ts`.
+- `runtime/acp/commands.ts` — `parseAvailableCommands(update)` pure
+  projector (skips entries missing string `name`/`description`;
+  accepts both `params.update.*` and flat `params.*` wrapper depths)
+  plus `fetchAcpCommands(runtime, opts)`: `front_not_piloted` guard →
+  `spawnClient` → `handshake(…, { skipModeAndConfig: true })` → await
+  the first `available_commands_update` (bounded by `timeoutMs` +
+  caller `signal`; already-aborted signal handled eagerly since
+  `addEventListener("abort")` never fires post-abort) → dispose. No
+  auto-prompt: a front that gates the variant on `session/prompt`
+  times out.
+- **Transport-scoped capability** — `RuntimeCapabilities.commandsFastChannel`
+  read through `adapter.capabilitiesFor(transport)`: `false` on CLI
+  for every runtime; `true` on ACP for the three pilots, `false` for
+  cursor. `adapter.fetchCommands(opts)` (on claude / codex / opencode)
+  delegates to `fetchAcpCommands` on `transport: "acp"` and rejects
+  `CommandsUnavailableError(no_fast_channel)` on `cli` before any I/O;
+  cursor leaves the method undefined. No auto-fallback into
+  `fetchCapabilitiesSlow` — the choice is explicit.
 
 ## 5. Constraints
 

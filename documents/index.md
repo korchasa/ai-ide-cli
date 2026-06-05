@@ -14,7 +14,7 @@
 - [FR-L35](requirements.md#3-34-fr-l35-generic-per-invocation-mcp-server-registration) — Generic per-invocation MCP-server registration across runtimes — [x]
 - [FR-L37](requirements.md#3-36-fr-l37-runtime-error-analysis) — Pure runtime-neutral analyzer for captured runtime failure signals — [x]
 - [FR-L39](requirements.md#3-37-fr-l39-acp-transport-claude--codex--opencode-pilots) — Opt-in Agent Client Protocol transport (Claude + Codex + OpenCode pilots) under `transport: "acp"` — [x]
-- [FR-L42](requirements.md#3-40-fr-l42-commands-fast-channel-discovery) — Commands fast-channel discovery: neutral `fetchCommands(runtime, opts)` dispatcher + transport-scoped `commandsFastChannel` capability, ACP-piloted today, CLI runtimes throw typed `CommandsUnavailableError` — [ ]
+- [FR-L42](requirements.md#3-40-fr-l42-commands-fast-channel-discovery) — Commands fast-channel discovery: `RuntimeAdapter.fetchCommands(opts)` + transport-scoped `commandsFastChannel` capability, ACP-piloted today (claude/codex/opencode), CLI runtimes reject with typed `CommandsUnavailableError` — [x]
 
 ## ADR
 

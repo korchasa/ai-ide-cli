@@ -148,6 +148,8 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     reasoningEffort: false,
     // FR-L35
     mcpInjection: false,
+    // FR-L42: no CLI fast-channel; Cursor ACP front is not piloted.
+    commandsFastChannel: false,
     // Cursor CLI has no streaming-input transport; `openCursorSession`
     // emulates a session by spawning a fresh `cursor agent -p --resume`
     // subprocess per send. See `cursor/session.ts` and the

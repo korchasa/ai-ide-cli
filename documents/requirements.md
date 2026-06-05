@@ -2478,3 +2478,75 @@ runs); OpenCode and Codex dispatch at completion time.
     `turn.failed`, `invokeCodexCli` performs exactly one upstream
     invocation on a permanent 400 and surfaces
     `error_category: "invalid_request"`).
+
+---
+
+### 3.40 FR-L42: Commands Fast-Channel Discovery
+
+- **Description:** A uniform `RuntimeAdapter.fetchCommands(opts)`
+  fast-channel surfaces the live slash-command list a runtime
+  advertises — zero LLM cost, no hardcoded per-front tables. The
+  neutral surface (`runtime/commands.ts`) ships `Command`
+  (`{ name, description, input?: { hint? } }`), `CommandsSnapshot`
+  (`{ runtime, sessionId?, commands }`), `FetchCommandsOptions`, and the
+  typed `CommandsUnavailableError`
+  (`reason: "no_fast_channel" | "timeout" | "front_not_piloted"`).
+
+  **Backing transport (ACP pilots).** The first piloted backing is the
+  ACP `session/update` notification with
+  `sessionUpdate === "available_commands_update"`, carrying an
+  `availableCommands[]` array. `runtime/acp/commands.ts:fetchAcpCommands`
+  reuses `spawnClient` + `handshake` (`runtime/acp/handshake.ts`,
+  `skipModeAndConfig: true`), awaits the first push bounded by
+  `timeoutMs` (default 10 000 ms) and the caller's `AbortSignal`,
+  disposes the front, and returns the snapshot. The pure
+  `parseAvailableCommands` projector defensively skips entries missing a
+  string `name`/`description`. The helper does NOT auto-send a prompt —
+  a front that gates the variant on the first `session/prompt` times out.
+
+  **Transport-scoped capability.** `RuntimeCapabilities.commandsFastChannel`
+  is read through `adapter.capabilitiesFor(transport)`: `false` on
+  `"cli"` for every runtime; `true` on `"acp"` for the piloted
+  runtimes (`claude` / `codex` / `opencode`), `false` for `cursor`
+  (front not piloted). `adapter.fetchCommands` is implemented only by
+  the three pilots; `transport: "cli"` rejects with
+  `CommandsUnavailableError(reason: "no_fast_channel")` before any I/O,
+  and Cursor leaves the method `undefined`. The fast-channel does NOT
+  shadow or auto-fallback into the slow `fetchCapabilitiesSlow` (FR-L20)
+  — consumers pick explicitly. Commands only — skills stay on the slow
+  path.
+
+  **Content surface.** `extractSessionContent` (FR-L23) emits a new
+  additive `NormalizedCommandsContent` (`kind: "commands"`) for
+  `available_commands_update` events; `invokeViaAcp`'s `collectedText`
+  filter intentionally excludes the `commands` kind from
+  `output.result` (commands are metadata, not assistant output).
+
+- **Motivation:** Consumers building UIs (REPL pickers, IDE selectors,
+  dashboards) need the live command list without spawning an LLM turn
+  (`fetchCapabilitiesSlow` is seconds-to-minutes and model-priced) or
+  hardcoding per-front tables that drift. The ACP fronts already push
+  the data — the library was silently dropping it.
+- **Dep:** FR-L20, FR-L23, FR-L39.
+- **Acceptance criteria:**
+  - **Neutral surface** compiles + re-exports via `mod.ts` and the
+    `./runtime/commands` sub-path. Test:
+    `runtime/commands_test.ts`. Evidence: `deno publish --dry-run`.
+  - **`commandsFastChannel`** is `false` on CLI for every adapter and
+    `true` on ACP for the three pilots. Test:
+    `runtime/transport_capabilities_test.ts::commandsFastChannel is
+    false on CLI for every adapter and true on ACP for pilots`.
+  - **`NormalizedCommandsContent`** is exhaustive in the union and the
+    ACP extractor surfaces / skips entries correctly. Tests:
+    `runtime/content_dispatch_test.ts`, `runtime/acp/content_test.ts`.
+  - **`fetchAcpCommands`** captures the first `available_commands_update`
+    and disposes, throws `CommandsUnavailableError(timeout)` on timeout,
+    aborts on signal, and throws `front_not_piloted` for cursor before
+    spawn. Test: `runtime/acp/commands_test.ts`.
+  - **`adapter.fetchCommands`** delegates to the ACP helper on the
+    pilots and rejects `CommandsUnavailableError(no_fast_channel)` on
+    `cli`; cursor leaves the method undefined. Test:
+    `runtime/index_test.ts` (FR-L42 cases).
+  - **Real-binary e2e** (claude hard, codex/opencode soft). Test:
+    `e2e/acp_commands_e2e_test.ts`. Evidence: `E2E=1 deno task e2e:acp`.
+- **Tasks:** [acp-available-commands-discovery](tasks/2026/06/acp-available-commands-discovery.md)

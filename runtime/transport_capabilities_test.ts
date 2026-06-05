@@ -107,6 +107,25 @@ Deno.test("capabilitiesFor('acp') keeps reasoningEffort and mcpInjection for eve
   }
 });
 
+Deno.test("commandsFastChannel is false on CLI for every adapter and true on ACP for pilots (FR-L42)", () => {
+  for (const runtime of [...PILOTS, "cursor"] as const) {
+    const adapter = getRuntimeAdapter(runtime);
+    assertEquals(
+      adapter.capabilitiesFor!("cli").commandsFastChannel,
+      false,
+      `${runtime} CLI has no commands fast-channel`,
+    );
+  }
+  for (const runtime of PILOTS) {
+    const adapter = getRuntimeAdapter(runtime);
+    assertEquals(
+      adapter.capabilitiesFor!("acp").commandsFastChannel,
+      true,
+      `${runtime} ACP pushes available_commands_update`,
+    );
+  }
+});
+
 Deno.test("capabilitiesFor('acp') on cursor throws 'not piloted yet'", () => {
   const adapter = getRuntimeAdapter("cursor");
   assert(

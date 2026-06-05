@@ -393,6 +393,44 @@ console.log(inventory.commands); // [{name, plugin?}, ...]
 **Expensive**: one full LLM turn per call, seconds-to-minutes, model-priced.
 Callers should cache results — hence the `Slow` suffix.
 
+## Commands fast-channel (`fetchCommands`)
+
+Zero-LLM-cost discovery of the live slash-command list, complementary to
+the expensive `fetchCapabilitiesSlow`. Backed today by the ACP
+`available_commands_update` push, so it is gated on the **ACP transport**
+and the transport-scoped `commandsFastChannel` capability. Commands only
+— skills stay on the slow path.
+
+```ts
+const adapter = getRuntimeAdapter("claude");
+if (!adapter.capabilitiesFor?.("acp").commandsFastChannel) {
+  throw new Error("no commands fast-channel for this transport");
+}
+const snapshot = await adapter.fetchCommands!({
+  transport: "acp",
+  cwd: Deno.cwd(),
+  timeoutMs: 15_000, // ceiling on the wait for the first push (default 10s)
+});
+console.log(snapshot.commands); // [{ name, description, input?: { hint? } }, ...]
+```
+
+`transport: "cli"` rejects with
+`CommandsUnavailableError(reason: "no_fast_channel")` (no CLI fast-path
+yet); a non-piloted front rejects with `reason: "front_not_piloted"`; a
+front that never pushes before the ceiling rejects with
+`reason: "timeout"`. There is **no** auto-fallback into
+`fetchCapabilitiesSlow` — pick the channel explicitly.
+
+Per-transport support (read it at runtime via `capabilitiesFor`):
+
+- `transport: "acp"`
+  - `claude` — ✓ pushes commands shortly after `session/new`.
+  - `codex` / `opencode` — capability advertised; whether the pinned
+    front actually pushes the variant today is front-version-dependent
+    (a no-push front surfaces as `reason: "timeout"`).
+  - `cursor` — ✗ (ACP front not piloted; method left undefined).
+- `transport: "cli"` — ✗ for every runtime (rejects `no_fast_channel`).
+
 ## Reference consumers
 
 - [`@korchasa/flowai-workflow`](https://jsr.io/@korchasa/flowai-workflow) —

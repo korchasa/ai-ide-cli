@@ -11,6 +11,7 @@ import type {
   CapabilityInventory,
   FetchCapabilitiesOptions,
 } from "./capabilities.ts";
+import type { CommandsSnapshot, FetchCommandsOptions } from "./commands.ts";
 import type {
   RuntimeCapabilities,
   RuntimeLifecycleHooks,
@@ -392,6 +393,24 @@ export interface RuntimeAdapter {
   fetchCapabilitiesSlow?(
     opts: FetchCapabilitiesOptions,
   ): Promise<CapabilityInventory>;
+  /**
+   * Fast-channel slash-command discovery (FR-L42). Unlike
+   * {@link fetchCapabilitiesSlow}, this issues NO LLM turn — it opens a
+   * short-lived ACP session and captures the runtime's
+   * `available_commands_update` push.
+   *
+   * Implemented only by adapters whose
+   * `capabilitiesFor(transport).commandsFastChannel === true`
+   * (`claude` / `codex` / `opencode` on `transport: "acp"`). Callers
+   * MUST check that flag — Cursor leaves the method `undefined`, and
+   * passing `transport: "cli"` rejects with
+   * `CommandsUnavailableError(reason: "no_fast_channel")`.
+   *
+   * Rejects with `CommandsUnavailableError` (`timeout` /
+   * `front_not_piloted` / `no_fast_channel`) when no snapshot can be
+   * produced. Covers commands only — skills stay on the slow path.
+   */
+  fetchCommands?(opts: FetchCommandsOptions): Promise<CommandsSnapshot>;
 }
 
 /** Effective runtime configuration after defaults/parent/node resolution. */

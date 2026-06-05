@@ -21,6 +21,14 @@
 
 import type { RuntimeId } from "../types.ts";
 import type { TransportOption } from "./adapter-types.ts";
+import type { ProcessRegistry } from "../process-registry.ts";
+import type { AcpFrontLauncher } from "./acp/fronts.ts";
+
+// FR-L42: re-exported so the `./runtime/commands` sub-path entry keeps
+// every type referenced from `FetchCommandsOptions` reachable (JSR
+// `private-type-ref` fires on `deno publish --dry-run` otherwise).
+export type { AcpFrontLauncher } from "./acp/fronts.ts";
+export type { ProcessRegistry } from "../process-registry.ts";
 
 // FR-L42
 /**
@@ -77,6 +85,25 @@ export interface CommandsSnapshot {
 export interface FetchCommandsOptions {
   /** Transport route. Currently only `"acp"` produces a snapshot. */
   transport: TransportOption;
+  /**
+   * Process tracker scope for the short-lived ACP front spawned to
+   * capture the snapshot. Standalone callers may omit it — the helper
+   * falls back to the module-level `defaultRegistry` singleton (the
+   * same default-registry pattern `process-registry.ts` already
+   * exposes for one-shot use). Embedded callers hosting multiple
+   * runtimes should pass a per-scope instance so `killAll()` stays
+   * isolated.
+   */
+  processRegistry?: ProcessRegistry;
+  /**
+   * Override the ACP front launcher resolved from
+   * `runtime/acp/fronts.ts`. Honored only when `transport === "acp"`.
+   * When supplied the per-runtime `pilot` guard is bypassed (the
+   * consumer is on the hook for whatever they point at — local fork,
+   * binary download, PATH-stub for tests). Same contract as
+   * {@link import("./adapter-types.ts").RuntimeInvokeOptions.acpFront}.
+   */
+  acpFront?: AcpFrontLauncher;
   /**
    * Working directory passed to the ACP front. Absolute path
    * recommended (ACP requires absolute `cwd`).
