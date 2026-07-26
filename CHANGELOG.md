@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.12](https://github.com/korchasa/ai-ide-cli/compare/v0.8.11...v0.8.12) (2026-07-26)
+
+
+### Features
+
+* **runtime/acp:** route inbound methods and refresh front pins (FR-L43) ([caa546c](https://github.com/korchasa/ai-ide-cli/commit/caa546c198a9c69d31d0ee443a1d17b441dc6ffe))
+
+
+### Documentation
+
+* **tasks:** flip acp-resume-via-session-load to done after live e2e ([fd894de](https://github.com/korchasa/ai-ide-cli/commit/fd894de7bdb892c7f6c0ab0e51dd43d4eac191f3))
+
+
+### Chores
+
+* **gitignore:** ignore the FoxCode browser profile ([786d32e](https://github.com/korchasa/ai-ide-cli/commit/786d32e3e4b9eada58f29e0304e9e3cec7cfbb62))
+
 ### [0.8.11](https://github.com/korchasa/ai-ide-cli/compare/v0.8.10...v0.8.11) (2026-06-05)
 
 
