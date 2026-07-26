@@ -4,3 +4,6 @@ tmp/
 .claude/worktrees
 .claude/scheduled_tasks.lock
 .worktrees/
+# FoxCode browser profile — 60 MB+ of Firefox state whose nested paths
+# exceed JSR's 160-char package-path limit and fail `publish --dry-run`.
+.foxcode/
