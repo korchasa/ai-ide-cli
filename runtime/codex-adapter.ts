@@ -105,7 +105,7 @@ function codexSkillsDir(): string {
  *   follow-ups.
  */
 // FR-L39: transport-scoped capability vector for the Codex ACP front
-// (`@zed-industries/codex-acp`). Same downgrade rationale as the
+// (`@agentclientprotocol/codex-acp`, FR-L43). Same downgrade rationale as the
 // Claude pilot — transcript / interactive / toolFilter are unavailable
 // on the ACP path while session, reasoning-effort, MCP injection, and
 // tool-use observation round-trip natively. `capabilityInventory` is

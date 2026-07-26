@@ -73,6 +73,16 @@ import this package to invoke IDE CLIs uniformly.
     isolation (FR-L18).
   - `runtime/reasoning-effort.ts` — abstract `reasoningEffort` enum +
     `validateReasoningEffort` mapped per-runtime (FR-L25).
+  - `runtime/acp/inbound.ts` — `createInboundRequestHandler`, the single
+    inbound-request router for both ACP paths (FR-L43). Serves
+    `session/request_permission`; answers every other method with
+    `AcpMethodNotFoundError` (JSON-RPC `-32601`) and one
+    `onCallbackError` report, per-request and non-fatal. **Front pins in
+    `runtime/acp/fronts.ts` are part of this library's upkeep** — check
+    upstream releases when touching the ACP layer, and note that the
+    Codex front migrated to `@agentclientprotocol/codex-acp` because
+    `@zed-industries/codex-acp` is deprecated and its last release
+    cannot parse current `config.toml` values.
   - `runtime/callback-safety.ts` — `safeInvokeCallback` /
     `safeAwaitCallback` + `OnCallbackError` routed sink for consumer
     callbacks (FR-L32).

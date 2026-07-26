@@ -297,8 +297,8 @@ classification — only the wire dialect changes (FR-L39).
 
 Three pilots validated end-to-end against real binaries:
 
-- **claude** — `@agentclientprotocol/claude-agent-acp@0.37.0` via `npx`.
-- **codex** — `@zed-industries/codex-acp@0.15.0` via `npx`.
+- **claude** — `@agentclientprotocol/claude-agent-acp@0.62.0` via `npx`.
+- **codex** — `@agentclientprotocol/codex-acp@1.1.7` via `npx`.
 - **opencode** — `opencode acp` subcommand of the locally-installed
   binary.
 

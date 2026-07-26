@@ -39,14 +39,19 @@ export interface AcpFrontLauncher {
 const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
   claude: {
     cmd: "npx",
-    args: ["-y", "@agentclientprotocol/claude-agent-acp@0.37.0"],
-    versionPin: "0.37.0",
+    args: ["-y", "@agentclientprotocol/claude-agent-acp@0.62.0"],
+    versionPin: "0.62.0",
     pilot: true,
   },
   codex: {
     cmd: "npx",
-    args: ["-y", "@zed-industries/codex-acp@0.15.0"],
-    versionPin: "0.15.0",
+    // FR-L43: `@zed-industries/codex-acp` is deprecated upstream ("replaced
+    // by @agentclientprotocol/codex-acp") and its last release (0.16.0)
+    // still embeds a codex-core that rejects newer `config.toml` values —
+    // e.g. `model_reasoning_effort = "ultra"` aborts the front before the
+    // handshake. The successor package accepts it.
+    args: ["-y", "@agentclientprotocol/codex-acp@1.1.7"],
+    versionPin: "1.1.7",
     pilot: true,
   },
   cursor: {
@@ -57,7 +62,7 @@ const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
   opencode: {
     cmd: "opencode",
     args: ["acp"],
-    // Validated against opencode 1.15.10 on darwin-arm64 (FR-L39).
+    // Validated against opencode 1.16.2 on darwin-arm64 (FR-L39/FR-L43).
     // Front wraps the locally-installed `opencode` binary (no `npx`
     // wrapper), so the e2e gate requires `opencode` on PATH.
     pilot: true,

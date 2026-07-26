@@ -2138,7 +2138,7 @@ stable — never renumber on move.
   instead of the per-runtime CLI subprocess wrapper. Three pilots
   validated end-to-end against real binaries: Claude
   (`@agentclientprotocol/claude-agent-acp`), Codex
-  (`@zed-industries/codex-acp`), and OpenCode (`opencode acp`
+  (`@agentclientprotocol/codex-acp`), and OpenCode (`opencode acp`
   subcommand of the locally-installed binary). Cursor entry
   (`cursor-agent acp`) is pinned in `runtime/acp/fronts.ts` but
   flagged `pilot: false` until its local IDE binary becomes part
@@ -2165,8 +2165,8 @@ stable — never renumber on move.
         handler.
         Test: `runtime/acp/client_test.ts::AcpStdioClient routes responses by id`.
   - [x] Launcher registry `runtime/acp/fronts.ts` pins Claude to
-        `@agentclientprotocol/claude-agent-acp@0.37.0` and Codex to
-        `@zed-industries/codex-acp@0.15.0` (both `pilot: true` via
+        `@agentclientprotocol/claude-agent-acp@0.62.0` and Codex to
+        `@agentclientprotocol/codex-acp@1.1.7` (both `pilot: true` via
         `npx`); OpenCode delegates to the locally-installed
         `opencode acp` binary (`pilot: true`); Cursor entry
         (`cursor-agent acp`) stays `pilot: false`.
@@ -2196,7 +2196,7 @@ stable — never renumber on move.
         claude auth probe, FR-L31 / FR-L34): one trivial prompt
         completes with `is_error === false` and reply contains `"ok"`.
         Evidence: `e2e/acp_claude_smoke_e2e_test.ts::e2e acp/claude/transport=acp returns ok`.
-  - [x] Real-binary smoke against `@zed-industries/codex-acp` (gated
+  - [x] Real-binary smoke against `@agentclientprotocol/codex-acp` (gated
         on `E2E=1` + `OPENAI_API_KEY` OR codex auth probe;
         `model: "gpt-5.4-mini"` + `reasoningEffort: "low"` pinned via
         `session/set_config_option` to fit the e2e ceiling): one
@@ -2589,3 +2589,70 @@ runs); OpenCode and Codex dispatch at completion time.
   - **Real-binary e2e** (claude hard, codex/opencode soft). Test:
     `e2e/acp_commands_e2e_test.ts`. Evidence: `E2E=1 deno task e2e:acp`.
 - **Tasks:** [acp-available-commands-discovery](tasks/2026/06/acp-available-commands-discovery.md)
+
+### 3.41 FR-L43: Inbound-Method Routing & Front-Pin Currency
+
+- **Description:** One shared router (`runtime/acp/inbound.ts`,
+  `createInboundRequestHandler`) answers every inbound ACP request on
+  both the invoke and session paths. `session/request_permission` is
+  delegated to `createPermissionHandler` (FR-L39 / ADR-0002); every
+  other method is rejected with the typed `AcpMethodNotFoundError`
+  carrying `code: -32601` and reported once through the
+  `OnCallbackError` sink (`source: "onEvent"`, matching the
+  degraded-options warn path).
+
+  **Error-code fidelity.** `AcpStdioClient` reads a numeric `code` off
+  the value thrown by the handler and sends it as the JSON-RPC error
+  code, falling back to `-32000` for a codeless throw. A front that
+  asks for an unimplemented method therefore reads `-32601`
+  ("the client does not implement this") instead of `-32000`
+  ("the client broke"), which is the difference between degrading and
+  retrying. Rejection is scoped to the single request — the turn keeps
+  streaming, so a front that grows a new client-side call cannot end a
+  run.
+
+  **Front-pin currency.** Fronts pinned in `runtime/acp/fronts.ts` are
+  kept current with upstream: Claude
+  `@agentclientprotocol/claude-agent-acp@0.62.0`, Codex
+  `@agentclientprotocol/codex-acp@1.1.7`. The Codex entry is a package
+  MIGRATION: `@zed-industries/codex-acp` is deprecated upstream
+  ("replaced by @agentclientprotocol/codex-acp") and its final release
+  (0.16.0) embeds a codex-core that aborts before the handshake on
+  current `config.toml` values — `model_reasoning_effort = "ultra"`
+  fails with `unknown variant`. The successor accepts it. Both new
+  fronts negotiate `protocolVersion: 1` and advertise
+  `agentCapabilities.loadSession`, so FR-L19 resume stays live.
+
+- **Motivation:** The two inline `onRequest` closures answered anything
+  but `session/request_permission` with a bare `Error`, which the client
+  translated to `-32000`, and the rejection was invisible to consumers
+  (the invoke path passes `onStderr: undefined`). Fronts keep adding
+  client-side calls — elicitation (claude-agent-acp 0.43.0+), refusal
+  consent (0.55.0), logout (0.53.0) — so an unimplemented method is a
+  routine event that needs a correct code and a diagnostic, not a
+  generic failure. The stale pins compounded it: the Codex front on the
+  old pin could not start at all against a current Codex config.
+- **Dep:** FR-L32, FR-L39.
+- **Acceptance criteria:**
+  - **Router** delegates `session/request_permission`, rejects any other
+    method with `AcpMethodNotFoundError` (`code: -32601`, method + runtime
+    on the error), reports it once through `onCallbackError`, and keeps
+    serving subsequent requests. Test: `runtime/acp/inbound_test.ts`
+    (FR-L43 cases).
+  - **Client** answers an inbound request with the code carried by the
+    handler's throw and falls back to `-32000` without one. Test:
+    `runtime/acp/client_test.ts` (FR-L43 cases).
+  - **Both adapter paths** route through the shared handler — no inline
+    `onRequest` closure remains in `runtime/acp/adapter.ts`. Evidence:
+    `runtime/acp/adapter.ts` `createInboundRequestHandler` call sites in
+    `attemptInvocation` and `openSessionViaAcp`.
+  - **Front pins** name the successor Codex package and the current
+    Claude release; the deprecated `@zed-industries/codex-acp` does not
+    come back. Test: `runtime/acp/fronts_test.ts::codex front is piloted
+    (npm self-contained, no local IDE required)`.
+  - **Real-binary ACP suite** passes on the new pins across smoke,
+    resume, capabilities, commands, content, and retry. Evidence:
+    `E2E=1 deno task e2e --filter acp` — 10 passed, including
+    `e2e acp/codex/transport=acp returns ok` (previously blocked by the
+    deprecated front) and `e2e acp/claude resume via session/load
+    preserves history`.

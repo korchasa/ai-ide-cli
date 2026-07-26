@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { ProcessRegistry } from "../../process-registry.ts";
 import { AcpRpcError, AcpStdioClient } from "./client.ts";
+import { AcpMethodNotFoundError } from "./inbound.ts";
 
 async function withStubPeer<T>(
   script: string,
@@ -104,6 +105,82 @@ cat > /dev/null
       await client.dispose();
     }
   });
+});
+
+/**
+ * Drive one inbound request from a stub peer and capture the raw reply the
+ * client wrote back. The peer parks our reply in `ackFile` instead of
+ * echoing it inside another JSON envelope — no quote escaping, and the
+ * assertion reads the literal wire bytes.
+ */
+async function captureInboundReply(
+  method: string,
+  onRequest: () => never,
+): Promise<Record<string, unknown>> {
+  const dir = await Deno.makeTempDir({ prefix: "acp-inbound-reply-" });
+  const stub = `${dir}/acp-peer.sh`;
+  const ackFile = `${dir}/ack.json`;
+  const script = `#!/usr/bin/env bash
+read -r line
+id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\\1/')
+printf '{"jsonrpc":"2.0","id":99,"method":"${method}","params":{}}\\n'
+read -r ack
+printf '%s' "$ack" > "${ackFile}"
+printf '{"jsonrpc":"2.0","id":%s,"result":null}\\n' "$id"
+cat > /dev/null
+`;
+  await Deno.writeTextFile(stub, script);
+  await Deno.chmod(stub, 0o755);
+  try {
+    const client = new AcpStdioClient({
+      cmd: stub,
+      args: [],
+      processRegistry: new ProcessRegistry(),
+      onRequest,
+    });
+    try {
+      await client.request("session/prompt", { sessionId: "x" });
+    } finally {
+      await client.dispose();
+    }
+    return JSON.parse(await Deno.readTextFile(ackFile)) as Record<
+      string,
+      unknown
+    >;
+  } finally {
+    try {
+      await Deno.remove(dir, { recursive: true });
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+Deno.test("FR-L43 AcpStdioClient answers with the handler's JSON-RPC error code", async () => {
+  const reply = await captureInboundReply(
+    "session/request_elicitation",
+    () => {
+      throw new AcpMethodNotFoundError("claude", "session/request_elicitation");
+    },
+  );
+
+  assertEquals(reply.id, 99);
+  const error = reply.error as Record<string, unknown>;
+  assertEquals(error.code, -32601);
+  assert(
+    String(error.message).includes("session/request_elicitation"),
+    `error message must name the method, got: ${error.message}`,
+  );
+});
+
+Deno.test("FR-L43 AcpStdioClient falls back to -32000 for a codeless handler throw", async () => {
+  const reply = await captureInboundReply("terminal/create", () => {
+    throw new Error("handler blew up");
+  });
+
+  const error = reply.error as Record<string, unknown>;
+  assertEquals(error.code, -32000);
+  assertEquals(error.message, "handler blew up");
 });
 
 Deno.test("AcpStdioClient handles inbound requests via handler", async () => {

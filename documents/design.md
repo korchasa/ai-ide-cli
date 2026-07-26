@@ -1620,17 +1620,28 @@ subprocess wrapper. One implementation
   stdio client. Owns subprocess lifecycle, routes responses by id,
   surfaces notifications via single-consumer `notifications()` async
   iterable, answers inbound `session/request_permission` requests via
-  caller-supplied `onRequest`. `dispose()` is bounded:
+  caller-supplied `onRequest`. A throwing `onRequest` produces an error
+  envelope for that one request: the thrown value's numeric `code` when
+  present, else `-32000` (FR-L43). `dispose()` is bounded:
   `writer.close()` races a 1s timer (falls back to `writer.abort()`),
   SIGTERM races a 5s timer (escalates to SIGKILL), stdout/stderr
   readers cancelled explicitly to break npx-grandchild-holds-pipe
   deadlock, drain awaits race a 1s timer. All race timers cleared
   on winner. Exposes `pendingNotificationCount` getter consumed by
   the adapter's `flushDrain()` helper.
+- `runtime/acp/inbound.ts` — `createInboundRequestHandler` router shared
+  by `invokeViaAcp` and `openSessionViaAcp` (FR-L43). Delegates
+  `session/request_permission` to `createPermissionHandler`; rejects any
+  other method with `AcpMethodNotFoundError` (`code: -32601`) and reports
+  it once through `OnCallbackError` (`source: "onEvent"`). Rejection is
+  per-request — the turn keeps streaming, so a front that grows a new
+  client-side call (elicitation, refusal consent, logout) degrades
+  instead of failing the run.
 - `runtime/acp/fronts.ts` — frozen `Record<RuntimeId, AcpFrontLauncher>`
   registry. Claude / Codex piloted via `npx -y` to pinned npm
-  packages (`@agentclientprotocol/claude-agent-acp@0.37.0`,
-  `@zed-industries/codex-acp@0.15.0`); OpenCode piloted via the
+  packages (`@agentclientprotocol/claude-agent-acp@0.62.0`,
+  `@agentclientprotocol/codex-acp@1.1.7` — successor to the deprecated
+  `@zed-industries/codex-acp`, FR-L43); OpenCode piloted via the
   locally-installed `opencode acp` subcommand; Cursor wired but
   `pilot: false` until `cursor-agent` becomes part of the validation
   matrix. The `AcpFrontLauncher` interface is re-exported from

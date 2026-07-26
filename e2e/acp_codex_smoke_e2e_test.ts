@@ -1,8 +1,8 @@
 /**
  * @module
  * FR-L39 ACP transport smoke for Codex. Drives `transport: "acp"`
- * end-to-end against the pinned `@zed-industries/codex-acp` front from
- * the ACP Registry.
+ * end-to-end against the pinned `@agentclientprotocol/codex-acp` front
+ * (successor to the deprecated `@zed-industries/codex-acp`, FR-L43).
  *
  * Gated on `E2E=1` + `E2E_RUNTIMES` (codex allowed) + `OPENAI_API_KEY`
  * present in the env. Does NOT require the `codex` CLI binary on PATH —

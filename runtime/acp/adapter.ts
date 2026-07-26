@@ -41,6 +41,7 @@ import type { AcpStdioClient } from "./client.ts";
 import { extractAcpContent } from "./content.ts";
 import { AcpUnsupportedOptionError } from "./errors.ts";
 import { handshake, spawnClient } from "./handshake.ts";
+import { createInboundRequestHandler } from "./inbound.ts";
 import {
   type AcpDegradedOption,
   buildTurnEndEvent,
@@ -374,16 +375,15 @@ async function attemptInvocation(
       processRegistry: opts.processRegistry,
       onStderr: undefined,
       acpFront: opts.acpFront,
-      onRequest: async (req) => {
-        if (req.method === "session/request_permission") {
-          return await permissionHandler(
-            (req.params ?? { options: [] }) as unknown as Parameters<
-              typeof permissionHandler
-            >[0],
-          );
-        }
-        throw new Error(`unsupported inbound method: ${req.method}`);
-      },
+      // FR-L43: one shared router — permission requests are served, every
+      // other inbound method is answered -32601 and reported once.
+      onRequest: createInboundRequestHandler({
+        runtime,
+        permissionHandler,
+        ...(opts.onCallbackError
+          ? { onCallbackError: opts.onCallbackError }
+          : {}),
+      }),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -668,16 +668,14 @@ export async function openSessionViaAcp(
     processRegistry: opts.processRegistry,
     onStderr: opts.onStderr,
     acpFront: opts.acpFront,
-    onRequest: async (req) => {
-      if (req.method === "session/request_permission") {
-        return await permissionHandler(
-          (req.params ?? { options: [] }) as unknown as Parameters<
-            typeof permissionHandler
-          >[0],
-        );
-      }
-      throw new Error(`unsupported inbound method: ${req.method}`);
-    },
+    // FR-L43: same router as the invoke path.
+    onRequest: createInboundRequestHandler({
+      runtime,
+      permissionHandler,
+      ...(opts.onCallbackError
+        ? { onCallbackError: opts.onCallbackError }
+        : {}),
+    }),
   });
 
   // FR-L19: handshake may throw AcpUnsupportedOptionError from the

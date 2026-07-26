@@ -69,6 +69,11 @@ export interface AcpStdioClientOptions {
    * capabilities that imply server→client calls (e.g.
    * `session/request_permission`). When omitted, every inbound request is
    * responded to with `{error: {code: -32601, message: "Method not found"}}`.
+   *
+   * A handler that throws answers the request with an error envelope: the
+   * thrown value's numeric `code` is used when present (FR-L43), else
+   * `-32000`. Either way the failure is scoped to the one request — the
+   * session keeps streaming.
    */
   onRequest?: AcpInboundRequestHandler;
 }
@@ -284,7 +289,8 @@ export class AcpStdioClient {
     // `writer.close()` awaits pending writes — if the agent hasn't
     // drained stdin (e.g. mid-LLM-call), it deadlocks. Race it against
     // a short timer and fall back to `writer.abort()` which discards
-    // queued bytes without blocking. Observed against codex-acp@0.15.0
+    // queued bytes without blocking. Observed against the then-pinned
+    // @zed-industries/codex-acp@0.15.0
     // where `session/prompt` keeps the queue alive until the model
     // returns — disposing during reasoning would otherwise hang
     // forever.
@@ -336,7 +342,8 @@ export class AcpStdioClient {
     this.#registry.unregister(this.#proc);
     // Cancel the stdout/stderr readers explicitly: an `npx`-spawned
     // grandchild can keep the pipe open after SIGTERM (observed
-    // against `npx -y @zed-industries/codex-acp@0.15.0`), and a hung
+    // against the then-pinned `npx -y @zed-industries/codex-acp@0.15.0`),
+    // and a hung
     // `for await` would keep the Deno event loop alive forever. We
     // also race against a short timer as a belt-and-braces fallback.
     try {
@@ -493,10 +500,16 @@ export class AcpStdioClient {
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        // FR-L43: honour a `code` carried by the thrown value so a handler
+        // can answer with the semantically correct JSON-RPC code (e.g.
+        // -32601 for an unimplemented method, see `inbound.ts`). Anything
+        // without a numeric `code` stays on the generic -32000.
+        const carried = (err as { code?: unknown } | null)?.code;
+        const code = typeof carried === "number" ? carried : -32000;
         await this.#writeLine({
           jsonrpc: "2.0",
           id: req.id,
-          error: { code: -32000, message },
+          error: { code, message },
         });
       }
     };
