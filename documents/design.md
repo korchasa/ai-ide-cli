@@ -1664,9 +1664,12 @@ subprocess wrapper. One implementation
   - `buildSessionNewParams(runtime, opts)` — translates `cwd`,
     `mcpServers` (via `validateMcpServers`) into ACP arrays.
   - `pickModeForPermissionMode(runtime, declared, mode)` —
-    `session/set_mode` resolution against declared modes; Claude has
-    a static permission-mode→mode-id table; other runtimes match by
-    direct id.
+    `session/set_mode` resolution against declared modes. Claude has a
+    static permission-mode→mode-id table; Codex routes the mode through
+    `decidePermissionMode` and keys the resulting sandbox literal into
+    `CODEX_SANDBOX_TO_MODE` (`read-only` / `agent` /
+    `agent-full-access`, FR-L44), so CLI and ACP share one decision;
+    other runtimes match by direct id.
   - `pickConfigForReasoningEffort` / `pickConfigForModel` —
     `session/set_config_option` selection. `AcpConfigOptionDecl`
     accepts both wire shapes: claude/codex `values[].id` and opencode

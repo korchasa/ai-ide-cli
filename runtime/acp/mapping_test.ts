@@ -154,6 +154,50 @@ Deno.test("pickModeForPermissionMode picks Claude's plan→plan mapping when dec
   assertEquals(mode, "plan");
 });
 
+// FR-L44: `@agentclientprotocol/codex-acp` declares three presets —
+// `read-only` / `agent` / `agent-full-access` (verified in 1.1.7 and 1.7.0
+// `src/AgentMode.ts`). None of them matches a neutral permission-mode
+// literal, so without a codex table `session/set_mode` was skipped and the
+// session silently stayed on the front's default workspace-write preset.
+const CODEX_ACP_MODES = [
+  { id: "read-only" },
+  { id: "agent" },
+  { id: "agent-full-access" },
+];
+
+Deno.test("pickModeForPermissionMode maps codex bypassPermissions to agent-full-access", () => {
+  const mode = pickModeForPermissionMode(
+    "codex",
+    CODEX_ACP_MODES,
+    "bypassPermissions",
+  );
+  assertEquals(mode, "agent-full-access");
+});
+
+Deno.test("pickModeForPermissionMode maps codex neutral modes onto declared presets", () => {
+  const pick = (permissionMode: string) =>
+    pickModeForPermissionMode("codex", CODEX_ACP_MODES, permissionMode);
+  assertEquals(pick("plan"), "read-only");
+  assertEquals(pick("acceptEdits"), "agent");
+});
+
+Deno.test("pickModeForPermissionMode maps codex-native sandbox modes onto declared presets", () => {
+  const pick = (permissionMode: string) =>
+    pickModeForPermissionMode("codex", CODEX_ACP_MODES, permissionMode);
+  assertEquals(pick("read-only"), "read-only");
+  assertEquals(pick("workspace-write"), "agent");
+  assertEquals(pick("danger-full-access"), "agent-full-access");
+});
+
+Deno.test("pickModeForPermissionMode leaves codex approval-only modes unmapped", () => {
+  // `never` / `on-request` carry no sandbox decision, and the front
+  // declares no matching id — nothing to set_mode.
+  assertEquals(
+    pickModeForPermissionMode("codex", CODEX_ACP_MODES, "never"),
+    undefined,
+  );
+});
+
 Deno.test("pickModeForPermissionMode falls back to direct id match", () => {
   // Caller passes the ACP-native mode id directly; runtime is non-claude.
   const mode = pickModeForPermissionMode(

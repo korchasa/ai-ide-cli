@@ -2656,3 +2656,61 @@ runs); OpenCode and Codex dispatch at completion time.
     `e2e acp/codex/transport=acp returns ok` (previously blocked by the
     deprecated front) and `e2e acp/claude resume via session/load
     preserves history`.
+
+
+### 3.42 FR-L44: Codex ACP Permission-Mode Presets
+
+- **Description:** `pickModeForPermissionMode` resolves a Codex
+  `permissionMode` to one of the three presets
+  `@agentclientprotocol/codex-acp` declares — `read-only`, `agent`,
+  `agent-full-access` — by routing the value through
+  `decidePermissionMode` (`codex/permission-mode.ts`) and keying the
+  resulting `sandbox` literal into `CODEX_SANDBOX_TO_MODE`. Both Codex
+  CLI transports already share that decision module; ACP now joins them
+  instead of carrying a parallel table.
+
+  **Resolved pairs.** `bypassPermissions` / `danger-full-access` →
+  `agent-full-access`; `acceptEdits` / `workspace-write` → `agent`;
+  `plan` / `read-only` → `read-only`. Approval-only pass-throughs
+  (`never`, `on-request`, `on-failure`, `untrusted`) carry no sandbox
+  decision and stay unmapped, as does `default` — the front's own
+  default preset (`agent`) already answers it.
+
+  **Lossy on approval policy.** Each preset binds its own
+  `approvalPolicy` (`on-request` for `read-only` / `agent`, `never` for
+  `agent-full-access`), so a neutral mode whose decision asks for a
+  different policy — `plan` and `acceptEdits` both decide `never` — gets
+  the sandbox it asked for and the preset's policy. ACP declares no way
+  to set the two independently.
+
+- **Motivation:** Only Claude had a mapping table, so every Codex
+  `permissionMode` failed both the table lookup and the direct-id
+  fallback: `session/set_mode` was skipped and the session silently kept
+  the front's default `agent` preset (workspace-write). Inside a Docker
+  container that preset is unusable — Codex cannot create its nested
+  bubblewrap sandbox, asks for permission to run outside it, and the
+  ADR-0002 handler denies by default with no callback supplied. The
+  visible symptom was an agent that returned a normal successful turn
+  having read and written nothing, with `bypassPermissions` set and
+  ignored. Silence was the defect: an unhonoured permission mode looked
+  identical to an honoured one.
+- **Dep:** FR-L13, FR-L39.
+- **Acceptance criteria:**
+  - [x] `bypassPermissions` resolves to `agent-full-access` when the
+        front declares it. Test:
+        `runtime/acp/mapping_test.ts::pickModeForPermissionMode maps codex
+        bypassPermissions to agent-full-access`.
+  - [x] Neutral `plan` / `acceptEdits` resolve to `read-only` / `agent`.
+        Test: `runtime/acp/mapping_test.ts::pickModeForPermissionMode maps
+        codex neutral modes onto declared presets`.
+  - [x] Codex-native sandbox literals pass through to the matching
+        preset. Test: `runtime/acp/mapping_test.ts::pickModeForPermissionMode
+        maps codex-native sandbox modes onto declared presets`.
+  - [x] Approval-only modes stay unmapped — no `session/set_mode` is
+        issued for them. Test:
+        `runtime/acp/mapping_test.ts::pickModeForPermissionMode leaves codex
+        approval-only modes unmapped`.
+  - [x] The mapping reads `decidePermissionMode` rather than a private
+        table, so the CLI and ACP transports cannot drift. Evidence:
+        `runtime/acp/mapping.ts` imports
+        `codex/permission-mode.ts`.

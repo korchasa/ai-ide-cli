@@ -28,6 +28,10 @@ import type { McpServers } from "../mcp-injection.ts";
 import { validateMcpServers } from "../mcp-injection.ts";
 import { validateReasoningEffort } from "../reasoning-effort.ts";
 import {
+  decidePermissionMode,
+  type SandboxMode,
+} from "../../codex/permission-mode.ts";
+import {
   type RuntimeSessionEvent,
   SYNTHETIC_TURN_END,
 } from "../session-types.ts";
@@ -227,6 +231,27 @@ const CLAUDE_PERMISSION_TO_MODE: Record<string, string> = {
   default: "code",
 };
 
+/**
+ * FR-L44: Codex sandbox decision → `@agentclientprotocol/codex-acp` preset
+ * id. The front declares exactly three presets — `read-only`, `agent`,
+ * `agent-full-access` — whose `sandboxMode` fields are the three Codex
+ * sandbox literals (verified against 1.1.7 and 1.7.0 `src/AgentMode.ts`).
+ * Keying off {@link decidePermissionMode} keeps ACP on the same single
+ * source of truth as both CLI transports instead of a parallel table.
+ *
+ * Lossy on approval policy: the presets bind their own `approvalPolicy`
+ * (`on-request` for `read-only` / `agent`, `never` for
+ * `agent-full-access`), so a neutral mode whose decision asks for a
+ * different policy — `plan` and `acceptEdits` both decide `never` — gets
+ * the sandbox it asked for and the preset's policy. ACP exposes no way to
+ * set the two independently.
+ */
+const CODEX_SANDBOX_TO_MODE: Record<SandboxMode, string> = {
+  "read-only": "read-only",
+  "workspace-write": "agent",
+  "danger-full-access": "agent-full-access",
+};
+
 /** Pick the ACP `modeId` for a runtime-neutral `permissionMode`. */
 export function pickModeForPermissionMode(
   runtime: RuntimeId,
@@ -234,9 +259,14 @@ export function pickModeForPermissionMode(
   permissionMode: string | undefined,
 ): string | undefined {
   if (!permissionMode || !declared || declared.length === 0) return undefined;
-  const map = runtime === "claude" ? CLAUDE_PERMISSION_TO_MODE : undefined;
-  // First try a per-runtime mapping table.
-  const mapped = map?.[permissionMode];
+  // First try a per-runtime mapping.
+  let mapped: string | undefined;
+  if (runtime === "claude") {
+    mapped = CLAUDE_PERMISSION_TO_MODE[permissionMode];
+  } else if (runtime === "codex") {
+    const { sandbox } = decidePermissionMode(permissionMode);
+    mapped = sandbox ? CODEX_SANDBOX_TO_MODE[sandbox] : undefined;
+  }
   if (mapped && declared.some((m) => m.id === mapped)) return mapped;
   // Fall back to direct id match — keep ACP-native ids passing through.
   if (declared.some((m) => m.id === permissionMode)) return permissionMode;
