@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.13](https://github.com/korchasa/ai-ide-cli/compare/v0.8.12...v0.8.13) (2026-08-31)
+
+
+### Bug Fixes
+
+* **runtime/acp:** map codex permission modes onto declared presets (FR-L44) ([3162efd](https://github.com/korchasa/ai-ide-cli/commit/3162efdad5f4bd3e113df13a8b68865c284cc052))
+
 ### [0.8.12](https://github.com/korchasa/ai-ide-cli/compare/v0.8.11...v0.8.12) (2026-07-26)
 
 
