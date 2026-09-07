@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.14](https://github.com/korchasa/ai-ide-cli/compare/v0.8.13...v0.8.14) (2026-09-07)
+
+
+### Bug Fixes
+
+* **runtime/acp:** put the JSON-RPC error data into AcpRpcError's message ([dec533a](https://github.com/korchasa/ai-ide-cli/commit/dec533a697139033215198793621a63efeb7d2ef))
+
 ### [0.8.13](https://github.com/korchasa/ai-ide-cli/compare/v0.8.12...v0.8.13) (2026-08-31)
 
 
