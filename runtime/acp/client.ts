@@ -93,6 +93,28 @@ const DISPOSE_GRACE_MS = 5000;
  */
 const WRITER_CLOSE_GRACE_MS = 1000;
 
+/**
+ * Render the `error.data` payload for the human-readable message. Fronts put
+ * the real reason there behind a generic `message` (claude-agent-acp answers
+ * `-32603 Internal error` with `data.details = "Invalid value for config
+ * option model: …"`), so a message without it hides the cause from every log.
+ */
+function describeRpcErrorData(data: unknown): string {
+  if (data === undefined || data === null) return "";
+  if (typeof data === "string") return ` — ${data}`;
+  if (
+    typeof data === "object" &&
+    typeof (data as { details?: unknown }).details === "string"
+  ) {
+    return ` — ${(data as { details: string }).details}`;
+  }
+  try {
+    return ` — ${JSON.stringify(data)}`;
+  } catch {
+    return ` — ${String(data)}`;
+  }
+}
+
 /** JSON-RPC error envelope as raised by `request()`. */
 export class AcpRpcError extends Error {
   /** JSON-RPC error code. */
@@ -111,7 +133,11 @@ export class AcpRpcError extends Error {
    * @param data Optional error data payload.
    */
   constructor(method: string, code: number, message: string, data?: unknown) {
-    super(`${method} → JSON-RPC error ${code}: ${message}`);
+    super(
+      `${method} → JSON-RPC error ${code}: ${message}${
+        describeRpcErrorData(data)
+      }`,
+    );
     this.name = "AcpRpcError";
     this.code = code;
     this.method = method;

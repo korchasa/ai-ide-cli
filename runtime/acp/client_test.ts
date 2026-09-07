@@ -216,3 +216,44 @@ cat > /dev/null
     }
   });
 });
+
+Deno.test("AcpRpcError message carries the error data details", () => {
+  // claude-agent-acp answers `session/set_config_option` with a generic
+  // `-32603 Internal error` and puts the real reason in `data.details`.
+  const withDetails = new AcpRpcError(
+    "session/set_config_option",
+    -32603,
+    "Internal error",
+    { details: "Invalid value for config option model: claude-sonnet-4-6" },
+  );
+  assertEquals(
+    withDetails.message,
+    "session/set_config_option → JSON-RPC error -32603: Internal error — " +
+      "Invalid value for config option model: claude-sonnet-4-6",
+  );
+
+  const withString = new AcpRpcError(
+    "session/new",
+    -32602,
+    "Invalid params",
+    "cwd must be absolute",
+  );
+  assertEquals(
+    withString.message,
+    "session/new → JSON-RPC error -32602: Invalid params — cwd must be absolute",
+  );
+
+  const withObject = new AcpRpcError("session/prompt", -32000, "boom", {
+    retryAfter: 3,
+  });
+  assertEquals(
+    withObject.message,
+    'session/prompt → JSON-RPC error -32000: boom — {"retryAfter":3}',
+  );
+
+  const bare = new AcpRpcError("initialize", -32601, "Method not found");
+  assertEquals(
+    bare.message,
+    "initialize → JSON-RPC error -32601: Method not found",
+  );
+});

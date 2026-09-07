@@ -2129,6 +2129,11 @@ stable — never renumber on move.
         text`,
         `runtime/acp/error_analysis_test.ts::RPC analysis wins over
         stderr when both are classifiable (precedence)`.
+  - [x] `AcpRpcError.message` carries the envelope's `error.data`
+        (`data.details` when present, else the string / JSON form), so a
+        front's generic `-32603 Internal error` still names the cause.
+        Test: `runtime/acp/client_test.ts::AcpRpcError message carries
+        the error data details`.
 
 ### 3.37 FR-L39: ACP Transport (Claude + Codex + OpenCode pilots)
 
