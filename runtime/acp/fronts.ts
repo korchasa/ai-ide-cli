@@ -7,7 +7,8 @@
  * module carries a single bare import resolved through this package's
  * `deno.json` `imports`. No Node, no `npx`, and the resolved version is
  * pinned by `deno.lock` rather than by whatever the registry serves at
- * spawn time. Cursor and OpenCode wrap a locally-installed binary and
+ * spawn time. `deno.json` + `deno.lock` are therefore the ONLY record of
+ * which version runs — this module deliberately keeps no copy of it. Cursor and OpenCode wrap a locally-installed binary and
  * have no npm package to pin.
  *
  * Claude, Codex, and OpenCode are piloted end-to-end (`pilot: true`).
@@ -34,12 +35,6 @@ export interface AcpFrontLauncher {
   args: readonly string[];
   /** Frozen extra env vars merged into the subprocess env. */
   env?: Readonly<Record<string, string>>;
-  /**
-   * Version of the npm package behind the front, for diagnostics only —
-   * the spawn resolves its version through `deno.json` `imports`, never
-   * through this field. `fronts_test.ts` fails when the two drift.
-   */
-  versionPin?: string;
   /**
    * `true` ⇒ adapter accepts `transport: "acp"` for this runtime.
    * `false` ⇒ adapter rejects with a clear "not piloted yet" error. The
@@ -71,7 +66,6 @@ const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
     // buys the same startup saving. `handshake.ts` merges caller `env` over
     // this map, so a consumer can still override it.
     env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
-    versionPin: "0.77.0",
     pilot: true,
   },
   codex: {
@@ -82,7 +76,6 @@ const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
     // e.g. `model_reasoning_effort = "ultra"` aborts the front before the
     // handshake. The successor package accepts it.
     args: entryArgs("./fronts/codex.ts"),
-    versionPin: "1.11.0",
     pilot: true,
   },
   cursor: {

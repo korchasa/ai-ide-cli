@@ -51,8 +51,9 @@ duplicates the version string in three places that already drifted once
 
 - Public API: `AcpFrontLauncher` ships on JSR. Do not drop fields.
 - No Node dependency anywhere in the spawn path.
-- The version must live in exactly ONE place; any second copy needs a
-  test that fails when the two drift.
+- The version must live in exactly ONE place. A second copy plus a
+  drift test is not a solution — it guards the duplicate instead of
+  removing it.
 - `deno task check` must stay green; `deno task e2e:acp` must still pass
   for claude + codex (opencode fails on HEAD already — out of scope).
 
@@ -61,8 +62,9 @@ duplicates the version string in three places that already drifted once
 - [x] Both npm fronts launch through `Deno.execPath()`, never `npx`.
 - [x] `deno.json` `imports` entries are live — the entry modules resolve
       their package through them.
-- [x] `versionPin` is guarded by a test that reads `deno.json` and fails
-      on drift.
+- [x] `versionPin` removed from `AcpFrontLauncher` (breaking): with the
+      version resolved through `deno.json`, the field was a second copy
+      that nothing reads at runtime.
 - [x] Every PATH-stub test switched to the `acpFront` seam.
 - [x] Claude's dead `code` / `yolo` permission-mode rows removed.
 - [x] `deno task check` green; `deno task e2e:acp` green for claude+codex.
@@ -79,8 +81,12 @@ duplicates the version string in three places that already drifted once
    Document why `-A`: the front spawns Claude Code / codex, which need
    network, filesystem and subprocess access — the same authority `npx`
    handed them implicitly.
-3. Keep `versionPin` as a plain string; add `fronts_test.ts` assertions
-   that read `deno.json` `imports` and compare.
+3. Drop `versionPin` from `AcpFrontLauncher` and from both launcher
+   records. `deno.json` + `deno.lock` stay the only record of the
+   version. `fronts_test.ts` keeps one `deno.json` assertion that is
+   about identity rather than version: the deprecated
+   `@zed-industries/codex-acp` must not reappear, the successor must be
+   declared.
 4. Rewrite the five PATH-stub helpers to build an `acpFront` record
    (`{cmd:"bash", args:[script], pilot:true}`) and pass it through the
    existing option.

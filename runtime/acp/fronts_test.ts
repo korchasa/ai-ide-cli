@@ -1,26 +1,20 @@
 import { assert, assertEquals } from "@std/assert";
 import { getAcpFront, listAcpFronts } from "./fronts.ts";
 
-/** Package → version as declared in this package's `deno.json` imports. */
-async function declaredImportVersions(): Promise<Record<string, string>> {
+/** npm packages this package declares in its `deno.json` imports. */
+async function declaredNpmPackages(): Promise<string[]> {
   const url = import.meta.resolve("../../deno.json");
   const cfg = JSON.parse(await Deno.readTextFile(new URL(url))) as {
     imports: Record<string, string>;
   };
-  const out: Record<string, string> = {};
-  for (const [name, specifier] of Object.entries(cfg.imports)) {
-    const at = specifier.lastIndexOf("@");
-    if (specifier.startsWith("npm:") && at > "npm:".length) {
-      out[name] = specifier.slice(at + 1);
-    }
-  }
-  return out;
+  return Object.entries(cfg.imports)
+    .filter(([, specifier]) => specifier.startsWith("npm:"))
+    .map(([name]) => name);
 }
 
 Deno.test("Claude front runs its entry module under the current Deno binary", () => {
   const front = getAcpFront("claude");
   assertEquals(front.cmd, Deno.execPath());
-  assertEquals(front.versionPin, "0.77.0");
   assertEquals(front.pilot, true);
   assertEquals(front.args.slice(0, 2), ["run", "-A"]);
   assert(
@@ -34,7 +28,6 @@ Deno.test("Claude front runs its entry module under the current Deno binary", ()
 Deno.test("codex front is piloted (npm self-contained, no local IDE required)", () => {
   const front = getAcpFront("codex");
   assertEquals(front.pilot, true);
-  assertEquals(front.versionPin, "1.11.0");
   assertEquals(front.cmd, Deno.execPath());
   assertEquals(front.args.slice(0, 2), ["run", "-A"]);
   assert(
@@ -43,28 +36,13 @@ Deno.test("codex front is piloted (npm self-contained, no local IDE required)", 
   );
 });
 
-// The entry modules resolve their package through `deno.json` imports, so
-// that map — not `versionPin` — decides what actually spawns. Guard the
-// diagnostic copy against the drift that already happened once: the map
-// sat on 0.37.0 + the deprecated @zed-industries/codex-acp@0.15.0 while
-// the registry pinned 0.62.0 / 1.1.7.
-Deno.test("versionPin matches the version deno.json actually resolves", async () => {
-  const declared = await declaredImportVersions();
-  assertEquals(
-    getAcpFront("claude").versionPin,
-    declared["@agentclientprotocol/claude-agent-acp"],
-  );
-  assertEquals(
-    getAcpFront("codex").versionPin,
-    declared["@agentclientprotocol/codex-acp"],
-  );
-});
-
 // FR-L43: the deprecated `@zed-industries/codex-acp` must not come back —
 // its embedded codex-core rejects current `config.toml` values.
 Deno.test("the deprecated zed codex front is not declared anywhere", async () => {
-  const declared = await declaredImportVersions();
-  assertEquals(declared["@zed-industries/codex-acp"], undefined);
+  const declared = await declaredNpmPackages();
+  assertEquals(declared.includes("@zed-industries/codex-acp"), false);
+  // The successor must be there — it is what the entry module imports.
+  assertEquals(declared.includes("@agentclientprotocol/codex-acp"), true);
 });
 
 Deno.test("opencode front is piloted (wraps local `opencode acp` binary)", () => {
