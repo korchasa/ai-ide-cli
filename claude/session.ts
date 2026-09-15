@@ -29,6 +29,7 @@ import {
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { withNonessentialTrafficDisabled } from "./nonessential-traffic.ts";
 import {
   type ReasoningEffort,
   validateReasoningEffort,
@@ -293,7 +294,11 @@ export async function openClaudeSession(
   const args = buildClaudeSessionArgs(opts);
 
   let settingCleanup: (() => Promise<void>) | undefined;
-  let env: Record<string, string> = { CLAUDECODE: "", ...(opts.env ?? {}) };
+  // FR-L45: same non-essential-traffic strip as the one-shot invoke path.
+  let env: Record<string, string> = withNonessentialTrafficDisabled({
+    CLAUDECODE: "",
+    ...(opts.env ?? {}),
+  });
   if (opts.settingSources) {
     const prepared = await prepareSettingSourcesDir(
       opts.settingSources,

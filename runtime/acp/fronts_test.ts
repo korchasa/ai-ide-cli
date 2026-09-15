@@ -47,3 +47,20 @@ Deno.test("listAcpFronts returns frozen registry", () => {
     "opencode",
   ]);
 });
+
+// FR-L45: the Claude front spawns the same Claude Code binary, so the
+// non-essential-traffic switch belongs on its launcher too.
+
+Deno.test("claude front carries the non-essential-traffic switch", () => {
+  const front = getAcpFront("claude");
+  assertEquals(front.env?.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, "1");
+});
+
+Deno.test("no other front carries the Claude-only traffic switch", () => {
+  for (const runtime of ["codex", "cursor", "opencode"] as const) {
+    assertEquals(
+      getAcpFront(runtime).env?.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
+      undefined,
+    );
+  }
+});

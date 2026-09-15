@@ -97,6 +97,13 @@ import this package to invoke IDE CLIs uniformly.
     deprecated on `mod.ts`).
   - `claude/content.ts` — `extractClaudeContent` per-runtime extractor
     consumed by the `runtime/content.ts` dispatcher (FR-L23).
+  - `claude/nonessential-traffic.ts` — `withNonessentialTrafficDisabled`
+    sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` at all three
+    CLI-transport spawn sites (`invoke`, `openSession`,
+    `launchInteractive`), cutting ~1.2 s of auto-update / telemetry /
+    model-discovery work off every run (FR-L45). The ACP transport gets
+    the same switch from the Claude front's `env` in
+    `runtime/acp/fronts.ts` (~0.3 s off first event).
 - `opencode/process.ts`, `opencode/argv.ts`, `opencode/events.ts`,
   `opencode/transcript.ts`, `opencode/session.ts`, `opencode/sse.ts`,
   `opencode/content.ts` — OpenCode invocation split into argv builder,
@@ -353,11 +360,26 @@ Your memory resets between sessions. Documentation is the only link to past deci
 
 ### Tasks (`documents/tasks/`)
 
-- One file per task or session: `<YYYY-MM-DD>-<slug>.md` (kebab-case slug, max 40 chars).
-- Examples: `2026-03-24-add-dark-mode.md`, `2026-03-24-fix-auth-bug.md`.
+- One file per task or session, filed by month:
+  `documents/tasks/<YYYY>/<MM>/<slug>.md` (kebab-case slug, max 40
+  chars, no date in the filename — the path carries it).
+- Examples: `2026/05/codex-ban-full-auto-flag.md`,
+  `2026/06/unify-stream-log-format.md`.
+- **Tracked in git**, not ignored. Task files are committed alongside
+  the change they plan, and old ones stay as the record of why a
+  decision was made.
+- YAML frontmatter on every file: `date` (quoted `YYYY-MM-DD`),
+  `status`, `implements` (FR-L list), `tags`, `related_tasks` (paths
+  relative to `documents/tasks/`, e.g. `2026/05/acp-transport-poc.md`).
+  Add `supersedes` / `superseded_by` when one task replaces another.
+- `status` takes one of `to do` / `in progress` / `done` — spelled with
+  a space, not a hyphen — or `superseded`, which requires
+  `superseded_by`. The commit workflow derives the first three from the
+  `## Definition of Done` checklist (none ticked → `to do`, some →
+  `in progress`, all → `done`) and rewrites the frontmatter, so a value
+  outside this set is silently replaced.
 - Do not reuse another session's task file — create a new file. Old tasks provide context but may contain outdated decisions.
 - Use GODS format (see below) for issues and plans.
-- Directory is gitignored. Files accumulate — this is expected.
 
 ### GODS Format
 

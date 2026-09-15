@@ -331,3 +331,50 @@ Deno.test("buildClaudeSessionArgs — empty-string member throws", () => {
     "non-empty strings",
   );
 });
+
+// --- FR-L45: non-essential traffic switch reaches the child env ---
+
+const RESULT_LINE =
+  `{"type":"result","subtype":"success","result":"ok","session_id":"stub-1","total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"num_turns":0,"is_error":false}`;
+
+/** Drain a stub-backed session to completion and read the env probe file. */
+async function readEnvProbe(
+  opts: ClaudeSessionOptions,
+  probePath: string,
+): Promise<string> {
+  const script =
+    `printf '%s' "\${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC-<unset>}" > ${probePath}
+cat <<'EOF'
+${RESULT_LINE}
+EOF`;
+  return await withStubClaude(script, async () => {
+    const session = await openClaudeSession(opts);
+    for await (const event of session.events) {
+      if (event.type === "result") break;
+    }
+    session.abort();
+    await session.done;
+    return await Deno.readTextFile(probePath);
+  });
+}
+
+Deno.test("openClaudeSession — child sees CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", async () => {
+  const probe = await Deno.makeTempFile({ prefix: "claude-env-probe-" });
+  try {
+    assertEquals(await readEnvProbe(makeOpts(), probe), "1");
+  } finally {
+    await Deno.remove(probe).catch(() => {});
+  }
+});
+
+Deno.test("openClaudeSession — caller-supplied traffic switch is not overwritten", async () => {
+  const probe = await Deno.makeTempFile({ prefix: "claude-env-probe-" });
+  try {
+    const opts = makeOpts({
+      env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "0" },
+    });
+    assertEquals(await readEnvProbe(opts, probe), "0");
+  } finally {
+    await Deno.remove(probe).catch(() => {});
+  }
+});

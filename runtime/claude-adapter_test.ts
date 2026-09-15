@@ -154,3 +154,48 @@ Deno.test("claudeRuntimeAdapter.openSession — abort returns exit status on don
     },
   );
 });
+
+// --- FR-L45: interactive launch strips non-essential traffic too ---
+
+Deno.test("claudeRuntimeAdapter.launchInteractive — child sees the traffic switch", async () => {
+  await withStubClaude(
+    `printf '%s' "\${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC-<unset>}" > "$CAPTURE_ENV"`,
+    async (dir) => {
+      const capture = `${dir}/env.txt`;
+      Deno.env.set("CAPTURE_ENV", capture);
+      try {
+        const result = await claudeRuntimeAdapter.launchInteractive({
+          cwd: dir,
+          env: { CAPTURE_ENV: capture },
+        });
+        assertEquals(result.exitCode, 0);
+        assertEquals(await Deno.readTextFile(capture), "1");
+      } finally {
+        Deno.env.delete("CAPTURE_ENV");
+      }
+    },
+  );
+});
+
+Deno.test("claudeRuntimeAdapter.launchInteractive — caller-supplied switch survives", async () => {
+  await withStubClaude(
+    `printf '%s' "\${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC-<unset>}" > "$CAPTURE_ENV"`,
+    async (dir) => {
+      const capture = `${dir}/env.txt`;
+      Deno.env.set("CAPTURE_ENV", capture);
+      try {
+        const result = await claudeRuntimeAdapter.launchInteractive({
+          cwd: dir,
+          env: {
+            CAPTURE_ENV: capture,
+            CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "",
+          },
+        });
+        assertEquals(result.exitCode, 0);
+        assertEquals(await Deno.readTextFile(capture), "");
+      } finally {
+        Deno.env.delete("CAPTURE_ENV");
+      }
+    },
+  );
+});

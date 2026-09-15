@@ -40,6 +40,11 @@ const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
   claude: {
     cmd: "npx",
     args: ["-y", "@agentclientprotocol/claude-agent-acp@0.62.0"],
+    // FR-L45: the front runs the Claude Agent SDK, which spawns the same
+    // Claude Code binary as the CLI transport — the switch reaches it and
+    // buys the same startup saving. `handshake.ts` merges caller `env` over
+    // this map, so a consumer can still override it.
+    env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
     versionPin: "0.62.0",
     pilot: true,
   },

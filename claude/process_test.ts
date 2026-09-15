@@ -395,3 +395,57 @@ Deno.test("buildClaudeArgs — empty disallowedTools array throws", () => {
     "non-empty",
   );
 });
+
+// --- FR-L45: non-essential traffic switch reaches the child env ---
+
+/**
+ * Put a stub `claude` on PATH that records one env var and emits a single
+ * NDJSON result line, then run `invokeClaudeCli` against it.
+ */
+async function invokeWithEnvProbe(
+  opts: ClaudeInvokeOptions,
+  probePath: string,
+): Promise<string> {
+  const dir = await Deno.makeTempDir({ prefix: "claude-invoke-stub-" });
+  const stubPath = `${dir}/claude`;
+  await Deno.writeTextFile(
+    stubPath,
+    `#!/usr/bin/env bash
+printf '%s' "\${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC-<unset>}" > ${probePath}
+cat <<'EOF'
+{"type":"result","subtype":"success","result":"ok","session_id":"stub-1","total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"num_turns":0,"is_error":false}
+EOF
+`,
+  );
+  await Deno.chmod(stubPath, 0o755);
+  const prevPath = Deno.env.get("PATH") ?? "";
+  Deno.env.set("PATH", `${dir}:${prevPath}`);
+  try {
+    await invokeClaudeCli(opts);
+    return await Deno.readTextFile(probePath);
+  } finally {
+    Deno.env.set("PATH", prevPath);
+    await Deno.remove(dir, { recursive: true }).catch(() => {});
+  }
+}
+
+Deno.test("invokeClaudeCli — child sees CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", async () => {
+  const probe = await Deno.makeTempFile({ prefix: "claude-env-probe-" });
+  try {
+    assertEquals(await invokeWithEnvProbe(makeOpts(), probe), "1");
+  } finally {
+    await Deno.remove(probe).catch(() => {});
+  }
+});
+
+Deno.test("invokeClaudeCli — caller-supplied traffic switch is not overwritten", async () => {
+  const probe = await Deno.makeTempFile({ prefix: "claude-env-probe-" });
+  try {
+    const opts = makeOpts({
+      env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "0" },
+    });
+    assertEquals(await invokeWithEnvProbe(opts, probe), "0");
+  } finally {
+    await Deno.remove(probe).catch(() => {});
+  }
+});

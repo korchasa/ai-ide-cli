@@ -37,6 +37,7 @@ import {
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
+import { withNonessentialTrafficDisabled } from "../claude/nonessential-traffic.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -294,10 +295,12 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
   ): Promise<InteractiveResult> {
     let injectedPaths: string[] = [];
     try {
-      const env: Record<string, string> = {
+      // FR-L45: same non-essential-traffic strip as the non-interactive
+      // paths — a caller-supplied value still wins.
+      const env: Record<string, string> = withNonessentialTrafficDisabled({
         CLAUDECODE: "",
         ...opts.env,
-      };
+      });
 
       if (opts.skills && opts.skills.length > 0) {
         injectedPaths = await injectSkills(opts.skills);

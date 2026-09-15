@@ -2719,3 +2719,84 @@ runs); OpenCode and Codex dispatch at completion time.
         table, so the CLI and ACP transports cannot drift. Evidence:
         `runtime/acp/mapping.ts` imports
         `codex/permission-mode.ts`.
+
+### 3.43 FR-L45: Disable Claude Non-Essential Startup Traffic
+
+- **Description:** Every Claude spawn path sets
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for the child process.
+  The three subprocess sites — one-shot `invokeClaudeCli`,
+  streaming-input `openClaudeSession`, and `launchInteractive` — route
+  their env through `withNonessentialTrafficDisabled(env)`; the ACP
+  transport carries the variable on the Claude front launcher, which
+  `handshake.ts` merges under the caller's `env`. Either way the caller's own value for that
+  variable wins. The helper is pure: never mutates the input env, never
+  throws.
+
+  **Truthiness caveat.** Claude Code tests the variable for truthiness
+  (`if (process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC)`), so
+  `"0"` still *enables* the strip. Only an empty value (or no value)
+  restores the traffic. The library's "caller wins" contract is about
+  what reaches the child env, not about how Claude reads it.
+- **Motivation:** The switch bundles `DISABLE_AUTOUPDATER`,
+  `DISABLE_BUG_COMMAND`, `DISABLE_ERROR_REPORTING`,
+  `DISABLE_TELEMETRY` and the gateway's model-discovery refresh. A
+  library that spawns the CLI once per request pays for all of them on
+  every invocation, before the model is asked anything. Measured on
+  macOS (2026-09-15, short prompt, median of 5 runs): first token
+  2.04 s → 1.31 s, process exit 3.08 s → 1.90 s. None of the disabled
+  traffic serves a programmatic caller — the wrapper reads no bug
+  reports, and an auto-updater must not swap the binary under a
+  running consumer.
+- **Scope:** Every path, `launchInteractive` included — one binary, one
+  behaviour, so a consumer never has to reason about which entry point
+  it came through. The trade accepted there: the human at the terminal
+  sees no auto-update prompt and the binary does not update itself
+  during that session; keeping Claude current is the user's own job.
+
+  The ACP front is in scope because it runs the same binary: the
+  package depends on `@anthropic-ai/claude-agent-sdk`, whose bundled
+  `claude` executable reads the variable. Measured through
+  `adapter.invoke({ transport: "acp" })` on macOS, 2026-09-15, prompt
+  "Reply with exactly the word: ok", 9 alternating pairs (5 with
+  `off` first, 4 with `on` first) — first event 1278 ms → 958 ms
+  median, full round-trip 4571 ms → 3095 ms median. The first-event
+  figure separates cleanly: every `on` sample (897-1088 ms) is below
+  every `off` sample (1227-1794 ms).
+- **Scenario:** A consumer calls `invokeClaudeCli` or
+  `openClaudeSession` with no `env`. The child observes
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`. A consumer that passes
+  `env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "0" }` gets that
+  exact value through to the child.
+- **Dep:** FR-L33 (same spawn-boundary env discipline).
+- **Acceptance criteria:**
+  - [x] `claude/nonessential-traffic.ts` exports
+        `CLAUDE_DISABLE_NONESSENTIAL_TRAFFIC` and
+        `withNonessentialTrafficDisabled(env)` with the three
+        documented branches (var already set → reference-equal no-op;
+        env undefined → `{ FLAG: "1" }`; otherwise merged). Evidence:
+        `// FR-L45` traceability comment above the export. Test:
+        `claude/nonessential-traffic_test.ts`.
+  - [x] The one-shot invoke path spawns the child with the flag set.
+        Test: `claude/process_test.ts::invokeClaudeCli — child sees
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+  - [x] The streaming-session path spawns the child with the flag set.
+        Test: `claude/session_test.ts::openClaudeSession — child sees
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+  - [x] A caller-supplied value survives on both paths. Tests:
+        `claude/process_test.ts::invokeClaudeCli — caller-supplied
+        traffic switch is not overwritten`,
+        `claude/session_test.ts::openClaudeSession — caller-supplied
+        traffic switch is not overwritten`.
+  - [x] `launchInteractive` spawns with the flag set, and a
+        caller-supplied value survives. Tests:
+        `runtime/claude-adapter_test.ts::claudeRuntimeAdapter.launchInteractive
+        — child sees the traffic switch`,
+        `runtime/claude-adapter_test.ts::claudeRuntimeAdapter.launchInteractive
+        — caller-supplied switch survives`.
+  - [x] The ACP Claude front launcher carries the variable, and no
+        other front does. Tests:
+        `runtime/acp/fronts_test.ts::claude front carries the
+        non-essential-traffic switch`,
+        `runtime/acp/fronts_test.ts::no other front carries the
+        Claude-only traffic switch`. Caller override is structural —
+        `runtime/acp/handshake.ts` spreads `opts.env` over `front.env`.

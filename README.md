@@ -193,6 +193,24 @@ Runtime-scoped (check `capabilities` before using):
 - `settingSources` — Claude only (cleanroom `CLAUDE_CONFIG_DIR` setup).
   Other runtimes have no equivalent; the option is ignored.
 
+Every Claude spawn sets
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for the child process
+(FR-L45) — `invoke`, `openSession`, `launchInteractive`, and the ACP
+front, which runs the same binary under the Claude Agent SDK. The
+switch drops the auto-updater, bug-command, error-reporting, telemetry
+and model-discovery requests a programmatic caller never reads: about
+1.2 s off a short CLI run, about 0.3 s off the first ACP event. It
+applies to `launchInteractive` too, so the terminal session it opens
+runs without the auto-updater and the binary will not update itself
+while that session is up.
+
+Pass the variable in `env` to override it — the value you pass reaches
+the child unchanged. Exporting it in your own shell does not override
+it: the library sets the key explicitly, and an explicit key beats the
+inherited environment. To get the traffic back, pass an empty value —
+Claude tests the variable for truthiness, so `"0"` still turns the
+strip on.
+
 ```ts
 await invokeClaudeCli({
   taskPrompt: "...",

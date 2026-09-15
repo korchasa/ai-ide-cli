@@ -78,6 +78,10 @@ ai-ide-cli/
     session.ts          — openClaudeSession, buildClaudeSessionArgs, ClaudeSession
                           (streaming-input session with piped stdin)
     content.ts          — extractClaudeContent (per-runtime extractor; FR-L23)
+    nonessential-traffic.ts — withNonessentialTrafficDisabled(env): pure
+                          helper that sets
+                          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 at
+                          the spawn boundary (FR-L45)
   opencode/
     process.ts          — invokeOpenCodeCli runner; re-exports helpers
                           from argv/events/transcript modules
@@ -1151,6 +1155,45 @@ the spawned IDE binary that resolve relative paths against `$PWD`
 (instead of `getcwd(2)`) then operate on the wrong directory. The
 helper closes that gap at the spawn boundary without mutating
 `Deno.env` (would race across concurrent sessions).
+
+### 3.12.6 `claude/nonessential-traffic.ts` — Startup-Traffic Strip (FR-L45)
+
+Pure helper: `withNonessentialTrafficDisabled(env) → env`. Returns
+`env` unchanged when the caller already populated
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (any value, `""` included);
+otherwise returns `{ ...env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:
+"1" }`. Imported at all three CLI-transport spawn sites
+(`claude/process.ts`, `claude/session.ts`,
+`runtime/claude-adapter.ts::launchInteractive`), each marked with a
+`// FR-L45` traceability comment. The ACP transport reaches the same
+outcome through the launcher registry: the Claude entry in
+`runtime/acp/fronts.ts` carries `env: { CLAUDE_CODE_DISABLE_
+NONESSENTIAL_TRAFFIC: "1" }`, and `runtime/acp/handshake.ts` spreads
+caller `env` over `front.env`, so consumer intent still wins.
+
+The switch bundles `DISABLE_AUTOUPDATER`, `DISABLE_BUG_COMMAND`,
+`DISABLE_ERROR_REPORTING`, `DISABLE_TELEMETRY` plus the gateway's
+model-discovery refresh. Every spawn otherwise pays for all of them
+before the model is asked anything. Measured on macOS (2026-09-15,
+short prompt, median of 5 runs): first token 2.04 s → 1.31 s, process
+exit 3.08 s → 1.90 s.
+
+The ACP front pays the same cost because it runs the same binary —
+`@agentclientprotocol/claude-agent-acp` depends on
+`@anthropic-ai/claude-agent-sdk`, whose bundled `claude` executable
+reads the variable. Measured through `transport: "acp"` (macOS,
+2026-09-15, 9 alternating pairs): first event 1278 ms → 958 ms median,
+round-trip 4571 ms → 3095 ms median.
+
+Claude reads the variable for truthiness, so `"0"` also enables the
+strip; only an empty value restores the traffic. The library's
+"caller wins" contract covers what reaches the child env, not how
+Claude interprets it.
+
+`launchInteractive` is in scope as well, so one binary behaves one way
+whatever entry point reached it. Cost accepted there: the human at the
+terminal gets no auto-update prompt and the binary stays at its
+installed version for that session.
 
 ### 3.13 `e2e/` — Real-Binary Test Suite (FR-L31)
 

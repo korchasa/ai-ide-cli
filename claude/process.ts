@@ -20,6 +20,7 @@ import type { ExtraArgsMap, RuntimeInvokeResult } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { withNonessentialTrafficDisabled } from "./nonessential-traffic.ts";
 import {
   type ReasoningEffort,
   validateReasoningEffort,
@@ -416,7 +417,12 @@ async function executeClaudeProcess(
   // Optional setting-sources isolation — build a filtered tmp config dir
   // and redirect CLAUDE_CONFIG_DIR for this run only.
   let settingCleanup: (() => Promise<void>) | undefined;
-  let env: Record<string, string> = { CLAUDECODE: "", ...(opts.env ?? {}) };
+  // FR-L45: strip auto-update / telemetry / model-discovery traffic from
+  // the spawn env unless the caller pinned the switch themselves.
+  let env: Record<string, string> = withNonessentialTrafficDisabled({
+    CLAUDECODE: "",
+    ...(opts.env ?? {}),
+  });
   if (opts.settingSources) {
     const prepared = await prepareSettingSourcesDir(
       opts.settingSources,
