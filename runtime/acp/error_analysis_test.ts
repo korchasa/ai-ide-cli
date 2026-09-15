@@ -8,6 +8,7 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
+import type { AcpFrontLauncher } from "./fronts.ts";
 import { ProcessRegistry } from "../../process-registry.ts";
 import { invokeViaAcp } from "./adapter.ts";
 
@@ -15,23 +16,25 @@ interface StubScript {
   script: string;
 }
 
+/**
+ * Build a stub ACP front running `script` under bash and hand it to `fn`
+ * as an `acpFront` override.
+ *
+ * Replaces the old PATH-stub named `npx`: the registry now launches the
+ * absolute `Deno.execPath()`, which no PATH entry can shadow, so tests
+ * drive the supported override seam instead.
+ */
 async function withStubAcpFront<T>(
   { script }: StubScript,
-  fn: () => Promise<T>,
+  fn: (front: AcpFrontLauncher) => Promise<T>,
 ): Promise<T> {
   const dir = await Deno.makeTempDir({ prefix: "acp-error-stub-" });
-  const stub = `${dir}/npx`;
-  await Deno.writeTextFile(
-    stub,
-    `#!/usr/bin/env bash\n# ACP error-analysis stub\n${script}\n`,
-  );
+  const stub = `${dir}/front.sh`;
+  await Deno.writeTextFile(stub, `#!/usr/bin/env bash\n${script}\n`);
   await Deno.chmod(stub, 0o755);
-  const prev = Deno.env.get("PATH") ?? "";
-  Deno.env.set("PATH", `${dir}:${prev}`);
   try {
-    return await fn();
+    return await fn({ cmd: "bash", args: [stub], pilot: true });
   } finally {
-    Deno.env.set("PATH", prev);
     try {
       await Deno.remove(dir, { recursive: true });
     } catch {
@@ -47,7 +50,6 @@ async function withStubAcpFront<T>(
  */
 function stopReasonScript(stopReason: string): string {
   return `
-shift; shift
 respond() {
   local id="$1" payload="$2"
   printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
@@ -71,7 +73,6 @@ done
 /** Stub that fails `session/prompt` with a crafted JSON-RPC error. */
 function rpcErrorScript(code: number, message: string): string {
   return `
-shift; shift
 respond() {
   local id="$1" payload="$2"
   printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
@@ -104,7 +105,6 @@ function rpcErrorWithStderrScript(
   stderrLine: string,
 ): string {
   return `
-shift; shift
 respond() {
   local id="$1" payload="$2"
   printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
@@ -135,7 +135,6 @@ done
  */
 function stderrOnlyScript(stderrLine: string): string {
   return `
-shift; shift
 respond() {
   local id="$1" payload="$2"
   printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
@@ -167,11 +166,12 @@ const BASE_OPTS = {
 Deno.test("AcpRpcError surfaces runtime_error.kind on rpc failure path — rate_limit", async () => {
   await withStubAcpFront(
     { script: rpcErrorScript(-32000, "rate limit exceeded, try again later") },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.error, "expected error path");
       assert(result.runtime_error, "expected runtime_error to be set");
@@ -184,11 +184,12 @@ Deno.test("AcpRpcError surfaces runtime_error.kind on rpc failure path — rate_
 Deno.test("AcpRpcError surfaces runtime_error.kind on rpc failure path — auth", async () => {
   await withStubAcpFront(
     { script: rpcErrorScript(-32602, "invalid api key") },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.error);
       assert(result.runtime_error);
@@ -200,11 +201,12 @@ Deno.test("AcpRpcError surfaces runtime_error.kind on rpc failure path — auth"
 Deno.test("AcpRpcError -32603 internal error maps to runtime_error kind (low confidence)", async () => {
   await withStubAcpFront(
     { script: rpcErrorScript(-32603, "Internal server error") },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.error);
       assert(result.runtime_error);
@@ -217,11 +219,12 @@ Deno.test("AcpRpcError -32603 internal error maps to runtime_error kind (low con
 Deno.test("stopReason maps to runtime_error.kind table — max_tokens → token_budget", async () => {
   await withStubAcpFront(
     { script: stopReasonScript("max_tokens") },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.output, JSON.stringify(result));
       assertEquals(result.output.is_error, true);
@@ -234,11 +237,12 @@ Deno.test("stopReason maps to runtime_error.kind table — max_tokens → token_
 Deno.test("stopReason maps to runtime_error.kind table — max_turn_requests → runtime_error", async () => {
   await withStubAcpFront(
     { script: stopReasonScript("max_turn_requests") },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.output);
       assertEquals(result.output.is_error, true);
@@ -252,11 +256,12 @@ Deno.test("stopReason maps to runtime_error.kind table — max_turn_requests →
 Deno.test("stopReason maps to runtime_error.kind table — refusal → policy", async () => {
   await withStubAcpFront(
     { script: stopReasonScript("refusal") },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.output);
       assertEquals(result.output.is_error, true);
@@ -269,11 +274,12 @@ Deno.test("stopReason maps to runtime_error.kind table — refusal → policy", 
 Deno.test("stopReason end_turn → no runtime_error and is_error: false", async () => {
   await withStubAcpFront(
     { script: stopReasonScript("end_turn") },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.output);
       assertEquals(result.output.is_error, false);
@@ -285,11 +291,12 @@ Deno.test("stopReason end_turn → no runtime_error and is_error: false", async 
 Deno.test("stopReason cancelled → is_error true, no runtime_error (consumer-initiated)", async () => {
   await withStubAcpFront(
     { script: stopReasonScript("cancelled") },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.output);
       assertEquals(result.output.is_error, true);
@@ -301,11 +308,12 @@ Deno.test("stopReason cancelled → is_error true, no runtime_error (consumer-in
 Deno.test("unknown stopReason falls through to runtime_error (low confidence)", async () => {
   await withStubAcpFront(
     { script: stopReasonScript("totally_made_up") },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.output);
       assertEquals(result.output.is_error, true);
@@ -323,11 +331,12 @@ Deno.test("stderr tail used as fallback runtime_error source when RPC has no cla
         "[acp-front] quota exceeded for project free-tier",
       ),
     },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.error);
       assert(result.runtime_error);
@@ -346,11 +355,12 @@ Deno.test("RPC analysis wins over stderr when both are classifiable (precedence)
         "[acp-front] rate limit exceeded, retry in 5 minutes",
       ),
     },
-    async () => {
+    async (front) => {
       const registry = new ProcessRegistry();
       const result = await invokeViaAcp("claude", {
         ...BASE_OPTS,
         processRegistry: registry,
+        acpFront: front,
       });
       assert(result.error);
       assert(result.runtime_error);

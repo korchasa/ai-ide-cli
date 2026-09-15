@@ -219,23 +219,9 @@ function renderMcpServers(servers: McpServers | undefined): AcpMcpServer[] {
 }
 
 /**
- * Static permission-mode → ACP-mode-id map per pilot front. Returns the
- * declared mode that best matches the caller's request; falls back to
- * `undefined` when there is no match (the adapter then skips
- * `session/set_mode`).
- */
-const CLAUDE_PERMISSION_TO_MODE: Record<string, string> = {
-  plan: "plan",
-  acceptEdits: "code",
-  bypassPermissions: "yolo",
-  default: "code",
-};
-
-/**
  * FR-L44: Codex sandbox decision → `@agentclientprotocol/codex-acp` preset
  * id. The front declares exactly three presets — `read-only`, `agent`,
- * `agent-full-access` — whose `sandboxMode` fields are the three Codex
- * sandbox literals (verified against 1.1.7 and 1.7.0 `src/AgentMode.ts`).
+ * `agent-full-access` (preset ids stable from 1.1.7 through 1.11.0).
  * Keying off {@link decidePermissionMode} keeps ACP on the same single
  * source of truth as both CLI transports instead of a parallel table.
  *
@@ -245,6 +231,16 @@ const CLAUDE_PERMISSION_TO_MODE: Record<string, string> = {
  * different policy — `plan` and `acceptEdits` both decide `never` — gets
  * the sandbox it asked for and the preset's policy. ACP exposes no way to
  * set the two independently.
+ *
+ * Lossy on sandbox since 1.11.0: the preset ids no longer carry the three
+ * Codex sandbox literals one-to-one. `read-only` became "Ask for approval"
+ * and now binds `sandboxMode: "workspace-write"` (verified in 1.11.0
+ * `AgentMode.ReadOnly`), so no preset asks for a read-only sandbox any
+ * more. A `read-only` / `plan` request therefore lands on the most
+ * restrictive preset the front still offers, and writes are stopped by
+ * the permission prompt rather than by the sandbox — with no
+ * `onToolUseObserved` callback the library denies that prompt by default
+ * (see `runtime/acp/permissions.ts`).
  */
 const CODEX_SANDBOX_TO_MODE: Record<SandboxMode, string> = {
   "read-only": "read-only",
@@ -259,16 +255,17 @@ export function pickModeForPermissionMode(
   permissionMode: string | undefined,
 ): string | undefined {
   if (!permissionMode || !declared || declared.length === 0) return undefined;
-  // First try a per-runtime mapping.
+  // Claude needs no table: its ACP front declares Claude Code's own
+  // permission-mode ids, so every value of `VALID_PERMISSION_MODES`
+  // (`default` / `acceptEdits` / `plan` / `bypassPermissions`) is already
+  // a literal id match handled by the direct-match branch below.
   let mapped: string | undefined;
-  if (runtime === "claude") {
-    mapped = CLAUDE_PERMISSION_TO_MODE[permissionMode];
-  } else if (runtime === "codex") {
+  if (runtime === "codex") {
     const { sandbox } = decidePermissionMode(permissionMode);
     mapped = sandbox ? CODEX_SANDBOX_TO_MODE[sandbox] : undefined;
   }
   if (mapped && declared.some((m) => m.id === mapped)) return mapped;
-  // Fall back to direct id match — keep ACP-native ids passing through.
+  // Direct id match — also how ACP-native ids pass through.
   if (declared.some((m) => m.id === permissionMode)) return permissionMode;
   return undefined;
 }

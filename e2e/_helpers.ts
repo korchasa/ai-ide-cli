@@ -149,7 +149,8 @@ const ACP_REQUIRED_ENV: Partial<Record<RuntimeId, string>> = {
 
 /**
  * Gate for `transport: "acp"` smoke tests. Differs from {@link e2eEnabled}:
- * the per-runtime ACP front is launched via `npx`, so the runtime's own
+ * the per-runtime ACP front is launched as a Deno dependency, so the
+ * runtime's own
  * CLI binary is NOT required on PATH. Enabled when EITHER:
  *
  * 1. The API-auth env var the ACP front consumes is set (e.g.

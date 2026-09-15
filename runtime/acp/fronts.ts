@@ -2,8 +2,13 @@
  * @module
  * Registry of ACP-front launchers per supported {@link RuntimeId}.
  *
- * Versions are pinned to the ACP Registry snapshot at PoC time
- * (https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json).
+ * The two npm-shipped fronts (Claude, Codex) are launched as real Deno
+ * dependencies — `deno run -A ./fronts/<runtime>.ts`, where that entry
+ * module carries a single bare import resolved through this package's
+ * `deno.json` `imports`. No Node, no `npx`, and the resolved version is
+ * pinned by `deno.lock` rather than by whatever the registry serves at
+ * spawn time. Cursor and OpenCode wrap a locally-installed binary and
+ * have no npm package to pin.
  *
  * Claude, Codex, and OpenCode are piloted end-to-end (`pilot: true`).
  * Cursor wraps the locally-installed `cursor-agent` binary and stays
@@ -16,15 +21,23 @@ import type { RuntimeId } from "../../types.ts";
 
 /** Launcher record for one ACP front. */
 export interface AcpFrontLauncher {
-  /** Executable name (`npx`, `cursor-agent`, …). */
+  /**
+   * Executable to spawn — the running Deno binary for the npm-shipped
+   * fronts, a bare binary name (`cursor-agent`, `opencode`) otherwise.
+   *
+   * Consumers running from a `deno compile` binary must supply their own
+   * launcher via `acpFront`: a compiled executable's path is not a Deno
+   * CLI and cannot `run` the entry module.
+   */
   cmd: string;
   /** CLI args appended verbatim. */
   args: readonly string[];
   /** Frozen extra env vars merged into the subprocess env. */
   env?: Readonly<Record<string, string>>;
   /**
-   * Version string from the ACP Registry, kept for diagnostics and the
-   * PoC `### Results` measurement. Not used at runtime.
+   * Version of the npm package behind the front, for diagnostics only —
+   * the spawn resolves its version through `deno.json` `imports`, never
+   * through this field. `fronts_test.ts` fails when the two drift.
    */
   versionPin?: string;
   /**
@@ -36,27 +49,40 @@ export interface AcpFrontLauncher {
   pilot: boolean;
 }
 
+/**
+ * Argv that runs one npm-shipped front's entry module under the current
+ * Deno binary.
+ *
+ * `-A` matches the authority `npx` handed these fronts implicitly: each
+ * one spawns its own agent binary (Claude Code, codex) and needs network,
+ * filesystem and subprocess access to do its job. Narrowing it here would
+ * only break the front, not sandbox it.
+ */
+function entryArgs(entry: string): readonly string[] {
+  return Object.freeze(["run", "-A", import.meta.resolve(entry)]);
+}
+
 const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
   claude: {
-    cmd: "npx",
-    args: ["-y", "@agentclientprotocol/claude-agent-acp@0.62.0"],
+    cmd: Deno.execPath(),
+    args: entryArgs("./fronts/claude.ts"),
     // FR-L45: the front runs the Claude Agent SDK, which spawns the same
     // Claude Code binary as the CLI transport — the switch reaches it and
     // buys the same startup saving. `handshake.ts` merges caller `env` over
     // this map, so a consumer can still override it.
     env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
-    versionPin: "0.62.0",
+    versionPin: "0.77.0",
     pilot: true,
   },
   codex: {
-    cmd: "npx",
+    cmd: Deno.execPath(),
     // FR-L43: `@zed-industries/codex-acp` is deprecated upstream ("replaced
     // by @agentclientprotocol/codex-acp") and its last release (0.16.0)
     // still embeds a codex-core that rejects newer `config.toml` values —
     // e.g. `model_reasoning_effort = "ultra"` aborts the front before the
     // handshake. The successor package accepts it.
-    args: ["-y", "@agentclientprotocol/codex-acp@1.1.7"],
-    versionPin: "1.1.7",
+    args: entryArgs("./fronts/codex.ts"),
+    versionPin: "1.11.0",
     pilot: true,
   },
   cursor: {

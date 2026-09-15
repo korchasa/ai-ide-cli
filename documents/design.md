@@ -1668,7 +1668,7 @@ subprocess wrapper. One implementation
   present, else `-32000` (FR-L43). `dispose()` is bounded:
   `writer.close()` races a 1s timer (falls back to `writer.abort()`),
   SIGTERM races a 5s timer (escalates to SIGKILL), stdout/stderr
-  readers cancelled explicitly to break npx-grandchild-holds-pipe
+  readers cancelled explicitly to break grandchild-holds-pipe
   deadlock, drain awaits race a 1s timer. All race timers cleared
   on winner. Exposes `pendingNotificationCount` getter consumed by
   the adapter's `flushDrain()` helper.
@@ -1681,9 +1681,10 @@ subprocess wrapper. One implementation
   client-side call (elicitation, refusal consent, logout) degrades
   instead of failing the run.
 - `runtime/acp/fronts.ts` — frozen `Record<RuntimeId, AcpFrontLauncher>`
-  registry. Claude / Codex piloted via `npx -y` to pinned npm
-  packages (`@agentclientprotocol/claude-agent-acp@0.62.0`,
-  `@agentclientprotocol/codex-acp@1.1.7` — successor to the deprecated
+  registry. Claude / Codex piloted via `deno run -A` on a bundled
+  entry module resolving pinned npm
+  packages (`@agentclientprotocol/claude-agent-acp@0.77.0`,
+  `@agentclientprotocol/codex-acp@1.11.0` — successor to the deprecated
   `@zed-industries/codex-acp`, FR-L43); OpenCode piloted via the
   locally-installed `opencode acp` subcommand; Cursor wired but
   `pilot: false` until `cursor-agent` becomes part of the validation

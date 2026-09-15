@@ -315,8 +315,15 @@ classification — only the wire dialect changes (FR-L39).
 
 Three pilots validated end-to-end against real binaries:
 
-- **claude** — `@agentclientprotocol/claude-agent-acp@0.62.0` via `npx`.
-- **codex** — `@agentclientprotocol/codex-acp@1.1.7` via `npx`.
+- **claude** — `@agentclientprotocol/claude-agent-acp@0.77.0`.
+- **codex** — `@agentclientprotocol/codex-acp@1.11.0`.
+
+  Both are ordinary dependencies of this package: the front is started
+  as `deno run -A runtime/acp/fronts/<runtime>.ts`, a one-line entry
+  module whose import resolves through `deno.json`, so the version is
+  pinned by `deno.lock`. No Node and no `npx` anywhere in the spawn
+  path. Consumers running from a `deno compile` binary must pass their
+  own `acpFront` — a compiled executable cannot `deno run`.
 - **opencode** — `opencode acp` subcommand of the locally-installed
   binary.
 
@@ -382,8 +389,8 @@ await adapter.invoke({
 });
 ```
 
-Discovery-sensitive paths (e.g. `npx` resolution against a
-misconfigured `acpFront`) classify as unclassified spawn errors and
+Discovery-sensitive paths (e.g. a misconfigured `acpFront` whose
+binary is missing) classify as unclassified spawn errors and
 will be retried up to `maxRetries`. Prefer `maxRetries: 0` when you
 do not trust the launcher binary.
 

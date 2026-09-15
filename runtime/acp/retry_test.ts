@@ -6,20 +6,24 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
+import type { AcpFrontLauncher } from "./fronts.ts";
 import { ProcessRegistry } from "../../process-registry.ts";
 import { invokeViaAcp } from "./adapter.ts";
 
 /**
- * Spawn a stub `npx` that uses a counter file shared across invocations
- * so consecutive retries see different responses. `script` receives
- * `$COUNTER` (path) and may bump it itself.
+ * Build a stub ACP front running `script` under bash and hand it to `fn`
+ * as an `acpFront` override.
+ *
+ * Replaces the old PATH-stub named `npx`: the registry now launches the
+ * absolute `Deno.execPath()`, which no PATH entry can shadow, so tests
+ * drive the supported override seam instead.
  */
 async function withCountingStubFront<T>(
   script: string,
-  fn: (counterPath: string) => Promise<T>,
+  fn: (counterPath: string, front: AcpFrontLauncher) => Promise<T>,
 ): Promise<T> {
   const dir = await Deno.makeTempDir({ prefix: "acp-retry-stub-" });
-  const stub = `${dir}/npx`;
+  const stub = `${dir}/front.sh`;
   const counter = `${dir}/counter`;
   await Deno.writeTextFile(counter, "0");
   await Deno.writeTextFile(
@@ -27,12 +31,9 @@ async function withCountingStubFront<T>(
     `#!/usr/bin/env bash\nCOUNTER='${counter}'\n${script}\n`,
   );
   await Deno.chmod(stub, 0o755);
-  const prev = Deno.env.get("PATH") ?? "";
-  Deno.env.set("PATH", `${dir}:${prev}`);
   try {
-    return await fn(counter);
+    return await fn(counter, { cmd: "bash", args: [stub], pilot: true });
   } finally {
-    Deno.env.set("PATH", prev);
     try {
       await Deno.remove(dir, { recursive: true });
     } catch {
@@ -60,7 +61,6 @@ const BASE_OPTS = {
 
 Deno.test("invokeViaAcp retries on rate_limit and succeeds on second attempt", async () => {
   const script = `
-shift; shift
 ${HANDSHAKE_REPLIES}
 ATTEMPT=$(cat "$COUNTER")
 ATTEMPT=$((ATTEMPT + 1))
@@ -84,11 +84,12 @@ while IFS= read -r line; do
   esac
 done
 `;
-  await withCountingStubFront(script, async (counter) => {
+  await withCountingStubFront(script, async (counter, front) => {
     const registry = new ProcessRegistry();
     const result = await invokeViaAcp("claude", {
       ...BASE_OPTS,
       processRegistry: registry,
+      acpFront: front,
       maxRetries: 1,
     });
     assert(result.output, JSON.stringify(result));
@@ -102,7 +103,6 @@ done
 
 Deno.test("invokeViaAcp does NOT retry on auth — terminal classifier output", async () => {
   const script = `
-shift; shift
 ${HANDSHAKE_REPLIES}
 ATTEMPT=$(cat "$COUNTER")
 ATTEMPT=$((ATTEMPT + 1))
@@ -119,11 +119,12 @@ while IFS= read -r line; do
   esac
 done
 `;
-  await withCountingStubFront(script, async (counter) => {
+  await withCountingStubFront(script, async (counter, front) => {
     const registry = new ProcessRegistry();
     const result = await invokeViaAcp("claude", {
       ...BASE_OPTS,
       processRegistry: registry,
+      acpFront: front,
       maxRetries: 3,
     });
     assert(result.error);
@@ -137,7 +138,6 @@ done
 
 Deno.test("invokeViaAcp retries on JSON-RPC -32603 internal error", async () => {
   const script = `
-shift; shift
 ${HANDSHAKE_REPLIES}
 ATTEMPT=$(cat "$COUNTER")
 ATTEMPT=$((ATTEMPT + 1))
@@ -161,11 +161,12 @@ while IFS= read -r line; do
   esac
 done
 `;
-  await withCountingStubFront(script, async (counter) => {
+  await withCountingStubFront(script, async (counter, front) => {
     const registry = new ProcessRegistry();
     const result = await invokeViaAcp("claude", {
       ...BASE_OPTS,
       processRegistry: registry,
+      acpFront: front,
       maxRetries: 2,
     });
     assert(result.output, JSON.stringify(result));
@@ -178,7 +179,6 @@ done
 
 Deno.test("maxRetries 0 produces single-attempt error string identical to PoC shape", async () => {
   const script = `
-shift; shift
 ${HANDSHAKE_REPLIES}
 ATTEMPT=$(cat "$COUNTER")
 ATTEMPT=$((ATTEMPT + 1))
@@ -195,11 +195,12 @@ while IFS= read -r line; do
   esac
 done
 `;
-  await withCountingStubFront(script, async (counter) => {
+  await withCountingStubFront(script, async (counter, front) => {
     const registry = new ProcessRegistry();
     const result = await invokeViaAcp("claude", {
       ...BASE_OPTS,
       processRegistry: registry,
+      acpFront: front,
       maxRetries: 0,
     });
     assert(result.error, "expected error path");
@@ -212,7 +213,6 @@ done
 
 Deno.test("retry sleep is abortable via external signal", async () => {
   const script = `
-shift; shift
 ${HANDSHAKE_REPLIES}
 ATTEMPT=$(cat "$COUNTER")
 ATTEMPT=$((ATTEMPT + 1))
@@ -229,17 +229,18 @@ while IFS= read -r line; do
   esac
 done
 `;
-  await withCountingStubFront(script, async (counter) => {
+  await withCountingStubFront(script, async (counter, front) => {
     const registry = new ProcessRegistry();
     const controller = new AbortController();
     // Abort while the first retry sleep is in flight. First attempt
-    // takes ~200ms (npx + bash startup + RPC roundtrips), so 500ms
+    // takes ~200ms (bash startup + RPC roundtrips), so 500ms
     // lands the abort safely inside the backoff window. Backoff base
     // is 10s — plenty of headroom against scheduler jitter.
     setTimeout(() => controller.abort("external abort"), 500);
     const result = await invokeViaAcp("claude", {
       ...BASE_OPTS,
       processRegistry: registry,
+      acpFront: front,
       maxRetries: 3,
       retryDelaySeconds: 10,
       signal: controller.signal,

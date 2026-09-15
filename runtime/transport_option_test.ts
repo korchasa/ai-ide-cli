@@ -7,11 +7,11 @@
  */
 
 import { assert, assertEquals } from "@std/assert";
+import type { AcpFrontLauncher } from "./acp/fronts.ts";
 import { ProcessRegistry } from "../process-registry.ts";
 import { getRuntimeAdapter } from "./index.ts";
 
 const HANDSHAKE = `
-shift; shift 2>/dev/null
 respond() {
   printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$1" "$2"
 }
@@ -29,17 +29,24 @@ while IFS= read -r line; do
 done
 `;
 
-async function withAcpStub<T>(fn: () => Promise<T>): Promise<T> {
+/**
+ * Build a stub ACP front running `script` under bash and hand it to `fn`
+ * as an `acpFront` override.
+ *
+ * Replaces the old PATH-stub named `npx`: the registry now launches the
+ * absolute `Deno.execPath()`, which no PATH entry can shadow, so tests
+ * drive the supported override seam instead.
+ */
+async function withAcpStub<T>(
+  fn: (front: AcpFrontLauncher) => Promise<T>,
+): Promise<T> {
   const dir = await Deno.makeTempDir({ prefix: "acp-transport-stub-" });
-  const stub = `${dir}/npx`;
+  const stub = `${dir}/front.sh`;
   await Deno.writeTextFile(stub, `#!/usr/bin/env bash\n${HANDSHAKE}\n`);
   await Deno.chmod(stub, 0o755);
-  const prev = Deno.env.get("PATH") ?? "";
-  Deno.env.set("PATH", `${dir}:${prev}`);
   try {
-    return await fn();
+    return await fn({ cmd: "bash", args: [stub], pilot: true });
   } finally {
-    Deno.env.set("PATH", prev);
     try {
       await Deno.remove(dir, { recursive: true });
     } catch {
@@ -49,11 +56,12 @@ async function withAcpStub<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 Deno.test("transport: 'acp' dispatches Claude through the ACP adapter", async () => {
-  await withAcpStub(async () => {
+  await withAcpStub(async (front) => {
     const adapter = getRuntimeAdapter("claude");
     const registry = new ProcessRegistry();
     const result = await adapter.invoke({
       processRegistry: registry,
+      acpFront: front,
       taskPrompt: "ok",
       timeoutSeconds: 30,
       maxRetries: 0,

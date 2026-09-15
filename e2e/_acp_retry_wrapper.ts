@@ -11,7 +11,7 @@
  *
  *   deno run -A e2e/_acp_retry_wrapper.ts \
  *     --counter /tmp/acp-retry-counter \
- *     -- npx -y @agentclientprotocol/claude-agent-acp@0.37.0
+ *     -- "$(which deno)" run -A runtime/acp/fronts/claude.ts
  *
  * Pure: side effects are limited to the counter file + child-process
  * stdio inheritance on attempt 2+. Not part of the published package

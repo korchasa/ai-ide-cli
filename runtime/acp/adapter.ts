@@ -236,7 +236,7 @@ const TERMINAL_RUNTIME_ERROR_KINDS: ReadonlySet<string> = new Set([
 /**
  * FR-L39: retry-decision policy. Driven by the classifier output threaded
  * through `attemptInvocation`. Unclassified spawn / drain exceptions fall
- * back to "retry once like the CLI loop" so a transient `npx` failure is
+ * back to "retry once like the CLI loop" so a transient spawn failure is
  * not strictly terminal.
  */
 function shouldRetry(

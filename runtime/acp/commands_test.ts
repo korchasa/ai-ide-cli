@@ -6,6 +6,7 @@
  */
 
 import { assertEquals, assertRejects } from "@std/assert";
+import type { AcpFrontLauncher } from "./fronts.ts";
 import { ProcessRegistry } from "../../process-registry.ts";
 import { CommandsUnavailableError } from "../commands.ts";
 import { fetchAcpCommands, parseAvailableCommands } from "./commands.ts";
@@ -15,26 +16,24 @@ interface StubScript {
 }
 
 /**
- * Install a temporary `npx` stub and override PATH so the spawned ACP
- * front IS the stub. Restores PATH on cleanup.
+ * Build a stub ACP front running `script` under bash and hand it to `fn`
+ * as an `acpFront` override.
+ *
+ * Replaces the old PATH-stub named `npx`: the registry now launches the
+ * absolute `Deno.execPath()`, which no PATH entry can shadow, so tests
+ * drive the supported override seam instead.
  */
 async function withStubAcpFront<T>(
   { script }: StubScript,
-  fn: () => Promise<T>,
+  fn: (front: AcpFrontLauncher) => Promise<T>,
 ): Promise<T> {
   const dir = await Deno.makeTempDir({ prefix: "acp-commands-stub-" });
-  const stub = `${dir}/npx`;
-  await Deno.writeTextFile(
-    stub,
-    `#!/usr/bin/env bash\n# ACP commands front stub\n${script}\n`,
-  );
+  const stub = `${dir}/front.sh`;
+  await Deno.writeTextFile(stub, `#!/usr/bin/env bash\n${script}\n`);
   await Deno.chmod(stub, 0o755);
-  const prev = Deno.env.get("PATH") ?? "";
-  Deno.env.set("PATH", `${dir}:${prev}`);
   try {
-    return await fn();
+    return await fn({ cmd: "bash", args: [stub], pilot: true });
   } finally {
-    Deno.env.set("PATH", prev);
     try {
       await Deno.remove(dir, { recursive: true });
     } catch {
@@ -44,7 +43,6 @@ async function withStubAcpFront<T>(
 }
 
 const COMMANDS_SCRIPT = `
-shift; shift
 respond() {
   local id="$1" payload="$2"
   printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
@@ -64,7 +62,6 @@ done
 `;
 
 const SILENT_SCRIPT = `
-shift; shift
 respond() {
   local id="$1" payload="$2"
   printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
@@ -81,11 +78,12 @@ done
 `;
 
 Deno.test("fetchAcpCommands captures the first available_commands_update", async () => {
-  await withStubAcpFront({ script: COMMANDS_SCRIPT }, async () => {
+  await withStubAcpFront({ script: COMMANDS_SCRIPT }, async (front) => {
     const registry = new ProcessRegistry();
     const snapshot = await fetchAcpCommands("claude", {
       transport: "acp",
       processRegistry: registry,
+      acpFront: front,
       timeoutMs: 5_000,
     });
     assertEquals(snapshot.runtime, "claude");
@@ -100,13 +98,14 @@ Deno.test("fetchAcpCommands captures the first available_commands_update", async
 });
 
 Deno.test("fetchAcpCommands throws CommandsUnavailableError(timeout) when the front never pushes", async () => {
-  await withStubAcpFront({ script: SILENT_SCRIPT }, async () => {
+  await withStubAcpFront({ script: SILENT_SCRIPT }, async (front) => {
     const registry = new ProcessRegistry();
     const err = await assertRejects(
       () =>
         fetchAcpCommands("claude", {
           transport: "acp",
           processRegistry: registry,
+          acpFront: front,
           timeoutMs: 200,
         }),
       CommandsUnavailableError,
@@ -118,12 +117,13 @@ Deno.test("fetchAcpCommands throws CommandsUnavailableError(timeout) when the fr
 });
 
 Deno.test("fetchAcpCommands rejects with timeout when the caller signal aborts", async () => {
-  await withStubAcpFront({ script: SILENT_SCRIPT }, async () => {
+  await withStubAcpFront({ script: SILENT_SCRIPT }, async (front) => {
     const registry = new ProcessRegistry();
     const controller = new AbortController();
     const p = fetchAcpCommands("claude", {
       transport: "acp",
       processRegistry: registry,
+      acpFront: front,
       timeoutMs: 10_000,
       signal: controller.signal,
     });
@@ -134,7 +134,6 @@ Deno.test("fetchAcpCommands rejects with timeout when the caller signal aborts",
 });
 
 const HANG_HANDSHAKE_SCRIPT = `
-shift; shift
 respond() {
   local id="$1" payload="$2"
   printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
@@ -151,12 +150,13 @@ done
 `;
 
 Deno.test("fetchAcpCommands aborts cleanly when the signal fires during a hung handshake", async () => {
-  await withStubAcpFront({ script: HANG_HANDSHAKE_SCRIPT }, async () => {
+  await withStubAcpFront({ script: HANG_HANDSHAKE_SCRIPT }, async (front) => {
     const registry = new ProcessRegistry();
     const controller = new AbortController();
     const p = fetchAcpCommands("claude", {
       transport: "acp",
       processRegistry: registry,
+      acpFront: front,
       timeoutMs: 10_000,
       signal: controller.signal,
     });

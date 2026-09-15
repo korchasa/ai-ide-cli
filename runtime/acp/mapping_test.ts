@@ -1,4 +1,5 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
+import { VALID_PERMISSION_MODES } from "../../claude/permission-mode.ts";
 import {
   ACP_CLIENT_NAME,
   ACP_UNSUPPORTED_INVOKE_OPTIONS,
@@ -145,18 +146,46 @@ Deno.test("buildSessionNewParams renders http mcpServers as url/headers array", 
   assertEquals(m.headers, [{ name: "Authorization", value: "Bearer x" }]);
 });
 
-Deno.test("pickModeForPermissionMode picks Claude's plan→plan mapping when declared", () => {
-  const mode = pickModeForPermissionMode(
-    "claude",
-    [{ id: "plan" }, { id: "code" }],
-    "plan",
+// The Claude ACP front declares Claude Code's own permission-mode ids
+// (verified in 0.62.0 `acp-agent.js:buildAvailableModes` and 0.77.0
+// `session-mode.js`), and `VALID_PERMISSION_MODES` in
+// `claude/permission-mode.ts` holds the same four names, so every
+// neutral mode is already a literal id match. `auto` is front-only —
+// a caller can still pass it through as an ACP-native id.
+const CLAUDE_ACP_MODES = [
+  { id: "default" },
+  { id: "acceptEdits" },
+  { id: "plan" },
+  { id: "auto" },
+  { id: "bypassPermissions" },
+];
+
+Deno.test("pickModeForPermissionMode passes every Claude permission mode through", () => {
+  for (const mode of VALID_PERMISSION_MODES) {
+    assertEquals(
+      pickModeForPermissionMode("claude", CLAUDE_ACP_MODES, mode),
+      mode,
+    );
+  }
+});
+
+Deno.test("pickModeForPermissionMode passes a front-only Claude mode id through", () => {
+  assertEquals(
+    pickModeForPermissionMode("claude", CLAUDE_ACP_MODES, "auto"),
+    "auto",
   );
-  assertEquals(mode, "plan");
+});
+
+Deno.test("pickModeForPermissionMode yields undefined when the front declares no match", () => {
+  assertEquals(
+    pickModeForPermissionMode("claude", [{ id: "plan" }], "bypassPermissions"),
+    undefined,
+  );
 });
 
 // FR-L44: `@agentclientprotocol/codex-acp` declares three presets —
-// `read-only` / `agent` / `agent-full-access` (verified in 1.1.7 and 1.7.0
-// `src/AgentMode.ts`). None of them matches a neutral permission-mode
+// `read-only` / `agent` / `agent-full-access` (ids verified in 1.1.7, 1.7.0
+// and 1.11.0 `AgentMode`). None of them matches a neutral permission-mode
 // literal, so without a codex table `session/set_mode` was skipped and the
 // session silently stayed on the front's default workspace-write preset.
 const CODEX_ACP_MODES = [

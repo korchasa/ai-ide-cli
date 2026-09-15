@@ -35,13 +35,17 @@ Deno.test({
         timeoutSeconds: 90,
         maxRetries: 0,
         retryDelaySeconds: 0,
-        // Codex ACP front defaults to `gpt-5.5/high` — frontier model
-        // with deep reasoning. Override to the fastest config so the
-        // single-word reply completes within the e2e ceiling. Both
+        // Codex ACP front defaults to `gpt-5.6-sol[high]` — frontier
+        // model with deep reasoning. Override to the fastest config so
+        // the single-word reply completes within the e2e ceiling. Both
         // selectors flow through `session/set_config_option` —
         // see `runtime/acp/mapping.ts:pickConfigForModel`,
-        // `pickConfigForReasoningEffort`.
-        model: "gpt-5.4-mini",
+        // `pickConfigForReasoningEffort`. Since front 1.11.0 the `model`
+        // config option validates against its declared family list
+        // (`gpt-6-astra` / `gpt-5.6-sol` / `gpt-5.6-terra` /
+        // `gpt-5.6-luna` / `gpt-5.5`) and rejects anything else with
+        // JSON-RPC -32602, so this id must stay inside that set.
+        model: "gpt-5.6-luna",
         reasoningEffort: "low",
         permissionMode: "read-only",
         signal: controller.signal,

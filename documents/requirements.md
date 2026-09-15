@@ -2170,9 +2170,10 @@ stable — never renumber on move.
         handler.
         Test: `runtime/acp/client_test.ts::AcpStdioClient routes responses by id`.
   - [x] Launcher registry `runtime/acp/fronts.ts` pins Claude to
-        `@agentclientprotocol/claude-agent-acp@0.62.0` and Codex to
-        `@agentclientprotocol/codex-acp@1.1.7` (both `pilot: true` via
-        `npx`); OpenCode delegates to the locally-installed
+        `@agentclientprotocol/claude-agent-acp@0.77.0` and Codex to
+        `@agentclientprotocol/codex-acp@1.11.0` (both `pilot: true` via
+        `deno run` on a bundled entry module, no `npx`); OpenCode
+        delegates to the locally-installed
         `opencode acp` binary (`pilot: true`); Cursor entry
         (`cursor-agent acp`) stays `pilot: false`.
         Test: `runtime/acp/fronts_test.ts::getAcpFront returns Claude launcher with pinned version`.
@@ -2618,8 +2619,8 @@ runs); OpenCode and Codex dispatch at completion time.
 
   **Front-pin currency.** Fronts pinned in `runtime/acp/fronts.ts` are
   kept current with upstream: Claude
-  `@agentclientprotocol/claude-agent-acp@0.62.0`, Codex
-  `@agentclientprotocol/codex-acp@1.1.7`. The Codex entry is a package
+  `@agentclientprotocol/claude-agent-acp@0.77.0`, Codex
+  `@agentclientprotocol/codex-acp@1.11.0`. The Codex entry is a package
   MIGRATION: `@zed-industries/codex-acp` is deprecated upstream
   ("replaced by @agentclientprotocol/codex-acp") and its final release
   (0.16.0) embeds a codex-core that aborts before the handshake on

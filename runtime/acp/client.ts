@@ -49,7 +49,7 @@ export type AcpInboundRequestHandler = (
 
 /** Constructor options for {@link AcpStdioClient}. */
 export interface AcpStdioClientOptions {
-  /** Executable to spawn (e.g. `"npx"`). */
+  /** Executable to spawn (the Deno binary, `"opencode"`, …). */
   cmd: string;
   /** CLI args (e.g. `["-y", "@agentclientprotocol/claude-agent-acp@0.39.0"]`). */
   args: readonly string[];
@@ -366,7 +366,7 @@ export class AcpStdioClient {
       await this.#exitStatus.catch(() => undefined);
     }
     this.#registry.unregister(this.#proc);
-    // Cancel the stdout/stderr readers explicitly: an `npx`-spawned
+    // Cancel the stdout/stderr readers explicitly: a wrapper-spawned
     // grandchild can keep the pipe open after SIGTERM (observed
     // against the then-pinned `npx -y @zed-industries/codex-acp@0.15.0`),
     // and a hung
