@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.8.15](https://github.com/korchasa/ai-ide-cli/compare/v0.8.14...v0.8.15) (2026-09-15)
+
+
+### Features
+
+* **claude:** disable non-essential startup traffic on every spawn ([1a42ddd](https://github.com/korchasa/ai-ide-cli/commit/1a42dddbbe5e8587c7f8205ec513dc86c9c22ee8))
+
 ### [0.8.14](https://github.com/korchasa/ai-ide-cli/compare/v0.8.13...v0.8.14) (2026-09-07)
 
 
