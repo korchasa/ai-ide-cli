@@ -18,17 +18,15 @@
  * without touching any other module.
  */
 
+import { basename } from "@std/path";
 import type { RuntimeId } from "../../types.ts";
 
 /** Launcher record for one ACP front. */
 export interface AcpFrontLauncher {
   /**
-   * Executable to spawn — the running Deno binary for the npm-shipped
-   * fronts, a bare binary name (`cursor-agent`, `opencode`) otherwise.
-   *
-   * Consumers running from a `deno compile` binary must supply their own
-   * launcher via `acpFront`: a compiled executable's path is not a Deno
-   * CLI and cannot `run` the entry module.
+   * Executable to spawn — a Deno CLI for the npm-shipped fronts (see
+   * {@link resolveDenoCli}), a bare binary name (`cursor-agent`,
+   * `opencode`) otherwise.
    */
   cmd: string;
   /** CLI args appended verbatim. */
@@ -45,8 +43,29 @@ export interface AcpFrontLauncher {
 }
 
 /**
- * Argv that runs one npm-shipped front's entry module under the current
- * Deno binary.
+ * Pick the Deno CLI that runs the npm-shipped fronts.
+ *
+ * Under `deno run` / `deno test` / a JSR `deno install` shim,
+ * `Deno.execPath()` is the Deno CLI and is used as-is — no PATH lookup,
+ * and the same binary version the consumer already runs on. Inside a
+ * `deno compile` binary it is the compiled executable, which has no `run`
+ * subcommand, so the bare `deno` is returned and the spawner resolves it
+ * on PATH. The check is by executable name (`deno`, `deno.exe`, …).
+ *
+ * A compiled consumer therefore needs a Deno CLI installed; when it is
+ * missing, `spawnClient` fails with an error that says so. Passing a
+ * custom `acpFront` remains the override for consumers that want neither.
+ *
+ * @param execPath What `Deno.execPath()` returned.
+ * @returns `execPath` when it is a Deno CLI, else `"deno"`.
+ */
+export function resolveDenoCli(execPath: string): string {
+  const name = basename(execPath).toLowerCase();
+  return name === "deno" || name.startsWith("deno.") ? execPath : "deno";
+}
+
+/**
+ * Argv that runs one npm-shipped front's entry module under a Deno CLI.
  *
  * `-A` matches the authority `npx` handed these fronts implicitly: each
  * one spawns its own agent binary (Claude Code, codex) and needs network,
@@ -59,7 +78,7 @@ function entryArgs(entry: string): readonly string[] {
 
 const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
   claude: {
-    cmd: Deno.execPath(),
+    cmd: resolveDenoCli(Deno.execPath()),
     args: entryArgs("./fronts/claude.ts"),
     // FR-L45: the front runs the Claude Agent SDK, which spawns the same
     // Claude Code binary as the CLI transport — the switch reaches it and
@@ -69,7 +88,7 @@ const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
     pilot: true,
   },
   codex: {
-    cmd: Deno.execPath(),
+    cmd: resolveDenoCli(Deno.execPath()),
     // FR-L43: `@zed-industries/codex-acp` is deprecated upstream ("replaced
     // by @agentclientprotocol/codex-acp") and its last release (0.16.0)
     // still embeds a codex-core that rejects newer `config.toml` values —

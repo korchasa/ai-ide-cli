@@ -68,15 +68,46 @@ export function spawnClient(opts: {
   const front = opts.acpFront ?? getAcpFront(opts.runtime);
   if (!opts.acpFront && !front.pilot) throw notPiloted(opts.runtime);
   const mergedEnv = { ...(front.env ?? {}), ...(opts.env ?? {}) };
-  return new AcpStdioClient({
-    cmd: front.cmd,
-    args: front.args,
-    cwd: opts.cwd,
-    env: mergedEnv,
-    processRegistry: opts.processRegistry,
-    onStderr: opts.onStderr,
-    onRequest: opts.onRequest,
-  });
+  try {
+    return new AcpStdioClient({
+      cmd: front.cmd,
+      args: front.args,
+      cwd: opts.cwd,
+      env: mergedEnv,
+      processRegistry: opts.processRegistry,
+      onStderr: opts.onStderr,
+      onRequest: opts.onRequest,
+    });
+  } catch (err) {
+    if (err instanceof Deno.errors.NotFound) {
+      throw missingFrontExecutableError(opts.runtime, front.cmd);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Error for a front whose executable is not on PATH. Replaces Deno's
+ * `No such file or directory (os error 2)`, which names neither the
+ * runtime nor the file. The bare `deno` is what
+ * `runtime/acp/fronts.ts:resolveDenoCli` hands a `deno compile` consumer,
+ * so that case also says how to fix it.
+ *
+ * @param runtime Runtime whose front failed to spawn.
+ * @param cmd The executable the launcher tried to run.
+ */
+export function missingFrontExecutableError(
+  runtime: RuntimeId,
+  cmd: string,
+): Error {
+  const hint = cmd === "deno"
+    ? " This consumer runs as a compiled binary, so the Claude / Codex " +
+      "fronts need a Deno CLI installed on PATH; install Deno or pass " +
+      "your own `acpFront`."
+    : "";
+  return new Error(
+    `ACP front for ${runtime} could not start: \`${cmd}\` not found on PATH.${hint}`,
+  );
 }
 
 /**

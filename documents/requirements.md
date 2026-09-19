@@ -2176,7 +2176,15 @@ stable — never renumber on move.
         delegates to the locally-installed
         `opencode acp` binary (`pilot: true`); Cursor entry
         (`cursor-agent acp`) stays `pilot: false`.
-        Test: `runtime/acp/fronts_test.ts::getAcpFront returns Claude launcher with pinned version`.
+        Test: `runtime/acp/fronts_test.ts::Claude front runs its entry module under the current Deno binary`.
+  - [x] The Deno CLI that runs the npm fronts is `Deno.execPath()` only
+        when that path IS a Deno CLI (`deno`, `deno.exe`); inside a
+        `deno compile` consumer it is the bare `deno`, resolved on PATH
+        by the spawner (`resolveDenoCli`). A missing `deno` fails
+        `spawnClient` with an error naming the runtime, the executable
+        and the remedy instead of `os error 2`.
+        Tests: `runtime/acp/fronts_test.ts::resolveDenoCli falls back to the bare \`deno\` for a compiled consumer`,
+        `runtime/acp/handshake_test.ts::spawnClient names the missing executable instead of \`os error 2\``.
   - [x] Pure mappers in `runtime/acp/mapping.ts` translate
         `cwd` / `mcpServers` / `permissionMode` / `reasoningEffort` /
         `model` into `initialize` / `session/new` /

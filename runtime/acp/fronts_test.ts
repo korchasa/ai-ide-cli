@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { getAcpFront, listAcpFronts } from "./fronts.ts";
+import { getAcpFront, listAcpFronts, resolveDenoCli } from "./fronts.ts";
 
 /** npm packages this package declares in its `deno.json` imports. */
 async function declaredNpmPackages(): Promise<string[]> {
@@ -83,4 +83,23 @@ Deno.test("no other front carries the Claude-only traffic switch", () => {
       undefined,
     );
   }
+});
+
+// A `deno compile` consumer's `Deno.execPath()` is its own binary, which has
+// no `run` subcommand — the npm fronts must then go through a Deno CLI on
+// PATH. The check is by executable name, like flowai-workflow's own re-exec.
+Deno.test("resolveDenoCli keeps a Deno CLI path as-is", () => {
+  assertEquals(resolveDenoCli("/usr/local/bin/deno"), "/usr/local/bin/deno");
+  assertEquals(resolveDenoCli("/tmp/x/Deno.EXE"), "/tmp/x/Deno.EXE");
+});
+
+Deno.test("resolveDenoCli falls back to the bare `deno` for a compiled consumer", () => {
+  assertEquals(resolveDenoCli("/opt/homebrew/bin/flowai-workflow"), "deno");
+  assertEquals(resolveDenoCli("/tmp/x/deno-compiled-app"), "deno");
+});
+
+Deno.test("npm fronts run under the resolved Deno CLI", () => {
+  const expected = resolveDenoCli(Deno.execPath());
+  assertEquals(getAcpFront("claude").cmd, expected);
+  assertEquals(getAcpFront("codex").cmd, expected);
 });

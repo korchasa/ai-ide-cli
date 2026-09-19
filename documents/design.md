@@ -1681,8 +1681,15 @@ subprocess wrapper. One implementation
   client-side call (elicitation, refusal consent, logout) degrades
   instead of failing the run.
 - `runtime/acp/fronts.ts` — frozen `Record<RuntimeId, AcpFrontLauncher>`
-  registry. Claude / Codex piloted via `deno run -A` on a bundled
-  entry module resolving pinned npm
+  registry. Claude / Codex piloted via `<deno> run -A` on a bundled
+  entry module, where `<deno>` is `resolveDenoCli(Deno.execPath())`:
+  the running executable when its name is `deno` / `deno.*`, else the
+  bare `deno` for PATH lookup — a `deno compile` consumer's
+  `execPath` is its own binary and cannot `run`. `spawnClient`
+  (`runtime/acp/handshake.ts`) maps the spawn's
+  `Deno.errors.NotFound` to `missingFrontExecutableError`, which names
+  the runtime and the executable and, for the bare `deno`, the remedy.
+  The entry module resolves pinned npm
   packages (`@agentclientprotocol/claude-agent-acp@0.77.0`,
   `@agentclientprotocol/codex-acp@1.11.0` — successor to the deprecated
   `@zed-industries/codex-acp`, FR-L43); OpenCode piloted via the

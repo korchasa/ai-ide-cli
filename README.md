@@ -322,8 +322,11 @@ Three pilots validated end-to-end against real binaries:
   as `deno run -A runtime/acp/fronts/<runtime>.ts`, a one-line entry
   module whose import resolves through `deno.json`, so the version is
   pinned by `deno.lock`. No Node and no `npx` anywhere in the spawn
-  path. Consumers running from a `deno compile` binary must pass their
-  own `acpFront` — a compiled executable cannot `deno run`.
+  path. The Deno CLI is `Deno.execPath()` when that is one; inside a
+  `deno compile` binary it is not (a compiled executable cannot `run`),
+  so the front is started through `deno` from PATH — install Deno next
+  to such a binary, or pass your own `acpFront`. A missing `deno` fails
+  the invocation with an error that says exactly that.
 - **opencode** — `opencode acp` subcommand of the locally-installed
   binary.
 
