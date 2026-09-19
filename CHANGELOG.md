@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.9.1](https://github.com/korchasa/ai-ide-cli/compare/v0.9.0...v0.9.1) (2026-09-19)
+
+
+### Bug Fixes
+
+* **acp:** run the npm fronts through a Deno CLI from a compiled consumer ([b1ebf6d](https://github.com/korchasa/ai-ide-cli/commit/b1ebf6dbda5f0328244fb00258e5aa0d73af288b))
+
 ## [0.9.0](https://github.com/korchasa/ai-ide-cli/compare/v0.8.15...v0.9.0) (2026-09-19)
 
 
