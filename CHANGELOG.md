@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.9.0](https://github.com/korchasa/ai-ide-cli/compare/v0.8.15...v0.9.0) (2026-09-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **acp:** `AcpFrontLauncher.versionPin` is gone. Consumers
+reading it, or setting it on a custom `acpFront`, must drop the field;
+the version lives in `deno.json` / `deno.lock`.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+### Features
+
+* **acp:** drop versionPin from AcpFrontLauncher ([4b4cd1b](https://github.com/korchasa/ai-ide-cli/commit/4b4cd1b702dcc8787dc0a4aa93eab9cdee8ded89))
+* **acp:** run npm fronts as deno deps, drop npx ([1e999f2](https://github.com/korchasa/ai-ide-cli/commit/1e999f29df23835e9116b5aeabd1727a91d12115))
+
 ### [0.8.15](https://github.com/korchasa/ai-ide-cli/compare/v0.8.14...v0.8.15) (2026-09-15)
 
 
