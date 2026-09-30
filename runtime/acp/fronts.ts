@@ -111,11 +111,14 @@ const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
     // e.g. `model_reasoning_effort = "ultra"` aborts the front before the
     // handshake. The successor package accepts it.
     //
-    // FR-L46: the range floor is the front major whose embedded
+    // FR-L46: the range floor is the lowest front whose embedded
     // `@openai/codex` answers `model/list` with the current model family.
     // The front validates `session/set_config_option` against that answer,
     // so an older embedded core rejects a newer model id with JSON-RPC
-    // -32602 while the same id works in `codex exec` on PATH.
+    // -32602 while the same id works in `codex exec` on PATH. The floor is
+    // NOT simply the major's first release: 2.0.0 embeds codex 0.158.0 and
+    // omits `gpt-6.1-sol`, 2.0.1 embeds 0.159.1 and lists all eight, so the
+    // floor sits at 2.0.1.
     args: entryArgs("./fronts/codex.ts"),
     pilot: true,
   },

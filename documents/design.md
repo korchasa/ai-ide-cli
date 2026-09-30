@@ -1692,7 +1692,7 @@ subprocess wrapper. One implementation
   The entry module resolves npm
   packages by RANGE, not by pin (FR-L46:
   `@agentclientprotocol/claude-agent-acp@0.x`,
-  `@agentclientprotocol/codex-acp@^2.0.0` — successor to the deprecated
+  `@agentclientprotocol/codex-acp@^2.0.1` — successor to the deprecated
   `@zed-industries/codex-acp`, FR-L43 — each range floored at the lowest
   API-compatible front and open to the next major, so a newer front and
   the IDE core it embeds arrive through the consumer's lock refresh); OpenCode piloted via the

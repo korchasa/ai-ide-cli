@@ -46,7 +46,7 @@ Deno.test({
         // anything else with JSON-RPC -32602. That list grows with the
         // embedded core, so the id used here must be one the OLDEST front
         // inside the FR-L46 range still offers — `gpt-5.6-luna` is present
-        // from 1.11.0 (codex 0.153.4) through 2.0.0 (codex 0.158.0).
+        // from 1.11.0 (codex 0.153.4) through 2.0.1 (codex 0.159.1).
         model: "gpt-5.6-luna",
         reasoningEffort: "low",
         permissionMode: "read-only",

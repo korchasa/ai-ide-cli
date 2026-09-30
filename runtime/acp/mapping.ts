@@ -222,7 +222,7 @@ function renderMcpServers(servers: McpServers | undefined): AcpMcpServer[] {
  * FR-L44: Codex sandbox decision → `@agentclientprotocol/codex-acp` preset
  * id. The three ids this table names — `read-only`, `agent`,
  * `agent-full-access` — have been declared by every front from 1.1.7 to
- * 2.0.0. The set is not closed: 2.0.0 declares a fourth, `workspace-write`,
+ * 2.0.1. The set is not closed: front 2.x declares a fourth, `workspace-write`,
  * and FR-L46 lets a consumer resolve a front that declares more still, so
  * the pick below is validated against what the session actually declared
  * rather than against this table alone. A `workspace-write` sandbox keeps

@@ -316,7 +316,7 @@ classification — only the wire dialect changes (FR-L39).
 Three pilots validated end-to-end against real binaries:
 
 - **claude** — `@agentclientprotocol/claude-agent-acp@0.x`.
-- **codex** — `@agentclientprotocol/codex-acp@^2.0.0`.
+- **codex** — `@agentclientprotocol/codex-acp@^2.0.1`.
 
   Both are ordinary dependencies of this package: the front is started
   as `deno run -A runtime/acp/fronts/<runtime>.ts`, a one-line entry
@@ -334,7 +334,9 @@ Three pilots validated end-to-end against real binaries:
   re-verified. The floor matters on Codex: the front answers
   `session/set_config_option` from the model list of the `@openai/codex`
   it embeds, so a front below the floor rejects a current model id with
-  JSON-RPC -32602 even though the same id works in `codex exec`. The Deno CLI is `Deno.execPath()` when that is one; inside a
+  JSON-RPC -32602 even though the same id works in `codex exec`. The
+  Codex floor is 2.0.1 rather than 2.0.0 for exactly that reason — 2.0.0
+  embeds codex 0.158.0, which does not list `gpt-6.1-sol`. The Deno CLI is `Deno.execPath()` when that is one; inside a
   `deno compile` binary it is not (a compiled executable cannot `run`),
   so the front is started through `deno` from PATH — install Deno next
   to such a binary, or pass your own `acpFront`. A missing `deno` fails

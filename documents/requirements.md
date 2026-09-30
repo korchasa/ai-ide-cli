@@ -2814,7 +2814,7 @@ runs); OpenCode and Codex dispatch at completion time.
 
 - **Description:** The two npm-shipped ACP fronts are declared in
   `deno.json` as semver ranges — `@agentclientprotocol/claude-agent-acp@0.x`
-  and `@agentclientprotocol/codex-acp@^2.0.0` — never as exact versions.
+  and `@agentclientprotocol/codex-acp@^2.0.1` — never as exact versions.
   The declared version is a FLOOR: the lowest release whose ACP contract
   this library is verified against. There is no ceiling below the next
   major. A consumer therefore adopts a newer front, and the newer IDE core
@@ -2837,8 +2837,16 @@ runs); OpenCode and Codex dispatch at completion time.
   floor therefore rejects a current model id with JSON-RPC -32602 while the
   same id works in `codex exec` on PATH. Measured 2026-09-30: codex 0.153.4
   (embedded in front 1.11.0) lists 5 models; 0.158.0 (front 2.0.0) lists 7,
-  adding `gpt-6-sol` and `gpt-6-luna`; 0.159.1 lists 8, adding
-  `gpt-6.1-sol`.
+  adding `gpt-6-sol` and `gpt-6-luna`; 0.159.1 (front 2.0.1) lists 8,
+  adding `gpt-6.1-sol`.
+
+  **So the floor is a measured model set, not a major's first release.**
+  The Codex floor is 2.0.1, not 2.0.0, because a consumer already runs a
+  stage on `gpt-6.1-sol`, which 2.0.0's embedded core does not list. A
+  front pins its own core only by range (2.0.0 declares
+  `@openai/codex ^0.158.0`, 2.0.1 declares `^0.159.1`), so pinning a front
+  exactly does NOT pin the model set either — the floor is what the lowest
+  admissible front is VERIFIED to list, checked by asking that front.
 - **Motivation:** An exact pin makes this library the bottleneck for
   something it does not own. Every upstream front release — and every IDE
   core bundled inside one — needed a release here and a version bump in
@@ -2871,9 +2879,11 @@ runs); OpenCode and Codex dispatch at completion time.
         `protocolVersion: 1`, advertise `agentCapabilities.loadSession`,
         and declare the `mode`, `model` and `thought_level` config
         categories the mappers select over. Verified 2026-09-30 against
-        codex-acp 2.0.0 and claude-agent-acp 0.84.0 by driving
-        `initialize` + `session/new` + `session/set_mode` +
-        `session/set_config_option` directly.
+        codex-acp 2.0.0 and claude-agent-acp 0.84.0, and 2026-10-01
+        against codex-acp 2.0.1, by driving `initialize` + `session/new` +
+        `session/set_mode` + `session/set_config_option` directly. The
+        2.0.1 front accepts `gpt-6.1-sol` and `gpt-6-luna`; 2.0.0 accepts
+        `gpt-6-luna` only.
   - [x] The live ACP suite passes on those fronts: codex smoke, claude
         smoke, capabilities, content, commands (claude / codex / opencode),
         resume, retry — 9 tests, `E2E=1 deno test -A e2e/acp_*`,
