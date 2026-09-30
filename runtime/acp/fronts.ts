@@ -76,6 +76,22 @@ function entryArgs(entry: string): readonly string[] {
   return Object.freeze(["run", "-A", import.meta.resolve(entry)]);
 }
 
+/**
+ * FR-L46: the two npm fronts are declared in `deno.json` as semver
+ * RANGES, not pins — the lowest API-compatible release and no upper
+ * bound below the next major. A consumer therefore picks up a newer
+ * front, and the newer IDE core that front embeds, by refreshing its own
+ * lock; no release of this library is involved. Deno's npm specifier
+ * grammar accepts only `^`, `~`, `N.x` and `*` (a `>=X <Y` specifier is
+ * rejected outright as "Invalid package specifier"), so the next major
+ * is the range ceiling and crossing it stays a deliberate step taken
+ * after the handshake contract is re-verified against the new front.
+ *
+ * A front inside the range may declare MORE than it used to — extra
+ * permission-mode presets, extra models, extra config categories. Every
+ * mapper in `mapping.ts` therefore selects over what the session
+ * actually declared instead of a table of expected literals.
+ */
 const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
   claude: {
     cmd: resolveDenoCli(Deno.execPath()),
@@ -94,6 +110,15 @@ const FRONTS: Readonly<Record<RuntimeId, AcpFrontLauncher>> = Object.freeze({
     // still embeds a codex-core that rejects newer `config.toml` values —
     // e.g. `model_reasoning_effort = "ultra"` aborts the front before the
     // handshake. The successor package accepts it.
+    //
+    // FR-L46: the range floor is the lowest front whose embedded
+    // `@openai/codex` answers `model/list` with the current model family.
+    // The front validates `session/set_config_option` against that answer,
+    // so an older embedded core rejects a newer model id with JSON-RPC
+    // -32602 while the same id works in `codex exec` on PATH. The floor is
+    // NOT simply the major's first release: 2.0.0 embeds codex 0.158.0 and
+    // omits `gpt-6.1-sol`, 2.0.1 embeds 0.159.1 and lists all eight, so the
+    // floor sits at 2.0.1.
     args: entryArgs("./fronts/codex.ts"),
     pilot: true,
   },

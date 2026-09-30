@@ -1,15 +1,20 @@
 import { assert, assertEquals } from "@std/assert";
 import { getAcpFront, listAcpFronts, resolveDenoCli } from "./fronts.ts";
 
-/** npm packages this package declares in its `deno.json` imports. */
-async function declaredNpmPackages(): Promise<string[]> {
+/** npm specifiers this package declares in its `deno.json` imports. */
+async function declaredNpmSpecifiers(): Promise<Map<string, string>> {
   const url = import.meta.resolve("../../deno.json");
   const cfg = JSON.parse(await Deno.readTextFile(new URL(url))) as {
     imports: Record<string, string>;
   };
-  return Object.entries(cfg.imports)
-    .filter(([, specifier]) => specifier.startsWith("npm:"))
-    .map(([name]) => name);
+  return new Map(
+    Object.entries(cfg.imports).filter(([, spec]) => spec.startsWith("npm:")),
+  );
+}
+
+/** npm packages this package declares in its `deno.json` imports. */
+async function declaredNpmPackages(): Promise<string[]> {
+  return [...(await declaredNpmSpecifiers()).keys()];
 }
 
 Deno.test("Claude front runs its entry module under the current Deno binary", () => {
@@ -102,4 +107,21 @@ Deno.test("npm fronts run under the resolved Deno CLI", () => {
   const expected = resolveDenoCli(Deno.execPath());
   assertEquals(getAcpFront("claude").cmd, expected);
   assertEquals(getAcpFront("codex").cmd, expected);
+});
+
+// FR-L46: the fronts are declared as ranges, never as exact versions — an
+// exact pin is what forced a library release for every upstream front (and
+// for every IDE core those fronts embed). The assertion is about the FORM of
+// the specifier, so it carries no version number of its own to drift.
+Deno.test("front specifiers are open ranges, not exact pins", async () => {
+  const specifiers = await declaredNpmSpecifiers();
+  for (const [name, spec] of specifiers) {
+    if (!name.startsWith("@agentclientprotocol/")) continue;
+    const version = spec.slice(spec.lastIndexOf("@") + 1);
+    assert(
+      /^(\^|~)/.test(version) || version.endsWith(".x") || version === "*",
+      `${name} must allow newer fronts (^ / ~ / N.x / *), got "${version}"`,
+    );
+  }
+  assert(specifiers.size > 0, "no npm specifiers declared");
 });

@@ -41,10 +41,12 @@ Deno.test({
         // selectors flow through `session/set_config_option` —
         // see `runtime/acp/mapping.ts:pickConfigForModel`,
         // `pickConfigForReasoningEffort`. Since front 1.11.0 the `model`
-        // config option validates against its declared family list
-        // (`gpt-6-astra` / `gpt-5.6-sol` / `gpt-5.6-terra` /
-        // `gpt-5.6-luna` / `gpt-5.5`) and rejects anything else with
-        // JSON-RPC -32602, so this id must stay inside that set.
+        // config option validates the value against the list the front got
+        // from its embedded `@openai/codex` over `model/list`, and rejects
+        // anything else with JSON-RPC -32602. That list grows with the
+        // embedded core, so the id used here must be one the OLDEST front
+        // inside the FR-L46 range still offers — `gpt-5.6-luna` is present
+        // from 1.11.0 (codex 0.153.4) through 2.0.1 (codex 0.159.1).
         model: "gpt-5.6-luna",
         reasoningEffort: "low",
         permissionMode: "read-only",

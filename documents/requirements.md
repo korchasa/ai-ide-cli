@@ -2169,9 +2169,10 @@ stable — never renumber on move.
         an async iterable, answers inbound requests via a supplied
         handler.
         Test: `runtime/acp/client_test.ts::AcpStdioClient routes responses by id`.
-  - [x] Launcher registry `runtime/acp/fronts.ts` pins Claude to
-        `@agentclientprotocol/claude-agent-acp@0.77.0` and Codex to
-        `@agentclientprotocol/codex-acp@1.11.0` (both `pilot: true` via
+  - [x] Launcher registry `runtime/acp/fronts.ts` wires Claude to
+        `@agentclientprotocol/claude-agent-acp` and Codex to
+        `@agentclientprotocol/codex-acp`, each declared in `deno.json` as a
+        range rather than a pin (FR-L46; both `pilot: true` via
         `deno run` on a bundled entry module, no `npx`); OpenCode
         delegates to the locally-installed
         `opencode acp` binary (`pilot: true`); Cursor entry
@@ -2625,11 +2626,10 @@ runs); OpenCode and Codex dispatch at completion time.
   streaming, so a front that grows a new client-side call cannot end a
   run.
 
-  **Front-pin currency.** Fronts pinned in `runtime/acp/fronts.ts` are
-  kept current with upstream: Claude
-  `@agentclientprotocol/claude-agent-acp@0.77.0`, Codex
-  `@agentclientprotocol/codex-acp@1.11.0`. The Codex entry is a package
-  MIGRATION: `@zed-industries/codex-acp` is deprecated upstream
+  **Front currency.** Fronts wired in `runtime/acp/fronts.ts` are kept
+  current with upstream, and since FR-L46 they are declared as ranges, so
+  currency no longer needs a release of this library. The Codex entry is a
+  package MIGRATION: `@zed-industries/codex-acp` is deprecated upstream
   ("replaced by @agentclientprotocol/codex-acp") and its final release
   (0.16.0) embeds a codex-core that aborts before the handshake on
   current `config.toml` values — `model_reasoning_effort = "ultra"`
@@ -2809,3 +2809,87 @@ runs); OpenCode and Codex dispatch at completion time.
         `runtime/acp/fronts_test.ts::no other front carries the
         Claude-only traffic switch`. Caller override is structural —
         `runtime/acp/handshake.ts` spreads `opts.env` over `front.env`.
+
+### 3.44 FR-L46: ACP Front Versions Are Ranges, Not Pins
+
+- **Description:** The two npm-shipped ACP fronts are declared in
+  `deno.json` as semver ranges — `@agentclientprotocol/claude-agent-acp@0.x`
+  and `@agentclientprotocol/codex-acp@^2.0.1` — never as exact versions.
+  The declared version is a FLOOR: the lowest release whose ACP contract
+  this library is verified against. There is no ceiling below the next
+  major. A consumer therefore adopts a newer front, and the newer IDE core
+  that front embeds, by refreshing its own lock; no release of
+  `@korchasa/ai-ide-cli` is involved.
+
+  **Grammar limit.** Deno's npm specifier accepts only `^`, `~`, `N.x` and
+  `*`; a comparator range is rejected before resolution
+  (`npm:pkg@>=1.11.0` → "Invalid specifier version requirement"). So
+  "floor, no ceiling" is spelled `^<floor>` for a `1.0.0`-and-up package
+  and `0.x` for a `0.y` one, and the next major is the ceiling by
+  necessity, not by policy. Crossing a major stays a deliberate step: bump
+  the floor after re-verifying the handshake contract against the new
+  front.
+
+  **Why the floor matters on Codex.** The Codex front answers
+  `session/set_config_option` for `configId: "model"` only for ids returned
+  by `model/list` of the `@openai/codex` it embeds
+  (`applyModelChange` → `RequestError.invalidParams`). A front below the
+  floor therefore rejects a current model id with JSON-RPC -32602 while the
+  same id works in `codex exec` on PATH. Measured 2026-09-30: codex 0.153.4
+  (embedded in front 1.11.0) lists 5 models; 0.158.0 (front 2.0.0) lists 7,
+  adding `gpt-6-sol` and `gpt-6-luna`; 0.159.1 (front 2.0.1) lists 8,
+  adding `gpt-6.1-sol`.
+
+  **So the floor is a measured model set, not a major's first release.**
+  The Codex floor is 2.0.1, not 2.0.0, because a consumer already runs a
+  stage on `gpt-6.1-sol`, which 2.0.0's embedded core does not list. A
+  front pins its own core only by range (2.0.0 declares
+  `@openai/codex ^0.158.0`, 2.0.1 declares `^0.159.1`), so pinning a front
+  exactly does NOT pin the model set either — the floor is what the lowest
+  admissible front is VERIFIED to list, checked by asking that front.
+- **Motivation:** An exact pin makes this library the bottleneck for
+  something it does not own. Every upstream front release — and every IDE
+  core bundled inside one — needed a release here and a version bump in
+  every consumer, and a consumer that could not wait had no way through:
+  a model its own account could use was rejected by the front this package
+  pinned. The pin bought nothing in exchange, because the contract this
+  library depends on is the ACP wire dialect, which is versioned
+  separately (`protocolVersion: 1`) and negotiated at `initialize`.
+- **Scope:** The two npm fronts. The three locally-installed fronts
+  (`opencode acp`, `cursor-agent acp`, and any consumer-supplied
+  `acpFront`) never had a version declared here and are unaffected.
+  Version FLOORS are not enforced at runtime: `AcpFrontLauncher` carries no
+  version field (dropped in 0.9.0) and nothing reads a front's version
+  during a spawn. A consumer that holds an older front in its own lock gets
+  the older front's behaviour — including the -32602 above — and the range
+  is what lets it move forward.
+- **Scenario:** Upstream ships a new front minor with a newer embedded IDE
+  core. A consumer refreshes its lock and gets it, unchanged library. The
+  handshake still negotiates `protocolVersion: 1`, the mode and
+  config-option mappers still select over whatever the session declared,
+  and a front that declares MORE (extra presets, extra models) is a
+  superset, not a break.
+- **Dep:** FR-L39 (ACP transport), FR-L43 (front currency).
+- **Acceptance criteria:**
+  - [x] `deno.json` declares both fronts as ranges, and a regression test
+        asserts the FORM of the specifier (so it carries no version number
+        of its own). Test: `runtime/acp/fronts_test.ts::front specifiers
+        are open ranges, not exact pins`.
+  - [x] Both fronts at the top of their ranges negotiate
+        `protocolVersion: 1`, advertise `agentCapabilities.loadSession`,
+        and declare the `mode`, `model` and `thought_level` config
+        categories the mappers select over. Verified 2026-09-30 against
+        codex-acp 2.0.0 and claude-agent-acp 0.84.0, and 2026-10-01
+        against codex-acp 2.0.1, by driving `initialize` + `session/new` +
+        `session/set_mode` + `session/set_config_option` directly. The
+        2.0.1 front accepts `gpt-6.1-sol` and `gpt-6-luna`; 2.0.0 accepts
+        `gpt-6-luna` only.
+  - [x] The live ACP suite passes on those fronts: codex smoke, claude
+        smoke, capabilities, content, commands (claude / codex / opencode),
+        resume, retry — 9 tests, `E2E=1 deno test -A e2e/acp_*`,
+        2026-09-30.
+  - [x] The tool-call path is unchanged across the front major: the same
+        `invoke` with a shell command returns the command's output and
+        fires no `onToolUseObserved` on 1.11.0 and on 2.0.0 alike, so
+        upstream's 2.0.0 "AIR tool call contract" change does not reach
+        this library's mapping.
