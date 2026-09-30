@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [0.10.0](https://github.com/korchasa/ai-ide-cli/compare/v0.9.1...v0.10.0) (2026-09-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **acp:** consumers resolve `@agentclientprotocol/codex-acp` 2.x
+instead of 1.11.0 and `claude-agent-acp` 0.84.x instead of 0.77.0. Lock
+the front yourself if you need the old one.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+* fix(acp): raise the codex front floor to 2.0.1
+
+`^2.0.0` let the range resolve a front whose embedded `@openai/codex` is
+0.158.0, and that core does not list `gpt-6.1-sol` — a model a consumer
+already runs a stage on. The floor is therefore not "the major's first
+release" but the lowest front VERIFIED to list the current model set:
+2.0.1, which embeds 0.159.1 and lists all eight.
+
+A front pins its own core only by range (2.0.0 declares
+`@openai/codex ^0.158.0`, 2.0.1 declares `^0.159.1`), so pinning a front
+exactly would not pin the model set either. Asking the front is the only
+check that means anything, and FR-L46 now says so.
+
+Verified 2026-10-01 against the resolved 2.0.1 front: eight models
+including `gpt-6.1-sol` and `gpt-6-luna`, `protocolVersion: 1`,
+`agentCapabilities.loadSession`, the same `mode` / `model` /
+`thought_level` categories, and `session/set_config_option` accepts
+`gpt-6.1-sol`. `deno task check` green (710 tests), live codex and
+claude ACP smokes green.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+### Features
+
+* **acp:** declare the npm fronts as ranges, not pins ([#15](https://github.com/korchasa/ai-ide-cli/issues/15)) ([e5fee31](https://github.com/korchasa/ai-ide-cli/commit/e5fee31b0f5d943f4167284cb4d70b85f3b16f35))
+
 ### [0.9.1](https://github.com/korchasa/ai-ide-cli/compare/v0.9.0...v0.9.1) (2026-09-19)
 
 
