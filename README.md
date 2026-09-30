@@ -315,14 +315,26 @@ classification — only the wire dialect changes (FR-L39).
 
 Three pilots validated end-to-end against real binaries:
 
-- **claude** — `@agentclientprotocol/claude-agent-acp@0.77.0`.
-- **codex** — `@agentclientprotocol/codex-acp@1.11.0`.
+- **claude** — `@agentclientprotocol/claude-agent-acp@0.x`.
+- **codex** — `@agentclientprotocol/codex-acp@^2.0.0`.
 
   Both are ordinary dependencies of this package: the front is started
   as `deno run -A runtime/acp/fronts/<runtime>.ts`, a one-line entry
-  module whose import resolves through `deno.json`, so the version is
-  pinned by `deno.lock`. No Node and no `npx` anywhere in the spawn
-  path. The Deno CLI is `Deno.execPath()` when that is one; inside a
+  module whose import resolves through `deno.json`. No Node and no
+  `npx` anywhere in the spawn path.
+
+  **The versions above are floors, not pins (FR-L46).** `deno.json`
+  declares the lowest API-compatible front and leaves the range open up
+  to the next major, so a consumer adopts a newer front — and the newer
+  IDE core that front embeds — by refreshing its own lock, with no
+  release of this library. Deno's npm specifier grammar accepts only
+  `^`, `~`, `N.x` and `*` (`>=X <Y` is rejected as "Invalid package
+  specifier"), which is why the ceiling is the next major; crossing it
+  is a deliberate step taken after the handshake contract is
+  re-verified. The floor matters on Codex: the front answers
+  `session/set_config_option` from the model list of the `@openai/codex`
+  it embeds, so a front below the floor rejects a current model id with
+  JSON-RPC -32602 even though the same id works in `codex exec`. The Deno CLI is `Deno.execPath()` when that is one; inside a
   `deno compile` binary it is not (a compiled executable cannot `run`),
   so the front is started through `deno` from PATH — install Deno next
   to such a binary, or pass your own `acpFront`. A missing `deno` fails

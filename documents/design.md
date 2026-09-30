@@ -1689,10 +1689,13 @@ subprocess wrapper. One implementation
   (`runtime/acp/handshake.ts`) maps the spawn's
   `Deno.errors.NotFound` to `missingFrontExecutableError`, which names
   the runtime and the executable and, for the bare `deno`, the remedy.
-  The entry module resolves pinned npm
-  packages (`@agentclientprotocol/claude-agent-acp@0.77.0`,
-  `@agentclientprotocol/codex-acp@1.11.0` — successor to the deprecated
-  `@zed-industries/codex-acp`, FR-L43); OpenCode piloted via the
+  The entry module resolves npm
+  packages by RANGE, not by pin (FR-L46:
+  `@agentclientprotocol/claude-agent-acp@0.x`,
+  `@agentclientprotocol/codex-acp@^2.0.0` — successor to the deprecated
+  `@zed-industries/codex-acp`, FR-L43 — each range floored at the lowest
+  API-compatible front and open to the next major, so a newer front and
+  the IDE core it embeds arrive through the consumer's lock refresh); OpenCode piloted via the
   locally-installed `opencode acp` subcommand; Cursor wired but
   `pilot: false` until `cursor-agent` becomes part of the validation
   matrix. The `AcpFrontLauncher` interface is re-exported from
