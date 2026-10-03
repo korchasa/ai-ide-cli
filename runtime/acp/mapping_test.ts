@@ -195,6 +195,15 @@ const CODEX_ACP_MODES = [
   { id: "agent-full-access" },
 ];
 
+// The fourth preset front 2.x adds (verified in codex-acp 2.0.1 by reading
+// `session/new`). A front that declares it is the case FR-L44 prefers.
+const CODEX_ACP_MODES_2X = [
+  { id: "read-only" },
+  { id: "workspace-write" },
+  { id: "agent" },
+  { id: "agent-full-access" },
+];
+
 Deno.test("pickModeForPermissionMode maps codex bypassPermissions to agent-full-access", () => {
   const mode = pickModeForPermissionMode(
     "codex",
@@ -215,7 +224,24 @@ Deno.test("pickModeForPermissionMode maps codex-native sandbox modes onto declar
   const pick = (permissionMode: string) =>
     pickModeForPermissionMode("codex", CODEX_ACP_MODES, permissionMode);
   assertEquals(pick("read-only"), "read-only");
+  // This front declares no `workspace-write`, so `agent` is the only
+  // preset left to answer the request.
   assertEquals(pick("workspace-write"), "agent");
+  assertEquals(pick("danger-full-access"), "agent-full-access");
+});
+
+Deno.test("pickModeForPermissionMode prefers the workspace-write preset where the front declares it", () => {
+  const pick = (permissionMode: string) =>
+    pickModeForPermissionMode("codex", CODEX_ACP_MODES_2X, permissionMode);
+  // `agent` grants more than a workspace-write sandbox asked for: it
+  // leaves the workspace and reaches the network unprompted whenever the
+  // front judges the step safe.
+  assertEquals(pick("workspace-write"), "workspace-write");
+  assertEquals(pick("acceptEdits"), "workspace-write");
+  // The other three sandboxes are unaffected by the extra preset.
+  assertEquals(pick("read-only"), "read-only");
+  assertEquals(pick("plan"), "read-only");
+  assertEquals(pick("bypassPermissions"), "agent-full-access");
   assertEquals(pick("danger-full-access"), "agent-full-access");
 });
 
