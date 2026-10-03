@@ -5,6 +5,17 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual lever for a bump the commit types cannot ask for.
+  # `standard-version` keeps a 0.y package inside 0.y even for a `!`
+  # commit, so leaving that series needs `major` named by hand; `minor`
+  # and `patch` are here for a release cut without a matching commit type.
+  workflow_dispatch:
+    inputs:
+      release_as:
+        description: "Force the bump: major, minor or patch"
+        required: false
+        type: string
+        default: ""
 
 # Default permissions: write needed to push release commits/tags.
 # publish-jsr overrides with id-token: write for OIDC trusted publishing.
@@ -51,9 +62,11 @@ jobs:
       - name: Create release and push tags
         id: create-release
         if: |
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/main' &&
-          !contains(github.event.head_commit.message, 'chore(release):')
+          (github.event_name == 'workflow_dispatch' &&
+           inputs.release_as != '') ||
+          (github.event_name == 'push' &&
+           github.ref == 'refs/heads/main' &&
+           !contains(github.event.head_commit.message, 'chore(release):'))
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -62,16 +75,38 @@ jobs:
 
           # Detect releasable commits. standard-version handles feat/fix
           # automatically; refactor/perf/build get forced to patch.
+          #
+          # A breaking marker overrides the forcing. Without this branch a
+          # `fix!` or a `BREAKING CHANGE:` footer was released as a patch,
+          # because the forced `--release-as patch` outranks the footer
+          # standard-version reads — which makes the semver promise of
+          # FR-L48 unkeepable from 1.0.0 on.
           RELEASABLE=false
           BUMP_ARGS=""
 
-          if [ -z "$LATEST_TAG" ]; then
+          RELEASE_AS="${{ inputs.release_as }}"
+          case "$RELEASE_AS" in
+            ""|major|minor|patch) ;;
+            *) echo "release_as must be major, minor or patch" >&2; exit 1 ;;
+          esac
+
+          if [ -n "$RELEASE_AS" ]; then
+            # A hand-named bump wins over whatever the commits imply.
+            RELEASABLE=true
+            BUMP_ARGS="--release-as $RELEASE_AS"
+          elif [ -z "$LATEST_TAG" ]; then
             RELEASABLE=true
           else
-            COMMITS_SINCE=$(git log --format='%s' ${LATEST_TAG}..HEAD)
-            if echo "$COMMITS_SINCE" | grep -qE '^feat'; then
+            SUBJECTS_SINCE=$(git log --format='%s' ${LATEST_TAG}..HEAD)
+            BODIES_SINCE=$(git log --format='%B' ${LATEST_TAG}..HEAD)
+            if echo "$SUBJECTS_SINCE" | grep -qE '^[a-z]+(\([^)]*\))?!:' ||
+               echo "$BODIES_SINCE" | grep -qE '^BREAKING[ -]CHANGE:'; then
+              # Leave the bump to standard-version: it reads the marker and
+              # raises the MAJOR from 1.0.0 on (the MINOR while still 0.y).
               RELEASABLE=true
-            elif echo "$COMMITS_SINCE" | grep -qE '^(fix|perf|refactor|build)'; then
+            elif echo "$SUBJECTS_SINCE" | grep -qE '^feat'; then
+              RELEASABLE=true
+            elif echo "$SUBJECTS_SINCE" | grep -qE '^(fix|perf|refactor|build)'; then
               RELEASABLE=true
               BUMP_ARGS="--release-as patch"
             fi
