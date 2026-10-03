@@ -39,6 +39,16 @@ import specifier and often never list it in their `deno.json`. Answering
 "does anybody still use feature X?" from dependency manifests therefore
 returns a false "nobody" — grep import specifiers in source instead.
 
+Versioning is plain semver from 1.0.0 (FR-L48). A feature commit raises
+the MINOR and a consumer on `^1` gets it by refreshing its lock; a `!`
+commit raises the MAJOR and every consumer has to widen its range on
+purpose. So weigh a breaking change against the edit it forces on each
+consumer, and prefer an additive shape where one exists. The stable
+surface is the `exports` map in `deno.json` — nothing outside it is
+promised. `standard-version` keeps a `0.y` package inside `0.y` even for
+a `!` commit, which is why leaving that series took one deliberate
+`--release-as major`; the `release_as` input of `ci.yml` is that lever.
+
 ## Layout
 
 - `mod.ts` — barrel export for the default entry.

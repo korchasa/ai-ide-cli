@@ -2675,16 +2675,24 @@ runs); OpenCode and Codex dispatch at completion time.
 ### 3.42 FR-L44: Codex ACP Permission-Mode Presets
 
 - **Description:** `pickModeForPermissionMode` resolves a Codex
-  `permissionMode` to one of the three presets
-  `@agentclientprotocol/codex-acp` declares — `read-only`, `agent`,
-  `agent-full-access` — by routing the value through
-  `decidePermissionMode` (`codex/permission-mode.ts`) and keying the
-  resulting `sandbox` literal into `CODEX_SANDBOX_TO_MODE`. Both Codex
-  CLI transports already share that decision module; ACP now joins them
-  instead of carrying a parallel table.
+  `permissionMode` to a preset `@agentclientprotocol/codex-acp` declares,
+  by routing the value through `decidePermissionMode`
+  (`codex/permission-mode.ts`) and keying the resulting `sandbox` literal
+  into `CODEX_SANDBOX_TO_MODES`. Both Codex CLI transports already share
+  that decision module; ACP joins them instead of carrying a parallel
+  table.
+
+  Each sandbox names a LIST of preset ids, most faithful first, and the
+  pick takes the first one the session declared. The front's preset set is
+  not closed — 1.1.7 through 2.0.1 declare `read-only`, `agent` and
+  `agent-full-access`, 2.x adds `workspace-write`, and FR-L46 lets a
+  consumer resolve a front that declares more still — so a list is what
+  lets one library honour the faithful preset where it exists and still
+  answer an older front.
 
   **Resolved pairs.** `bypassPermissions` / `danger-full-access` →
-  `agent-full-access`; `acceptEdits` / `workspace-write` → `agent`;
+  `agent-full-access`; `acceptEdits` / `workspace-write` →
+  `workspace-write` where the front declares it, else `agent`;
   `plan` / `read-only` → `read-only`. Approval-only pass-throughs
   (`never`, `on-request`, `on-failure`, `untrusted`) carry no sandbox
   decision and stay unmapped, as does `default` — the front's own
@@ -2720,6 +2728,16 @@ runs); OpenCode and Codex dispatch at completion time.
   - [x] Codex-native sandbox literals pass through to the matching
         preset. Test: `runtime/acp/mapping_test.ts::pickModeForPermissionMode
         maps codex-native sandbox modes onto declared presets`.
+  - [x] A `workspace-write` sandbox takes the same-named preset when the
+        front declares it and falls back to `agent` when it does not.
+        `agent` grants more than the request: measured on codex-acp 2.0.1
+        through `session/new` on 2026-10-03, `workspace-write` is "Edit
+        workspace files; ask before writing outside the workspace or
+        accessing the network" while `agent` is "Only ask for actions
+        detected as potentially unsafe". Test:
+        `runtime/acp/mapping_test.ts::pickModeForPermissionMode prefers the
+        workspace-write preset where the front declares it`; the fallback
+        is the `workspace-write` case of the native-literals test above.
   - [x] Approval-only modes stay unmapped — no `session/set_mode` is
         issued for them. Test:
         `runtime/acp/mapping_test.ts::pickModeForPermissionMode leaves codex
@@ -2933,3 +2951,68 @@ runs); OpenCode and Codex dispatch at completion time.
         rollout whose `turn_context.model` is the requested one and which
         holds no `<model_switch>` message; before the change the luna one
         held it. Verified by hand 2026-10-03.
+
+### 3.46 FR-L48: The Version Line Is Plain Semver From 1.0.0
+
+- **Description:** The package leaves the `0.y` series at 1.0.0 and
+  follows plain semver from there: a feature release raises the MINOR, a
+  breaking change raises the MAJOR. The stable surface is the `exports`
+  map in `deno.json` — 24 subpaths at 1.0.0 — and nothing outside it is
+  promised, so an internal module may change in any release.
+
+  The reason is how a consumer can express the dependency. For a `0.y`
+  package `^0.10.0` admits only 0.10.x, and Deno's specifier grammar
+  offers nothing wider that still carries a floor: `0.x` has no usable
+  floor at all, because `deno publish` type-checks a `jsr:` dependency
+  against the LOWEST version of its range and the oldest 0.y of this
+  package does not have today's exports (measured 2026-09-30 on
+  `@korchasa/flowai-workflow` 0.15.0, which failed to publish with
+  "invalid 'jsr:' dependency subpath: '@korchasa/ai-ide-cli@0.x/skill',
+  resolved to 0.1.11, has no export './skill'"). So every feature release
+  forced an edit in every consumer. From 1.0.0 a consumer writes `^1` once
+  and a feature release reaches it by refreshing its lock.
+
+  A MAJOR still forces that edit, which is the point: it is the one case
+  where a consumer should look before adopting. The history says the
+  split is the right way round — 12 breaking commits in this repository,
+  10 of them on or before 2026-05-03 while the shape was still being
+  settled, and 2 in the five months since (2026-09-15 `drop versionPin`,
+  2026-10-01 `fronts as ranges`). Of the 15 releases from 0.8.5 to
+  0.10.1, those 2 were breaking; the other 13 would have reached a
+  consumer on `^1` with no edit at all.
+
+- **Motivation:** The front pin, the library pin and the engine pin formed
+  a chain where changing the front took three releases (FR-L46). FR-L46
+  opened the lowest link by declaring the fronts as ranges. The link above
+  it stayed shut for a reason that is pure numbering: a `0.y` consumer
+  range cannot admit a feature release. Leaving `0.y` is what opens it.
+- **Dep:** FR-L46 (front ranges).
+- **Acceptance criteria:**
+  - [ ] `deno.json` declares version 1.0.0 or above, and the `exports`
+        map is the stated stable surface. The version itself is written by
+        the release, not by this change: `standard-version` bumps
+        `deno.json` when the `release_as: major` dispatch runs on `main`.
+        Evidence after that run: `deno.json`.
+  - [x] CI can cut a bump the commit types cannot ask for.
+        `standard-version` keeps a `0.y` package inside `0.y` even for a
+        `!` commit, so 1.0.0 needs `--release-as major` named by hand:
+        `ci.yml` takes a `release_as` input on `workflow_dispatch`,
+        validates it against `major` / `minor` / `patch`, and lets it win
+        over the commit-type detection. Evidence:
+        `.github/workflows/ci.yml`.
+  - [x] A breaking marker outranks the forced patch bump, so the promise
+        is keepable. `ci.yml` forced `--release-as patch` for any
+        `fix` / `perf` / `refactor` / `build` commit, and that argument
+        outranks the `!` marker and the `BREAKING CHANGE:` footer
+        standard-version reads — a `fix!` shipped as a patch. The
+        detection now checks for either marker first and leaves the bump
+        to standard-version. Evidence: `.github/workflows/ci.yml`; the
+        subject and footer patterns were checked against `fix(acp)!:`,
+        `feat!:`, `refactor(runtime)!:`, `fix(acp):`, `feat(a):`,
+        `docs:`, `BREAKING CHANGE:` and `BREAKING-CHANGE:` on 2026-10-03.
+  - [x] README and AGENTS.md state the rule where a reader meets the
+        package: what `^1` buys, what a MAJOR costs a consumer, and that
+        only `exports` is promised.
+  - [ ] The consumer moves to the wide range: `@korchasa/flowai-workflow`
+        declares `jsr:@korchasa/ai-ide-cli@^1` instead of `^0.10.0`. Done
+        in that repository once 1.0.0 is published.

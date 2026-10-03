@@ -22,6 +22,17 @@ package without pulling the full DAG workflow engine.
 deno add jsr:@korchasa/ai-ide-cli
 ```
 
+## Versioning
+
+Plain semver from 1.0.0 (FR-L48): a feature release raises the MINOR and
+a breaking change raises the MAJOR. Depend on it as `^1`, and a feature
+release reaches you when you refresh your lock — no edit in your
+manifest. The stable surface is what `deno.json` `exports` lists;
+anything not exported is internal and may change in any release.
+
+Before 1.0.0 the package was in the `0.y` series, where `^0.10.0` admits
+only 0.10.x, so every feature release forced an edit in every consumer.
+
 ## Usage — Runtime Adapter (uniform dispatch)
 
 Recommended entry point. Same call shape across Claude, OpenCode, Cursor,
