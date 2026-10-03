@@ -220,15 +220,24 @@ function renderMcpServers(servers: McpServers | undefined): AcpMcpServer[] {
 
 /**
  * FR-L44: Codex sandbox decision → `@agentclientprotocol/codex-acp` preset
- * id. The three ids this table names — `read-only`, `agent`,
- * `agent-full-access` — have been declared by every front from 1.1.7 to
- * 2.0.1. The set is not closed: front 2.x declares a fourth, `workspace-write`,
- * and FR-L46 lets a consumer resolve a front that declares more still, so
- * the pick below is validated against what the session actually declared
- * rather than against this table alone. A `workspace-write` sandbox keeps
- * landing on `agent`, which is what every supported front offers; moving it
- * to the newer same-named preset would change the approval policy a run
- * gets, so it stays a deliberate decision, not a side effect of a range.
+ * ids, most faithful first. The three ids `read-only`, `agent` and
+ * `agent-full-access` have been declared by every front from 1.1.7 to
+ * 2.0.1; front 2.x declares a fourth, `workspace-write`, and FR-L46 lets a
+ * consumer resolve a front that declares more still. Each sandbox therefore
+ * names a LIST and the pick takes the first id the session actually
+ * declared, so a newer preset is honoured where it exists and an older
+ * front still gets an answer it understands.
+ *
+ * A `workspace-write` sandbox prefers the same-named preset over `agent`
+ * because `agent` grants more than the caller asked for. Measured on
+ * codex-acp 2.0.1 by reading `session/new`: `workspace-write` is "Edit
+ * workspace files; ask before writing outside the workspace or accessing
+ * the network", while `agent` is "Only ask for actions detected as
+ * potentially unsafe" — it leaves the workspace and reaches the network
+ * without asking whenever the front judges the step safe. Where the front
+ * declares no `workspace-write`, `agent` remains the only preset on offer
+ * and the request is answered as before.
+ *
  * Keying off {@link decidePermissionMode} keeps ACP on the same single
  * source of truth as both CLI transports instead of a parallel table.
  *
@@ -249,10 +258,10 @@ function renderMcpServers(servers: McpServers | undefined): AcpMcpServer[] {
  * `onToolUseObserved` callback the library denies that prompt by default
  * (see `runtime/acp/permissions.ts`).
  */
-const CODEX_SANDBOX_TO_MODE: Record<SandboxMode, string> = {
-  "read-only": "read-only",
-  "workspace-write": "agent",
-  "danger-full-access": "agent-full-access",
+const CODEX_SANDBOX_TO_MODES: Record<SandboxMode, readonly string[]> = {
+  "read-only": ["read-only"],
+  "workspace-write": ["workspace-write", "agent"],
+  "danger-full-access": ["agent-full-access"],
 };
 
 /** Pick the ACP `modeId` for a runtime-neutral `permissionMode`. */
@@ -266,12 +275,12 @@ export function pickModeForPermissionMode(
   // permission-mode ids, so every value of `VALID_PERMISSION_MODES`
   // (`default` / `acceptEdits` / `plan` / `bypassPermissions`) is already
   // a literal id match handled by the direct-match branch below.
-  let mapped: string | undefined;
   if (runtime === "codex") {
     const { sandbox } = decidePermissionMode(permissionMode);
-    mapped = sandbox ? CODEX_SANDBOX_TO_MODE[sandbox] : undefined;
+    const candidates = sandbox ? CODEX_SANDBOX_TO_MODES[sandbox] : undefined;
+    const mapped = candidates?.find((id) => declared.some((m) => m.id === id));
+    if (mapped) return mapped;
   }
-  if (mapped && declared.some((m) => m.id === mapped)) return mapped;
   // Direct id match — also how ACP-native ids pass through.
   if (declared.some((m) => m.id === permissionMode)) return permissionMode;
   return undefined;
