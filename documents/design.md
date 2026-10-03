@@ -1689,6 +1689,9 @@ subprocess wrapper. One implementation
   (`runtime/acp/handshake.ts`) maps the spawn's
   `Deno.errors.NotFound` to `missingFrontExecutableError`, which names
   the runtime and the executable and, for the bare `deno`, the remedy.
+  For `codex` it also passes the requested model to
+  `codexThreadStartEnv`, so the front starts with it in `CODEX_CONFIG`
+  and its `thread/start` opens on that model (FR-L47).
   The entry module resolves npm
   packages by RANGE, not by pin (FR-L46:
   `@agentclientprotocol/claude-agent-acp@0.x`,
@@ -1730,6 +1733,9 @@ subprocess wrapper. One implementation
     `options[].value`. The handshake reads either
     `sessionConfigOptions` (claude/codex) or `configOptions`
     (opencode) from the `session/new` response.
+  - `codexThreadStartEnv(env, inherited, model)` — the Codex front's
+    start env with `model` merged into its `CODEX_CONFIG` JSON object
+    (FR-L47); throws on a non-object value.
   - `mapSessionUpdate` — normalizes `session/update` notifications
     into `RuntimeSessionEvent`.
   - `collectDegradedOptions(opts)` — synthesizes `AcpDegradedOption[]`

@@ -336,7 +336,11 @@ Three pilots validated end-to-end against real binaries:
   it embeds, so a front below the floor rejects a current model id with
   JSON-RPC -32602 even though the same id works in `codex exec`. The
   Codex floor is 2.0.1 rather than 2.0.0 for exactly that reason — 2.0.0
-  embeds codex 0.158.0, which does not list `gpt-6.1-sol`. The Deno CLI is `Deno.execPath()` when that is one; inside a
+  embeds codex 0.158.0, which does not list `gpt-6.1-sol`. The front
+  opens each thread on codex's default model, so the library starts it
+  with the requested model in `CODEX_CONFIG`; otherwise codex repeats
+  its whole base instructions on the first turn of every session on
+  another model (FR-L47). The Deno CLI is `Deno.execPath()` when that is one; inside a
   `deno compile` binary it is not (a compiled executable cannot `run`),
   so the front is started through `deno` from PATH — install Deno next
   to such a binary, or pass your own `acpFront`. A missing `deno` fails

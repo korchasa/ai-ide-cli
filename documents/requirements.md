@@ -2893,3 +2893,43 @@ runs); OpenCode and Codex dispatch at completion time.
         fires no `onToolUseObserved` on 1.11.0 and on 2.0.0 alike, so
         upstream's 2.0.0 "AIR tool call contract" change does not reach
         this library's mapping.
+
+### 3.45 FR-L47: The Codex Thread Opens on the Requested Model
+
+- **Description:** When a Codex ACP invocation or session names a `model`,
+  `spawnClient` starts the front with that model in the `CODEX_CONFIG`
+  env var (`codexThreadStartEnv`, `runtime/acp/mapping.ts`). The front
+  merges that JSON object into the config of its `thread/start`, so the
+  thread is created on the requested model, not on codex's default. Other
+  keys of a `CODEX_CONFIG` the caller passes in `env`, or the process
+  inherits, are kept; the requested model replaces theirs. A value that is
+  not a JSON object is refused with an error naming `CODEX_CONFIG`. The
+  `session/set_config_option` for `model` is still sent and stays the
+  front's validation of the id.
+- **Motivation:** `@agentclientprotocol/codex-acp` 2.0.1 sends
+  `thread/start` with no model. `set_config_option` only records the
+  requested id in the front's session state, the first turn carries it, and
+  codex treats that as a model change: it prepends a `<model_switch>`
+  developer message repeating its whole base instructions (22–31k
+  characters), which every later request of the session re-reads. A
+  consumer running some stages on another model than codex's default paid
+  for it on every request of those stages. Measured 2026-10-03 against the
+  real front, `gpt-6-luna` on a `gpt-6.1-sol` default: first request 29 882
+  input tokens with the switch, 25 643 with the model in `CODEX_CONFIG`.
+- **Scope:** runtime `codex` on the ACP transport, the default front or a
+  consumer `acpFront` override. Other runtimes get no `CODEX_CONFIG`.
+  `fetchCommands` passes no model and is unchanged.
+- **Dep:** FR-L39 (ACP transport), FR-L46 (front versions).
+- **Acceptance criteria:**
+  - [x] The pure merge keeps foreign keys, lets the model win, reads the
+        inherited value, leaves the env alone without a model and refuses
+        a non-object. Tests: `runtime/acp/mapping_test.ts::codexThreadStartEnv *`.
+  - [x] The Codex front is spawned with the model in `CODEX_CONFIG`; a
+        Claude front is not given the key. Tests:
+        `runtime/acp/adapter_test.ts::invokeViaAcp starts the codex front with CODEX_CONFIG naming the model`,
+        `runtime/acp/adapter_test.ts::invokeViaAcp starts the claude front with CODEX_CONFIG untouched`.
+  - [x] Against codex-acp 2.0.1 with codex 0.159.1, an `invoke` on
+        `gpt-6-luna` and one on `gpt-6.1-sol` (local default) write a
+        rollout whose `turn_context.model` is the requested one and which
+        holds no `<model_switch>` message; before the change the luna one
+        held it. Verified by hand 2026-10-03.

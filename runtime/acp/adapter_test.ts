@@ -501,3 +501,58 @@ Deno.test("openSessionViaAcp returns a session with sessionId synchronously afte
     },
   );
 });
+
+// FR-L47: the env the front starts with must carry the model for Codex, so
+// `thread/start` opens on it, and must not grow a Codex key for other fronts.
+const ECHO_CODEX_CONFIG_SCRIPT = `
+respond() {
+  local id="$1" payload="$2"
+  printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$id" "$payload"
+}
+cfg=$(printf '%s' "\${CODEX_CONFIG:-none}" | sed 's/"/\\\\"/g')
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -E 's/.*"id":([0-9]+).*/\\1/')
+  method=$(printf '%s' "$line" | sed -E 's/.*"method":"([^"]+)".*/\\1/')
+  case "$method" in
+    initialize)
+      respond "$id" '{"protocolVersion":1,"agentCapabilities":{}}'
+      ;;
+    session/new)
+      respond "$id" '{"sessionId":"sess-1","sessionConfigOptions":[]}'
+      ;;
+    session/prompt)
+      printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"cfg=%s"}}}\\n' "$cfg"
+      respond "$id" '{"stopReason":"end_turn"}'
+      ;;
+    *)
+      respond "$id" 'null'
+      ;;
+  esac
+done
+`;
+
+for (
+  const [runtime, expected] of [
+    ["codex", 'cfg={"model":"gpt-6-luna"}'],
+    ["claude", "cfg=none"],
+  ] as const
+) {
+  Deno.test(`invokeViaAcp starts the ${runtime} front with CODEX_CONFIG ${runtime === "codex" ? "naming the model" : "untouched"}`, async () => {
+    await withStubAcpFront(
+      { script: ECHO_CODEX_CONFIG_SCRIPT },
+      async (front) => {
+        const result = await invokeViaAcp(runtime, {
+          processRegistry: new ProcessRegistry(),
+          acpFront: front,
+          taskPrompt: "say ok",
+          model: "gpt-6-luna",
+          timeoutSeconds: 30,
+          maxRetries: 0,
+          retryDelaySeconds: 0,
+        });
+        assert(result.output, `expected output, got ${JSON.stringify(result)}`);
+        assertEquals(result.output.result, expected);
+      },
+    );
+  });
+}

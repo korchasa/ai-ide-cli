@@ -21,6 +21,7 @@ import {
   type AcpModeDecl,
   buildInitializeParams,
   buildSessionNewParams,
+  codexThreadStartEnv,
   pickConfigForModel,
   pickConfigForReasoningEffort,
   pickModeForPermissionMode,
@@ -64,10 +65,15 @@ export function spawnClient(opts: {
   onStderr?: (line: string) => void;
   onRequest?: ConstructorParameters<typeof AcpStdioClient>[0]["onRequest"];
   acpFront?: RuntimeInvokeOptions["acpFront"];
+  /** FR-L47: the session's model; the Codex front opens its thread on it. */
+  model?: string;
 }): AcpStdioClient {
   const front = opts.acpFront ?? getAcpFront(opts.runtime);
   if (!opts.acpFront && !front.pilot) throw notPiloted(opts.runtime);
-  const mergedEnv = { ...(front.env ?? {}), ...(opts.env ?? {}) };
+  const launchEnv = { ...(front.env ?? {}), ...(opts.env ?? {}) };
+  const mergedEnv = opts.runtime === "codex"
+    ? codexThreadStartEnv(launchEnv, Deno.env.get("CODEX_CONFIG"), opts.model)
+    : launchEnv;
   try {
     return new AcpStdioClient({
       cmd: front.cmd,
