@@ -7,6 +7,7 @@ import {
   buildInitializeParams,
   buildSessionNewParams,
   buildTurnEndEvent,
+  codexThreadStartEnv,
   collectDegradedOptions,
   collectUnsupportedOptions,
   mapSessionUpdate,
@@ -316,4 +317,48 @@ Deno.test("buildTurnEndEvent emits SYNTHETIC_TURN_END with synthetic flag", () =
   assertEquals(ev.synthetic, true);
   assertEquals(ev.raw.stopReason, "end_turn");
   assert(ev.synthetic === true);
+});
+
+// FR-L47: the Codex front opens its thread on codex's default model and
+// only records the requested one; the first turn then switches and codex
+// repeats its whole base instructions in a `<model_switch>` message.
+Deno.test("codexThreadStartEnv puts the model into CODEX_CONFIG", () => {
+  assertEquals(
+    codexThreadStartEnv({ A: "1" }, undefined, "gpt-6-luna"),
+    { A: "1", CODEX_CONFIG: '{"model":"gpt-6-luna"}' },
+  );
+});
+
+Deno.test("codexThreadStartEnv keeps the caller's other CODEX_CONFIG keys, the model wins", () => {
+  const env = {
+    CODEX_CONFIG: '{"model":"gpt-6.1-sol","approval_policy":"never"}',
+  };
+  assertEquals(
+    JSON.parse(codexThreadStartEnv(env, undefined, "gpt-6-luna").CODEX_CONFIG),
+    { model: "gpt-6-luna", approval_policy: "never" },
+  );
+});
+
+Deno.test("codexThreadStartEnv reads an inherited CODEX_CONFIG when the caller passes none", () => {
+  assertEquals(
+    JSON.parse(
+      codexThreadStartEnv({}, '{"profile":"ci"}', "gpt-6-luna").CODEX_CONFIG,
+    ),
+    { profile: "ci", model: "gpt-6-luna" },
+  );
+});
+
+Deno.test("codexThreadStartEnv leaves the env alone without a model", () => {
+  const env = { CODEX_CONFIG: "not even json" };
+  assertEquals(codexThreadStartEnv(env, undefined, undefined), env);
+});
+
+Deno.test("codexThreadStartEnv refuses a CODEX_CONFIG that is not a JSON object", () => {
+  for (const bad of ["not json", "[1]", "null", '"s"']) {
+    assertThrows(
+      () => codexThreadStartEnv({ CODEX_CONFIG: bad }, undefined, "gpt-6-luna"),
+      Error,
+      "CODEX_CONFIG",
+    );
+  }
 });

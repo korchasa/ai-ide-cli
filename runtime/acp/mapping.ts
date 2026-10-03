@@ -295,6 +295,55 @@ export function pickConfigForReasoningEffort(
   return { configId: decl.id, value: effort };
 }
 
+/**
+ * FR-L47: the env a Codex front starts with, so its thread opens on `model`.
+ *
+ * `@agentclientprotocol/codex-acp` sends `thread/start` without a model and
+ * merges the JSON object in its `CODEX_CONFIG` env var into that call's
+ * config. Without it the thread opens on codex's own default, the
+ * `session/set_config_option` that follows only records the requested id,
+ * and the first turn switches models: codex then prepends a `<model_switch>`
+ * developer message that repeats its whole base instructions, re-read by
+ * every request of the session. Measured 2026-10-03, `gpt-6-luna` on a
+ * `gpt-6.1-sol` default: 29 882 input tokens on the first request with the
+ * switch, 25 643 without.
+ *
+ * Other keys of a `CODEX_CONFIG` the caller passes (or the process
+ * inherits) are kept; the requested model replaces theirs, since the session
+ * is switched to it anyway. A value that is not a JSON object is refused:
+ * the front would `JSON.parse` it at startup and die on it.
+ *
+ * @param env The env the front would start with (launcher + caller).
+ * @param inherited `CODEX_CONFIG` of this process, used when `env` has none.
+ * @param model The requested model; absent leaves `env` as it is.
+ */
+export function codexThreadStartEnv(
+  env: Record<string, string>,
+  inherited: string | undefined,
+  model: string | undefined,
+): Record<string, string> {
+  if (!model) return env;
+  const raw = env.CODEX_CONFIG ?? inherited;
+  let config: Record<string, unknown> = {};
+  if (raw !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = undefined;
+    }
+    if (
+      typeof parsed !== "object" || parsed === null || Array.isArray(parsed)
+    ) {
+      throw new Error(
+        `CODEX_CONFIG must be a JSON object, got: ${raw.slice(0, 200)}`,
+      );
+    }
+    config = parsed as Record<string, unknown>;
+  }
+  return { ...env, CODEX_CONFIG: JSON.stringify({ ...config, model }) };
+}
+
 /** Pick a `{configId, value}` pair for the typed `model` selector. */
 export function pickConfigForModel(
   declared: AcpConfigOptionDecl[] | undefined,

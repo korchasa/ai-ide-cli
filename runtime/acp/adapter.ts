@@ -375,6 +375,7 @@ async function attemptInvocation(
       processRegistry: opts.processRegistry,
       onStderr: undefined,
       acpFront: opts.acpFront,
+      model: opts.model,
       // FR-L43: one shared router — permission requests are served, every
       // other inbound method is answered -32601 and reported once.
       onRequest: createInboundRequestHandler({
@@ -668,6 +669,7 @@ export async function openSessionViaAcp(
     processRegistry: opts.processRegistry,
     onStderr: opts.onStderr,
     acpFront: opts.acpFront,
+    model: opts.model,
     // FR-L43: same router as the invoke path.
     onRequest: createInboundRequestHandler({
       runtime,
