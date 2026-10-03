@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.10.2](https://github.com/korchasa/ai-ide-cli/compare/v0.10.1...v0.10.2) (2026-10-03)
+
+
+### Bug Fixes
+
+* **acp:** give a workspace-write sandbox the preset it asked for ([1a4c70e](https://github.com/korchasa/ai-ide-cli/commit/1a4c70e670cd29a2b627bec262ca6ee043a3da04))
+
+
+### Continuous Integration
+
+* **release:** let a breaking marker outrank the forced patch bump ([25339ef](https://github.com/korchasa/ai-ide-cli/commit/25339efa18a8fbacfcd96f0980b84e858a397006))
+
+
+### Documentation
+
+* **semver:** state what the 1.0.0 version line promises (FR-L48) ([aaa3b39](https://github.com/korchasa/ai-ide-cli/commit/aaa3b398227e50f1e414e1551ce142db25044929))
+
 ### [0.10.1](https://github.com/korchasa/ai-ide-cli/compare/v0.10.0...v0.10.1) (2026-10-03)
 
 
