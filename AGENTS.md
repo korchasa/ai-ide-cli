@@ -238,6 +238,19 @@ a `!` commit, which is why leaving that series took one deliberate
 Linked to `korchasa/ai-ide-cli` on JSR. If publishing starts failing with
 an authorization error, check https://jsr.io/@korchasa/ai-ide-cli/settings.
 
+## Shared Checkout
+
+Parallel agent sessions commit to `main` in this one checkout, and a
+session often leaves its commits unpushed. A push therefore sends every
+commit in `@{u}..HEAD`, not just this session's. Before asking to push,
+run `git log --oneline @{u}..HEAD` and name each commit this session did
+not make; `git rev-list --left-right --count HEAD...@{u}` gives only a
+count, and its left number is that list's length. CI can push a
+`chore(release)` commit after a push, so the next push may meet a
+remote one commit ahead and need `git pull --rebase`, which rewrites
+the SHAs of the unpushed commits — say so too (2026-10-18: a FR-L42
+push carried 3 foreign commits, one made mid-run, unannounced).
+
 ## Project Information
 
 - Project Name: `@korchasa/ai-ide-cli`
