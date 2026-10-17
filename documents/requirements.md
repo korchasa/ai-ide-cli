@@ -3145,3 +3145,53 @@ runs); OpenCode and Codex dispatch at completion time.
   - [x] Each runtime maps the option or throws. Tests:
         `runtime/reserved-flag-coverage_test.ts::FR-L52 *`,
         `codex/session_test.ts::FR-L52 thread/start carries ephemeral`.
+
+### 3.51 FR-L53: Opt Out Of Env Inheritance (`inheritEnv`)
+
+- **Description:** `inheritEnv: false` on `RuntimeInvokeOptions`,
+  `RuntimeSessionOptions`, `InteractiveOptions`,
+  `FetchCapabilitiesOptions` or `FetchCommandsOptions` spawns the agent
+  with `clearEnv: true`: its env is the caller-passed `env` plus the
+  library's own variables (`PWD` FR-L33, FR-L45 switch, FR-L18
+  `CLAUDE_CONFIG_DIR`, `CLAUDECODE=""`, ACP front `env`, FR-L47
+  `CODEX_CONFIG`), nothing from this process. Default `true` keeps
+  today's merge over the inherited env.
+- **Tasks:** [isolated-child-env](tasks/2026/10/isolated-child-env.md)
+- **Covered spawns:** all 14 agent spawn sites — Claude invoke, session,
+  interactive; Codex exec, app-server, interactive; OpenCode run, serve,
+  export, interactive; Cursor invoke, per-send, create-chat; every ACP
+  front. Cursor has no interactive mode.
+- **Library lookups:** in isolated mode the paths the library computes
+  for the child read the passed `env`, never this process: Claude config
+  dir (FR-L18 cleanroom source, skills), Codex / OpenCode skills dirs,
+  Codex sessions dir (transcript), OpenCode log dir (upstream-error
+  detector), ACP `CODEX_CONFIG`.
+- **Fail fast:** `env` without `PATH` throws before the spawn — Deno
+  would look the binary up through this process's `PATH`, so the caller's
+  env would still pick the agent. A lookup that needs `HOME` throws when
+  `env` has neither `HOME` nor the lookup's own override
+  (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`); the Codex sessions dir is resolved
+  before the spawn, so no tokens are spent first. No missing variable is
+  filled from this process.
+- **Caller's duty:** pass `PATH`, `HOME` and whatever the agent needs to
+  authenticate (API key, or a `HOME` whose agent login works without the
+  host). Measured 2026-10-18: `codex` with empty env exits 127 (`env:
+  node: No such file or directory`), with `PATH` only it starts; `claude`
+  run from inside Claude Desktop authenticates through the host's env, so
+  with `PATH` + `HOME` alone it answers `Not logged in`.
+- **Motivation:** an app built on this library that runs inside an agent
+  session hands that session's variables (`CLAUDE_CODE_*`,
+  `ANTHROPIC_*`, `CODEX_*`, `OTEL_*`, proxies) to every agent it spawns,
+  so a run depends on where its caller happened to run.
+- **Acceptance criteria:**
+  - [x] Every spawn site hides this process's env when isolated; default
+        still inherits. Tests: `runtime/inherit_env_test.ts::FR-L53 *`.
+  - [x] Helper truth table, `PATH` / `HOME` fail-fast. Tests:
+        `runtime/spawn-env_test.ts::FR-L53 *`.
+  - [x] Library lookups read only the passed env. Tests:
+        `runtime/setting-sources_test.ts::FR-L53 *`,
+        `codex/process_test.ts::FR-L53 *`,
+        `opencode/upstream-error-detector_test.ts::FR-L53 *`.
+  - [ ] Real binaries reply with `PATH` + `HOME` only. Test:
+        `e2e/inherit_env_e2e_test.ts` — codex CLI passes (2026-10-18);
+        claude CLI / ACP need a host-independent Claude login.

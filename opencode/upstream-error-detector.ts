@@ -21,6 +21,8 @@
  * Override the log dir via `OPENCODE_LOG_DIR` (used by tests).
  */
 
+import { hostEnv } from "../runtime/spawn-env.ts";
+
 /** Structured upstream-API fatal error extracted from the OpenCode log. */
 export interface UpstreamFatalError {
   /** HTTP status code (one of 401, 402, 403, 429). */
@@ -79,11 +81,18 @@ export function detectUpstreamFatalInLine(
 /** Resolve the log directory the OpenCode CLI writes to.
  *
  * Order: explicit `OPENCODE_LOG_DIR` env var → `<HOME>/.local/share/opencode/log`.
- * Returns `undefined` when neither is available. */
-export function resolveOpenCodeLogDir(): string | undefined {
-  const override = Deno.env.get("OPENCODE_LOG_DIR");
+ * Returns `undefined` when neither is available.
+ *
+ * @param env Caller-passed env of the run (FR-L53).
+ * @param inheritEnv `false` reads `env` only — the child writes its log
+ *   under the HOME it was given; otherwise this process's env. */
+export function resolveOpenCodeLogDir(
+  env?: Record<string, string>,
+  inheritEnv?: boolean,
+): string | undefined {
+  const override = hostEnv("OPENCODE_LOG_DIR", env, inheritEnv);
   if (override) return override;
-  const home = Deno.env.get("HOME");
+  const home = hostEnv("HOME", env, inheritEnv);
   if (!home) return undefined;
   return `${home}/.local/share/opencode/log`;
 }

@@ -204,6 +204,7 @@ export async function openCodexSession(
     extraArgs: extraArgv,
     cwd: opts.cwd,
     env: opts.env,
+    inheritEnv: opts.inheritEnv,
     signal: opts.signal,
     onStderr: opts.onStderr,
     processRegistry: opts.processRegistry,

@@ -17,6 +17,7 @@ import type {
 } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 import { stampLines } from "../runtime/log-format.ts";
 import {
   analyzeRuntimeErrorSignal,
@@ -254,6 +255,8 @@ export async function invokeCursorCli(
         opts.cursorHooks,
         // FR-L51
         opts.processGroup,
+        // FR-L53
+        opts.inheritEnv,
       );
       if (output.is_error) {
         lastError = `Cursor CLI returned error: ${output.result}`;
@@ -336,6 +339,7 @@ async function executeCursorProcess(
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   cursorHooks?: CursorLifecycleHooks,
   processGroup?: boolean,
+  inheritEnv?: boolean,
 ): Promise<CliRunOutput> {
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
   const syncedEnv = withSyncedPWD(env, cwd);
@@ -344,7 +348,8 @@ async function executeCursorProcess(
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    ...(syncedEnv ? { env: syncedEnv } : {}),
+    // FR-L53: `inheritEnv: false` drops this process's env.
+    ...spawnEnvOptions(syncedEnv, inheritEnv),
     ...(cwd ? { cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(processGroup ? { detached: true } : {}),

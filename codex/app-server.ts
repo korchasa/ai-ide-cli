@@ -37,6 +37,7 @@
 
 import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 import type { CodexUntypedNotification } from "./events.ts";
 import {
   abortReason,
@@ -135,6 +136,8 @@ export interface CodexAppServerClientOptions {
   processRegistry: ProcessRegistry;
   /** Spawn as the leader of its own process group (FR-L51). */
   processGroup?: boolean;
+  /** FR-L53: `false` → subprocess env is `env` only. */
+  inheritEnv?: boolean;
 }
 
 /**
@@ -310,7 +313,8 @@ export class CodexAppServerClient {
       stdin: "piped",
       stdout: "piped",
       stderr: "piped",
-      ...(syncedEnv ? { env: syncedEnv } : {}),
+      // FR-L53: `inheritEnv: false` drops this process's env.
+      ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
       // FR-L51: own process group → pgid == pid.
       ...(opts.processGroup ? { detached: true } : {}),

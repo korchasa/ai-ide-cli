@@ -17,6 +17,7 @@
 - [FR-L42](requirements.md#3-40-fr-l42-commands-fast-channel-discovery) — Commands fast-channel discovery: `RuntimeAdapter.fetchCommands(opts)` + transport-scoped `commandsFastChannel` capability, ACP-piloted today (claude/codex/opencode), CLI runtimes reject with typed `CommandsUnavailableError` — [x]
 - [FR-L47](requirements.md#3-45-fr-l47-the-codex-thread-opens-on-the-requested-model) — Codex ACP: the front's thread opens on the requested model via `CODEX_CONFIG`, so codex does not repeat its base instructions in a `<model_switch>` message — [x]
 - [FR-L48](requirements.md#3-46-fr-l48-the-version-line-is-plain-semver-from-1-0-0) — The version line is plain semver from 1.0.0, so a consumer on `^1` picks up a feature release without an edit; the stable surface is the `exports` map — [ ]
+- [FR-L53](requirements.md#3-51-fr-l53-opt-out-of-env-inheritance-inheritenv) — `inheritEnv: false`: the spawned agent gets only the caller-passed `env` plus the library's own vars; nothing from this process's env — [ ]
 
 ## ADR
 

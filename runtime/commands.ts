@@ -114,6 +114,14 @@ export interface FetchCommandsOptions {
    */
   env?: Record<string, string>;
   /**
+   * FR-L53: `false` starts the subprocess from an empty env — it gets
+   * only `env` plus the library's own variables (`PWD`, FR-L45 switch,
+   * FR-L18 config dir, ACP front env), nothing from this process. Pass
+   * `PATH` (required: binary lookup) and `HOME` (agent auth / config).
+   * Default `true`: inherit this process's env, `env` merged on top.
+   */
+  inheritEnv?: boolean;
+  /**
    * Ceiling on the wait for the first
    * `available_commands_update` notification. Default 10 000 ms.
    * On expiry the adapter throws

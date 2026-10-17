@@ -6,6 +6,7 @@
  */
 
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 
 /**
  * Result of {@link exportOpenCodeTranscript}. Exactly one of `path` or
@@ -43,6 +44,8 @@ export async function exportOpenCodeTranscript(
   opts?: {
     cwd?: string;
     env?: Record<string, string>;
+    /** FR-L53: `false` → subprocess env is `env` only. */
+    inheritEnv?: boolean;
     sanitize?: boolean;
     signal?: AbortSignal;
   },
@@ -59,7 +62,8 @@ export async function exportOpenCodeTranscript(
       stdout: "piped",
       stderr: "piped",
       ...(opts?.cwd ? { cwd: opts.cwd } : {}),
-      ...(syncedEnv ? { env: syncedEnv } : {}),
+      // FR-L53: `inheritEnv: false` drops this process's env.
+      ...spawnEnvOptions(syncedEnv, opts?.inheritEnv),
       ...(opts?.signal ? { signal: opts.signal } : {}),
     });
     const { success, code, stdout, stderr } = await cmd.output();

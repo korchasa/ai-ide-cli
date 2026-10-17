@@ -199,3 +199,16 @@ Deno.test("watchOpenCodeLogForFatalError — exits cleanly when signal aborts be
   assertEquals(fired, false);
   await Deno.remove(dir, { recursive: true });
 });
+
+Deno.test("FR-L53 resolveOpenCodeLogDir isolated reads only the passed env", () => {
+  assertEquals(
+    resolveOpenCodeLogDir({ HOME: "/iso" }, false),
+    "/iso/.local/share/opencode/log",
+  );
+  assertEquals(
+    resolveOpenCodeLogDir({ HOME: "/iso", OPENCODE_LOG_DIR: "/logs" }, false),
+    "/logs",
+  );
+  // No HOME passed: the detector is off, as for a parent without HOME.
+  assertEquals(resolveOpenCodeLogDir({}, false), undefined);
+});

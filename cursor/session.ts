@@ -48,6 +48,7 @@ import {
   safeInvokeCallback,
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import { buildCursorSendArgs } from "./argv.ts";
@@ -129,6 +130,8 @@ export interface CursorSessionOptions {
   processRegistry: ProcessRegistry;
   /** Spawn each per-send subprocess as a process-group leader (FR-L51). */
   processGroup?: boolean;
+  /** FR-L53: `false` → every subprocess env is `env` only. */
+  inheritEnv?: boolean;
 }
 
 // FR-L30: re-export the typed discriminated union from cursor/stream.ts as
@@ -230,6 +233,7 @@ export async function openCursorSession(
     (await createCursorChat({
       cwd: opts.cwd,
       env: opts.env,
+      inheritEnv: opts.inheritEnv,
       processRegistry: opts.processRegistry,
     }));
 
@@ -282,7 +286,8 @@ export async function openCursorSession(
       stdin: "null",
       stdout: "piped",
       stderr: "piped",
-      ...(syncedEnv ? { env: syncedEnv } : {}),
+      // FR-L53: `inheritEnv: false` drops this process's env.
+      ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
       // FR-L51: own process group → pgid == pid.
       ...(opts.processGroup ? { detached: true } : {}),

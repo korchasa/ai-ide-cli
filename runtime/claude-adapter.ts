@@ -38,6 +38,8 @@ import {
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
+import { spawnEnvOptions } from "./spawn-env.ts";
+import { defaultClaudeConfigDir } from "./setting-sources.ts";
 import { withNonessentialTrafficDisabled } from "../claude/nonessential-traffic.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
@@ -64,10 +66,12 @@ function isClaudeTurnEnd(event: ClaudeStreamEvent): boolean {
  * Resolve the user-level Claude skills directory.
  * Skills placed here are discovered by Claude Code in any project.
  */
-function claudeSkillsDir(): string {
-  const configDir = Deno.env.get("CLAUDE_CONFIG_DIR") ??
-    join(Deno.env.get("HOME") ?? Deno.cwd(), ".claude");
-  return join(configDir, "skills");
+function claudeSkillsDir(
+  env: Record<string, string> | undefined,
+  inheritEnv: boolean | undefined,
+): string {
+  // FR-L53: an isolated child reads its config from the passed env.
+  return join(defaultClaudeConfigDir(env, inheritEnv), "skills");
 }
 
 /**
@@ -77,8 +81,10 @@ function claudeSkillsDir(): string {
  */
 async function injectSkills(
   skills: NonNullable<InteractiveOptions["skills"]>,
+  env: Record<string, string> | undefined,
+  inheritEnv: boolean | undefined,
 ): Promise<string[]> {
-  const skillsDir = claudeSkillsDir();
+  const skillsDir = claudeSkillsDir(env, inheritEnv);
   await Deno.mkdir(skillsDir, { recursive: true });
 
   const created: string[] = [];
@@ -217,6 +223,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       verbosity: opts.verbosity,
       cwd: opts.cwd,
       env: opts.env,
+      inheritEnv: opts.inheritEnv,
       onEvent: opts.onEvent,
       hooks: claudeHooks,
       onToolUseObserved: claudeHook,
@@ -252,6 +259,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       claudeArgs: opts.extraArgs,
       cwd: opts.cwd,
       env: opts.env,
+      inheritEnv: opts.inheritEnv,
       signal: opts.signal,
       settingSources: opts.settingSources,
       allowedTools: opts.allowedTools,
@@ -315,7 +323,11 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       });
 
       if (opts.skills && opts.skills.length > 0) {
-        injectedPaths = await injectSkills(opts.skills);
+        injectedPaths = await injectSkills(
+          opts.skills,
+          opts.env,
+          opts.inheritEnv,
+        );
       }
 
       const args: string[] = [];
@@ -330,7 +342,8 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
         stdin: "inherit",
         stdout: "inherit",
         stderr: "inherit",
-        env: syncedEnv,
+        // FR-L53: `inheritEnv: false` drops this process's env.
+        ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
       });
 

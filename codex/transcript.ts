@@ -8,11 +8,21 @@
  */
 
 import { join } from "@std/path";
+import { hostEnv, hostHome } from "../runtime/spawn-env.ts";
 
-/** Default Codex sessions directory: `$CODEX_HOME/sessions` or `~/.codex/sessions`. */
-export function defaultCodexSessionsDir(): string {
-  const codexHome = Deno.env.get("CODEX_HOME") ??
-    join(Deno.env.get("HOME") ?? Deno.cwd(), ".codex");
+/**
+ * Default Codex sessions directory: `$CODEX_HOME/sessions` or `~/.codex/sessions`.
+ *
+ * @param env Caller-passed env of the run (FR-L53).
+ * @param inheritEnv `false` reads `env` only and throws without
+ *   `CODEX_HOME` / `HOME`; otherwise this process's env.
+ */
+export function defaultCodexSessionsDir(
+  env?: Record<string, string>,
+  inheritEnv?: boolean,
+): string {
+  const codexHome = hostEnv("CODEX_HOME", env, inheritEnv) ??
+    join(hostHome(env, inheritEnv, "Codex sessions dir"), ".codex");
   return join(codexHome, "sessions");
 }
 

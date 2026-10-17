@@ -15,6 +15,7 @@
 
 import { type ProcessRegistry, signalChild } from "../../process-registry.ts";
 import { withSyncedPWD } from "../env-cwd-sync.ts";
+import { spawnEnvOptions } from "../spawn-env.ts";
 
 /** Inbound notification (server → client, no `id`). */
 export interface AcpClientNotification {
@@ -81,6 +82,8 @@ export interface AcpStdioClientOptions {
    * the whole group on dispose (FR-L51).
    */
   processGroup?: boolean;
+  /** FR-L53: `false` → the front's env is `env` only. */
+  inheritEnv?: boolean;
 }
 
 /**
@@ -191,14 +194,17 @@ export class AcpStdioClient {
     this.#registry = opts.processRegistry;
     this.#onRequest = opts.onRequest;
     this.#onStderr = opts.onStderr;
-    const baseEnv = { ...Deno.env.toObject(), ...(opts.env ?? {}) };
+    // FR-L53: isolated fronts start from `env` alone, never this process.
+    const baseEnv = opts.inheritEnv === false
+      ? { ...(opts.env ?? {}) }
+      : { ...Deno.env.toObject(), ...(opts.env ?? {}) };
     const syncedEnv = withSyncedPWD(baseEnv, opts.cwd) ?? baseEnv;
     this.#proc = new Deno.Command(opts.cmd, {
       args: [...opts.args],
       stdin: "piped",
       stdout: "piped",
       stderr: "piped",
-      env: syncedEnv,
+      ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
       // FR-L51: own process group → pgid == pid.
       ...(opts.processGroup ? { detached: true } : {}),

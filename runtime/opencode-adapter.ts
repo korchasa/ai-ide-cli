@@ -36,6 +36,7 @@ import {
   rejectUnsupportedRunOptions,
 } from "./run-options.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
+import { hostHome, spawnEnvOptions } from "./spawn-env.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -114,8 +115,16 @@ function opencodeEventToRuntime(
  * from `.opencode/skills/` and falls back to `.claude/skills/`. We use
  * the Claude path for broader compatibility.
  */
-function opencodeSkillsDir(): string {
-  return join(Deno.env.get("HOME") ?? Deno.cwd(), ".claude", "skills");
+function opencodeSkillsDir(
+  env: Record<string, string> | undefined,
+  inheritEnv: boolean | undefined,
+): string {
+  // FR-L53: an isolated child looks under the HOME it was given.
+  return join(
+    hostHome(env, inheritEnv, "OpenCode skills dir"),
+    ".claude",
+    "skills",
+  );
 }
 
 // FR-L39: transport-scoped capability vector for the OpenCode ACP
@@ -236,6 +245,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       mcpServers: opts.mcpServers,
       cwd: opts.cwd,
       env: opts.env,
+      inheritEnv: opts.inheritEnv,
       signal: opts.signal,
       onEvent: adaptEventCallback(opts.onEvent, opencodeEventToRuntime),
       onStderr: opts.onStderr,
@@ -255,7 +265,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       const env: Record<string, string> = { ...opts.env };
 
       if (opts.skills && opts.skills.length > 0) {
-        const skillsDir = opencodeSkillsDir();
+        const skillsDir = opencodeSkillsDir(opts.env, opts.inheritEnv);
         await Deno.mkdir(skillsDir, { recursive: true });
         for (const skill of opts.skills) {
           const targetDir = join(
@@ -279,7 +289,8 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
         stdin: "inherit",
         stdout: "inherit",
         stderr: "inherit",
-        env: syncedEnv,
+        // FR-L53: `inheritEnv: false` drops this process's env.
+        ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
       });
 

@@ -211,6 +211,7 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
       cursorArgs: opts.extraArgs,
       cwd: opts.cwd,
       env: opts.env,
+      inheritEnv: opts.inheritEnv,
       signal: opts.signal,
       onEvent: adaptEventCallback(
         opts.onEvent,

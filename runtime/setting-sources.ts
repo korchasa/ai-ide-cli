@@ -21,6 +21,7 @@
  */
 
 import { join } from "@std/path";
+import { hostEnv, hostHome } from "./spawn-env.ts";
 
 /** Individual Claude settings source. */
 export type SettingSource = "user" | "project" | "local";
@@ -92,8 +93,15 @@ export async function prepareSettingSourcesDir(
 /**
  * Resolve the default real `CLAUDE_CONFIG_DIR` — either the env override
  * or the platform default `$HOME/.claude`.
+ *
+ * @param env Caller-passed env of the run (FR-L53).
+ * @param inheritEnv `false` reads `env` only and throws without
+ *   `CLAUDE_CONFIG_DIR` / `HOME`; otherwise this process's env.
  */
-export function defaultClaudeConfigDir(): string {
-  return Deno.env.get("CLAUDE_CONFIG_DIR") ??
-    join(Deno.env.get("HOME") ?? Deno.cwd(), ".claude");
+export function defaultClaudeConfigDir(
+  env?: Record<string, string>,
+  inheritEnv?: boolean,
+): string {
+  return hostEnv("CLAUDE_CONFIG_DIR", env, inheritEnv) ??
+    join(hostHome(env, inheritEnv, "Claude config dir"), ".claude");
 }

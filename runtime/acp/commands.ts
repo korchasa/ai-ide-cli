@@ -126,6 +126,7 @@ export async function fetchAcpCommands(
     runtime,
     cwd: opts.cwd,
     env: opts.env,
+    inheritEnv: opts.inheritEnv,
     processRegistry: registry,
     acpFront: opts.acpFront,
   });

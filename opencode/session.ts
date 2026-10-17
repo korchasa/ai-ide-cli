@@ -29,6 +29,7 @@ import {
   safeInvokeCallback,
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 import type { ReasoningEffort } from "../runtime/reasoning-effort.ts";
 import {
   buildOpenCodeConfigContent,
@@ -114,6 +115,8 @@ export interface OpenCodeSessionOptions {
   processRegistry: ProcessRegistry;
   /** Spawn `opencode serve` as the leader of its own process group (FR-L51). */
   processGroup?: boolean;
+  /** FR-L53: `false` → `opencode serve` env is `env` only. */
+  inheritEnv?: boolean;
 }
 
 /** Terminal state of the OpenCode server subprocess. */
@@ -214,7 +217,8 @@ export async function openOpenCodeSession(
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    env: syncedEnv,
+    // FR-L53: `inheritEnv: false` drops this process's env.
+    ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(opts.processGroup ? { detached: true } : {}),

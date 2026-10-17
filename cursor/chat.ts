@@ -11,6 +11,7 @@
 
 import type { ProcessRegistry } from "../process-registry.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 
 /** Options for {@link createCursorChat}. */
 export interface CreateCursorChatOptions {
@@ -18,6 +19,8 @@ export interface CreateCursorChatOptions {
   cwd?: string;
   /** Extra env merged into the subprocess env. */
   env?: Record<string, string>;
+  /** FR-L53: `false` → subprocess env is `env` only. */
+  inheritEnv?: boolean;
   /**
    * Optional timeout in seconds for the create-chat call.
    * Default: 30 seconds.
@@ -48,7 +51,8 @@ export async function createCursorChat(
     stdout: "piped",
     stderr: "piped",
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
-    ...(syncedEnv ? { env: syncedEnv } : {}),
+    // FR-L53: `inheritEnv: false` drops this process's env.
+    ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
     signal: AbortSignal.timeout(timeoutMs),
   });
   const proc = cmd.spawn();

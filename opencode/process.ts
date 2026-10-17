@@ -34,6 +34,7 @@ import {
 } from "../runtime/callback-safety.ts";
 import { ERROR_CATEGORY_STREAM_STALL } from "../runtime/error-types.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 import { stampLines } from "../runtime/log-format.ts";
 import {
   buildOpenCodeConfigContent,
@@ -178,6 +179,8 @@ export async function invokeOpenCodeCli(
         streamStallTimeoutSeconds,
         // FR-L51
         opts.processGroup,
+        // FR-L53
+        opts.inheritEnv,
       );
       if (output.is_error) {
         lastError = `OpenCode returned error: ${output.result}`;
@@ -258,6 +261,7 @@ async function executeOpenCodeProcess(
   onCallbackError?: OnCallbackError,
   streamStallTimeoutSeconds: number = 120,
   processGroup?: boolean,
+  inheritEnv?: boolean,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
@@ -267,7 +271,8 @@ async function executeOpenCodeProcess(
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    ...(Object.keys(syncedEnv).length > 0 ? { env: syncedEnv } : {}),
+    // FR-L53: `inheritEnv: false` drops this process's env.
+    ...spawnEnvOptions(syncedEnv, inheritEnv),
     ...(cwd ? { cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(processGroup ? { detached: true } : {}),
@@ -324,7 +329,7 @@ async function executeOpenCodeProcess(
     // `isRetryable: true` and silently retries them indefinitely without
     // emitting any --format json event, which would otherwise leave the
     // adapter waiting until the wall-clock timeout.
-    const detectorLogDir = resolveOpenCodeLogDir();
+    const detectorLogDir = resolveOpenCodeLogDir(env, inheritEnv);
     const detectorTask = detectorLogDir
       ? (async () => {
         try {
@@ -511,6 +516,7 @@ async function executeOpenCodeProcess(
       const denialTranscript = await exportOpenCodeTranscript(lastSessionId, {
         cwd,
         env,
+        inheritEnv,
       });
       return {
         runtime: "opencode",
@@ -562,7 +568,7 @@ async function executeOpenCodeProcess(
         // FR-L32: surface transcript export failure instead of swallowing.
         const transcript = await exportOpenCodeTranscript(
           output.session_id,
-          { cwd, env },
+          { cwd, env, inheritEnv },
         );
         output.transcript_path = transcript.path;
         output.transcript_error = transcript.error;

@@ -29,6 +29,7 @@ import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { validateMcpServers } from "./mcp-injection.ts";
 import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
+import { hostHome, spawnEnvOptions } from "./spawn-env.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -65,8 +66,16 @@ export function _resetToolFilterWarning(): void {
  * `scope.ts`). The `~/.codex/` tree is reserved for Codex's own state and
  * agent TOML sidecars.
  */
-function codexSkillsDir(): string {
-  return join(Deno.env.get("HOME") ?? Deno.cwd(), ".agents", "skills");
+function codexSkillsDir(
+  env: Record<string, string> | undefined,
+  inheritEnv: boolean | undefined,
+): string {
+  // FR-L53: an isolated child looks under the HOME it was given.
+  return join(
+    hostHome(env, inheritEnv, "Codex skills dir"),
+    ".agents",
+    "skills",
+  );
 }
 
 /**
@@ -203,7 +212,7 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     const injectedPaths: string[] = [];
     try {
       if (opts.skills && opts.skills.length > 0) {
-        const skillsDir = codexSkillsDir();
+        const skillsDir = codexSkillsDir(opts.env, opts.inheritEnv);
         await Deno.mkdir(skillsDir, { recursive: true });
         for (const skill of opts.skills) {
           const targetDir = join(skillsDir, skill.frontmatter.name);
@@ -229,7 +238,8 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
         stdin: "inherit",
         stdout: "inherit",
         stderr: "inherit",
-        ...(syncedEnv ? { env: syncedEnv } : {}),
+        // FR-L53: `inheritEnv: false` drops this process's env.
+        ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
       });
 

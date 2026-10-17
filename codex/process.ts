@@ -66,6 +66,7 @@ import {
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 import { parseStructuredReply } from "../runtime/run-options.ts";
 import { stampLines } from "../runtime/log-format.ts";
 import { type ProcessRegistry, signalChild } from "../process-registry.ts";
@@ -85,7 +86,7 @@ import {
   formatCodexEventForOutput,
 } from "./run-state.ts";
 import { ERROR_CATEGORY_INVALID_REQUEST } from "../runtime/error-types.ts";
-import { findCodexSessionFile } from "./transcript.ts";
+import { defaultCodexSessionsDir, findCodexSessionFile } from "./transcript.ts";
 
 // Re-exports preserve the historical entry-point shape so existing
 // 'from "./codex/process.ts"' imports (production + tests) keep working
@@ -167,7 +168,11 @@ async function runCodexAttempts(
         opts.hooks,
         opts.onToolUseObserved,
         opts.onCallbackError,
-        { ephemeral: opts.ephemeral, processGroup: opts.processGroup },
+        {
+          ephemeral: opts.ephemeral,
+          processGroup: opts.processGroup,
+          inheritEnv: opts.inheritEnv,
+        },
       );
       // FR-L50: an unparsable reply fails the attempt, so it is retried.
       const output = opts.outputSchema
@@ -246,8 +251,17 @@ async function executeCodexProcess(
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   onCallbackError?: OnCallbackError,
-  runOpts: { ephemeral?: boolean; processGroup?: boolean } = {},
+  runOpts: {
+    ephemeral?: boolean;
+    processGroup?: boolean;
+    inheritEnv?: boolean;
+  } = {},
 ): Promise<{ output: CliRunOutput; errorCategory?: RuntimeErrorCategory }> {
+  // FR-L53: resolve the rollout dir before the spawn, so an isolated run
+  // without HOME fails before tokens are spent, not after the run.
+  const sessionsDir = runOpts.ephemeral
+    ? undefined
+    : defaultCodexSessionsDir(env, runOpts.inheritEnv);
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
   const syncedEnv = withSyncedPWD(env, cwd);
   const cmd = new Deno.Command("codex", {
@@ -255,7 +269,8 @@ async function executeCodexProcess(
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
-    ...(syncedEnv ? { env: syncedEnv } : {}),
+    // FR-L53: `inheritEnv: false` drops this process's env.
+    ...spawnEnvOptions(syncedEnv, runOpts.inheritEnv),
     ...(cwd ? { cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(runOpts.processGroup ? { detached: true } : {}),
@@ -427,8 +442,12 @@ async function executeCodexProcess(
               },
             },
           ],
-          transcript_path: state.threadId && !runOpts.ephemeral
-            ? await findCodexSessionFile(state.threadId, state.startMs)
+          transcript_path: state.threadId && sessionsDir
+            ? await findCodexSessionFile(
+              state.threadId,
+              state.startMs,
+              sessionsDir,
+            )
             : undefined,
         },
       };
@@ -454,10 +473,11 @@ async function executeCodexProcess(
 
     const output = extractCodexOutput(state);
     // FR-L52: an ephemeral run wrote no rollout, so there is none to find.
-    if (state.threadId && !runOpts.ephemeral) {
+    if (state.threadId && sessionsDir) {
       output.transcript_path = await findCodexSessionFile(
         state.threadId,
         state.startMs,
+        sessionsDir,
       );
     }
     return { output, errorCategory: state.errorCategory };

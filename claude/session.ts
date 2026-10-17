@@ -29,6 +29,7 @@ import {
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 import { withNonessentialTrafficDisabled } from "./nonessential-traffic.ts";
 import {
   type ReasoningEffort,
@@ -74,6 +75,8 @@ export interface ClaudeSessionOptions {
   cwd?: string;
   /** Extra env merged into the subprocess env. */
   env?: Record<string, string>;
+  /** FR-L53: `false` → subprocess env is `env` only (see RuntimeInvokeOptions). */
+  inheritEnv?: boolean;
   /**
    * External abort signal. On abort, the subprocess receives SIGTERM and the
    * session's `done` promise resolves with the resulting exit code.
@@ -311,7 +314,8 @@ export async function openClaudeSession(
   if (opts.settingSources) {
     const prepared = await prepareSettingSourcesDir(
       opts.settingSources,
-      env.CLAUDE_CONFIG_DIR ?? defaultClaudeConfigDir(),
+      env.CLAUDE_CONFIG_DIR ??
+        defaultClaudeConfigDir(opts.env, opts.inheritEnv),
       opts.cwd ?? Deno.cwd(),
     );
     settingCleanup = prepared.cleanup;
@@ -337,7 +341,8 @@ export async function openClaudeSession(
     stdin: "piped",
     stdout: "piped",
     stderr: "piped",
-    env: syncedEnv,
+    // FR-L53: `inheritEnv: false` drops this process's env.
+    ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(opts.processGroup ? { detached: true } : {}),

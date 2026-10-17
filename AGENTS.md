@@ -105,6 +105,11 @@ a `!` commit, which is why leaving that series took one deliberate
     that syncs `env.PWD` with subprocess `cwd` at every adapter spawn
     site so child processes see a `PWD` matching the kernel-level cwd
     (FR-L33).
+  - `runtime/spawn-env.ts` — `spawnEnvOptions` / `hostEnv` / `hostHome`
+    behind `inheritEnv: false` (FR-L53): every agent spawn site spreads
+    `spawnEnvOptions(env, inheritEnv)` (`clearEnv` + `PATH` required), and
+    child-facing path lookups (config / skills / sessions / log dirs,
+    ACP `CODEX_CONFIG`) read the passed env instead of `Deno.env`.
 - `claude/process.ts`, `claude/stream.ts`, `claude/session.ts` — Claude CLI
   invocation, streaming output parser, and streaming-input session.
   - `claude/permission-mode.ts` — Claude `--permission-mode` enum +

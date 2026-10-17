@@ -1,6 +1,9 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { join } from "@std/path";
-import { prepareSettingSourcesDir } from "./setting-sources.ts";
+import {
+  defaultClaudeConfigDir,
+  prepareSettingSourcesDir,
+} from "./setting-sources.ts";
 
 Deno.test("prepareSettingSourcesDir — ['user'] with existing settings.json symlinks it", async () => {
   const realConfigDir = await Deno.makeTempDir({ prefix: "claude-real-" });
@@ -112,4 +115,17 @@ Deno.test("prepareSettingSourcesDir — ['user'] with missing settings.json skip
     await Deno.remove(realConfigDir, { recursive: true });
     await Deno.remove(realCwd, { recursive: true });
   }
+});
+
+Deno.test("FR-L53 defaultClaudeConfigDir isolated reads only the passed env", () => {
+  assertEquals(defaultClaudeConfigDir({ HOME: "/iso" }, false), "/iso/.claude");
+  assertEquals(
+    defaultClaudeConfigDir({ HOME: "/iso", CLAUDE_CONFIG_DIR: "/cfg" }, false),
+    "/cfg",
+  );
+  assertThrows(
+    () => defaultClaudeConfigDir({}, false),
+    Error,
+    "Claude config dir needs HOME",
+  );
 });

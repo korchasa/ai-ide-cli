@@ -243,6 +243,44 @@ await invokeClaudeCli({
 });
 ```
 
+### Isolated environment (`inheritEnv: false`)
+
+By default the agent inherits this process's whole environment and `env`
+is merged on top. An app that runs inside an agent session (Claude Code,
+Codex, …) therefore hands that session's `CLAUDE_CODE_*`, `ANTHROPIC_*`,
+`CODEX_*`, `OTEL_*` and proxy variables to every agent it starts.
+`inheritEnv: false` cuts that off (FR-L53): the agent gets only `env`
+plus the library's own variables (`PWD`, the FR-L45 switch, the
+cleanroom `CLAUDE_CONFIG_DIR`, the ACP front's env). It works on every
+runtime, on both transports, and for `invoke`, `openSession`,
+`launchInteractive`, `fetchCapabilitiesSlow` and `fetchCommands`.
+
+You pass everything the agent needs:
+
+- `PATH` — required; the run throws without it, because Deno would
+  otherwise find the binary through this process's `PATH`.
+- `HOME` — where the agent keeps its login and config; the library also
+  resolves the config, skills, transcript and log directories from it.
+  A lookup that needs it throws when it is missing.
+- Credentials — an API key, or a `HOME` whose agent login works on its
+  own. A Claude started from inside Claude Desktop authenticates through
+  the host's variables and is not logged in without them.
+
+```ts
+import { ProcessRegistry } from "jsr:@korchasa/ai-ide-cli";
+import { getRuntimeAdapter } from "jsr:@korchasa/ai-ide-cli/runtime";
+
+const { output, error } = await getRuntimeAdapter("codex").invoke({
+  processRegistry: new ProcessRegistry(),
+  taskPrompt: "Reply with exactly the word: ok",
+  timeoutSeconds: 120,
+  maxRetries: 1,
+  retryDelaySeconds: 1,
+  inheritEnv: false,
+  env: { PATH: Deno.env.get("PATH")!, HOME: Deno.env.get("HOME")! },
+});
+```
+
 ## Runtime error analysis
 
 `analyzeRuntimeErrorSignal()` classifies captured CLI failure fragments

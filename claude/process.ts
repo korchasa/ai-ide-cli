@@ -20,6 +20,7 @@ import type { ExtraArgsMap, RuntimeInvokeResult } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { spawnEnvOptions } from "../runtime/spawn-env.ts";
 import {
   rejectTypedFlagCollision,
   requireStructuredOutput,
@@ -162,6 +163,8 @@ export interface ClaudeInvokeOptions {
   cwd?: string;
   /** Extra environment variables merged into the subprocess env. */
   env?: Record<string, string>;
+  /** FR-L53: `false` → subprocess env is `env` only (see RuntimeInvokeOptions). */
+  inheritEnv?: boolean;
   /**
    * Callback invoked with every raw NDJSON event object before any filtering
    * or extraction. Consumer decides what to keep (init metadata, token stats,
@@ -482,7 +485,8 @@ async function executeClaudeProcess(
   if (opts.settingSources) {
     const prepared = await prepareSettingSourcesDir(
       opts.settingSources,
-      env.CLAUDE_CONFIG_DIR ?? defaultClaudeConfigDir(),
+      env.CLAUDE_CONFIG_DIR ??
+        defaultClaudeConfigDir(opts.env, opts.inheritEnv),
       opts.cwd ?? Deno.cwd(),
     );
     settingCleanup = prepared.cleanup;
@@ -514,7 +518,8 @@ async function executeClaudeProcess(
     stdin: "null",
     stdout: "piped",
     stderr: "piped",
-    env: syncedEnv,
+    // FR-L53: `inheritEnv: false` drops this process's env.
+    ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(opts.processGroup ? { detached: true } : {}),

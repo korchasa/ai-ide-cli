@@ -705,3 +705,22 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
     await Deno.remove(home, { recursive: true });
   }
 });
+
+Deno.test("FR-L53 defaultCodexSessionsDir isolated reads only the passed env", async () => {
+  const { defaultCodexSessionsDir } = await import("./transcript.ts");
+  assertEquals(
+    defaultCodexSessionsDir({ HOME: "/iso" }, false),
+    "/iso/.codex/sessions",
+  );
+  assertEquals(
+    defaultCodexSessionsDir({ CODEX_HOME: "/ch" }, false),
+    "/ch/sessions",
+  );
+  let message = "";
+  try {
+    defaultCodexSessionsDir({}, false);
+  } catch (err) {
+    message = (err as Error).message;
+  }
+  assert(message.includes("Codex sessions dir needs HOME"), message);
+});

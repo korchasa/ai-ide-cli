@@ -14,6 +14,7 @@
 import type { RuntimeId } from "../../types.ts";
 import type { RuntimeInvokeOptions } from "../adapter-types.ts";
 import { AcpStdioClient } from "./client.ts";
+import { hostEnv } from "../spawn-env.ts";
 import { getAcpFront } from "./fronts.ts";
 import {
   type AcpConfigOptionDecl,
@@ -69,12 +70,19 @@ export function spawnClient(opts: {
   model?: string;
   /** FR-L51: spawn the front as the leader of its own process group. */
   processGroup?: boolean;
+  /** FR-L53: `false` → the front's env is launcher env + `env` only. */
+  inheritEnv?: boolean;
 }): AcpStdioClient {
   const front = opts.acpFront ?? getAcpFront(opts.runtime);
   if (!opts.acpFront && !front.pilot) throw notPiloted(opts.runtime);
   const launchEnv = { ...(front.env ?? {}), ...(opts.env ?? {}) };
   const mergedEnv = opts.runtime === "codex"
-    ? codexThreadStartEnv(launchEnv, Deno.env.get("CODEX_CONFIG"), opts.model)
+    ? codexThreadStartEnv(
+      launchEnv,
+      // FR-L53: an isolated front sees only the passed CODEX_CONFIG.
+      hostEnv("CODEX_CONFIG", opts.env, opts.inheritEnv),
+      opts.model,
+    )
     : launchEnv;
   try {
     return new AcpStdioClient({
@@ -86,6 +94,7 @@ export function spawnClient(opts: {
       onStderr: opts.onStderr,
       onRequest: opts.onRequest,
       processGroup: opts.processGroup,
+      inheritEnv: opts.inheritEnv,
     });
   } catch (err) {
     if (err instanceof Deno.errors.NotFound) {
