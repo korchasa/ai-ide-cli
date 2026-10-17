@@ -2213,7 +2213,7 @@ stable — never renumber on move.
         Evidence: `e2e/acp_claude_smoke_e2e_test.ts::e2e acp/claude/transport=acp returns ok`.
   - [x] Real-binary smoke against `@agentclientprotocol/codex-acp` (gated
         on `E2E=1` + `OPENAI_API_KEY` OR codex auth probe;
-        `model: "gpt-5.4-mini"` + `reasoningEffort: "low"` pinned via
+        `model: "gpt-5.6-luna"` + `reasoningEffort: "low"` pinned via
         `session/set_config_option` to fit the e2e ceiling): one
         trivial prompt completes with `is_error === false` and reply
         contains `"ok"`.
