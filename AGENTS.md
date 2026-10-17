@@ -218,6 +218,12 @@ a `!` commit, which is why leaving that series took one deliberate
   `deno.json` `exports`). Symptom: `error[private-type-ref]: public type
   '<fn>' references private type '<T>'` on `deno publish --dry-run`. Fix:
   add `export type { T } from "./<module>.ts"` to the same entry-point.
+  A class method counts too, and so does an entry that re-exports only the
+  class: `runtime/index.ts` carries `export type { ProcessRegistry }`, so
+  the new `RegisterOptions` parameter of `register` had to be listed there
+  as well as in `mod.ts` (2026-10-17). Before adding a type, list every
+  entry that re-exports the owning module:
+  `grep -n -F '<module>.ts' mod.ts runtime/index.ts runtime/types.ts`.
 - `deno doc --lint <entry>` validates only symbols reachable from `<entry>`.
   Public symbols reachable via other barrels stay invisible without a
   publish dry-run — `scripts/check.ts` runs both.
