@@ -47,8 +47,8 @@ import {
   prepareSettingSourcesDir,
   type SettingSource,
 } from "../runtime/setting-sources.ts";
-import type { ProcessRegistry } from "../process-registry.ts";
-import { CLAUDE_RESERVED_FLAGS } from "./process.ts";
+import { type ProcessRegistry, signalChild } from "../process-registry.ts";
+import { buildClaudeRunOptionArgs, CLAUDE_RESERVED_FLAGS } from "./process.ts";
 import { type ClaudeStreamEvent, parseClaudeStreamEvent } from "./stream.ts";
 
 /** Options for {@link openClaudeSession}. */
@@ -108,6 +108,12 @@ export interface ClaudeSessionOptions {
    * {@link import("../runtime/types.ts").RuntimeInvokeOptions.strictMcpConfig}.
    */
   strictMcpConfig?: boolean;
+  /** JSON Schema for the final reply → `--json-schema` (FR-L50). */
+  outputSchema?: Record<string, unknown>;
+  /** Spawn as the leader of its own process group (FR-L51). */
+  processGroup?: boolean;
+  /** Keep session files off disk → `--no-session-persistence` (FR-L52). */
+  ephemeral?: boolean;
   /** Fires for every parsed stream-json event in stdout order. */
   onEvent?: (event: ClaudeStreamEvent) => void;
   /** Fires for every decoded stderr line (trimmed, may be empty). */
@@ -253,6 +259,9 @@ export function buildClaudeSessionArgs(opts: ClaudeSessionOptions): string[] {
     extraArgs: opts.claudeArgs,
   });
 
+  // FR-L50 / FR-L52: typed schema + ephemeral flags.
+  args.push(...buildClaudeRunOptionArgs(opts));
+
   args.push(...expandExtraArgs(opts.claudeArgs, CLAUDE_RESERVED_FLAGS));
 
   if (opts.resumeSessionId) {
@@ -330,11 +339,13 @@ export async function openClaudeSession(
     stderr: "piped",
     env: syncedEnv,
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
+    // FR-L51: own process group → pgid == pid.
+    ...(opts.processGroup ? { detached: true } : {}),
   });
 
   const process = cmd.spawn();
   const registry = opts.processRegistry;
-  registry.register(process);
+  registry.register(process, { processGroup: opts.processGroup });
 
   const encoder = new TextEncoder();
   const stdinWriter = process.stdin.getWriter();
@@ -433,11 +444,7 @@ export async function openClaudeSession(
   })();
 
   const doKill = () => {
-    try {
-      process.kill("SIGTERM");
-    } catch {
-      // Process may have already exited.
-    }
+    signalChild(process, "SIGTERM", opts.processGroup);
   };
 
   const onExternalAbort = () => {

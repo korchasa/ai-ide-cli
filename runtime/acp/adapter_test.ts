@@ -66,6 +66,71 @@ while IFS= read -r line; do
 done
 `;
 
+Deno.test("FR-L50 outputSchema on ACP throws AcpUnsupportedOptionError", async () => {
+  const base = {
+    processRegistry: new ProcessRegistry(),
+    // A launcher that would fail if spawned: the throw must come first.
+    acpFront: { cmd: "/nonexistent/front", args: [], pilot: true },
+  };
+  const err = await assertRejects(
+    () =>
+      invokeViaAcp("claude", {
+        ...base,
+        taskPrompt: "x",
+        timeoutSeconds: 30,
+        maxRetries: 0,
+        retryDelaySeconds: 0,
+        outputSchema: { type: "object" },
+      }),
+    AcpUnsupportedOptionError,
+  );
+  assertEquals(err.fields, ["outputSchema"]);
+  const sessionErr = await assertRejects(
+    () => openSessionViaAcp("codex", { ...base, ephemeral: true }),
+    AcpUnsupportedOptionError,
+  );
+  assertEquals(sessionErr.fields, ["ephemeral"]);
+});
+
+Deno.test("FR-L49 maps PromptResponse usage to CliRunUsage", async () => {
+  const script = HANDSHAKE_SCRIPT.replace(
+    `respond "$id" '{"stopReason":"end_turn"}'`,
+    `respond "$id" '{"stopReason":"end_turn","usage":{"inputTokens":30975,"outputTokens":20,"cachedReadTokens":0,"cachedWriteTokens":0,"thoughtTokens":13,"totalTokens":30995}}'`,
+  );
+  await withStubAcpFront({ script }, async (front) => {
+    const result = await invokeViaAcp("codex", {
+      processRegistry: new ProcessRegistry(),
+      acpFront: front,
+      taskPrompt: "say ok",
+      timeoutSeconds: 30,
+      maxRetries: 0,
+      retryDelaySeconds: 0,
+    });
+    assertEquals(result.output?.usage, {
+      input_tokens: 30975,
+      output_tokens: 20,
+      cached_tokens: 0,
+      cache_write_tokens: 0,
+      reasoning_tokens: 13,
+    });
+  });
+});
+
+Deno.test("FR-L49 absent usage stays undefined", async () => {
+  await withStubAcpFront({ script: HANDSHAKE_SCRIPT }, async (front) => {
+    const result = await invokeViaAcp("claude", {
+      processRegistry: new ProcessRegistry(),
+      acpFront: front,
+      taskPrompt: "say ok",
+      timeoutSeconds: 30,
+      maxRetries: 0,
+      retryDelaySeconds: 0,
+    });
+    assert(result.output, JSON.stringify(result));
+    assert(!("usage" in result.output), "usage must be absent, not zeroed");
+  });
+});
+
 Deno.test("invokeViaAcp drives initialize → session/new → session/prompt to a result", async () => {
   await withStubAcpFront({ script: HANDSHAKE_SCRIPT }, async (front) => {
     const registry = new ProcessRegistry();

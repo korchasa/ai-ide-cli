@@ -1,4 +1,5 @@
 import { invokeCodexCli } from "../codex/process.ts";
+import { rejectProcessGroupOnWindows } from "./run-options.ts";
 import { openCodexSession } from "../codex/session.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
 import { fetchAcpCommands } from "./acp/commands.ts";
@@ -151,6 +152,8 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     return this.capabilities;
   },
   invoke(opts) {
+    // FR-L51: Deno cannot signal a process group on Windows.
+    rejectProcessGroupOnWindows("codex", opts);
     // FR-L39
     if (opts.transport === "acp") return invokeViaAcp("codex", opts);
     rejectUnsupportedSystemPromptFile("codex", opts);
@@ -162,6 +165,8 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     return invokeCodexCli(opts);
   },
   openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    // FR-L51: Deno cannot signal a process group on Windows.
+    rejectProcessGroupOnWindows("codex", opts);
     if (opts.transport === "acp") return openSessionViaAcp("codex", opts);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
@@ -171,31 +176,17 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     return openCodexSession(opts);
   },
 
-  async fetchCapabilitiesSlow(
+  fetchCapabilitiesSlow(
     opts: FetchCapabilitiesOptions,
   ): Promise<CapabilityInventory> {
-    const schemaPath = await Deno.makeTempFile({
-      prefix: "codex-capability-schema-",
-      suffix: ".json",
-    });
-    try {
-      await Deno.writeTextFile(
-        schemaPath,
-        JSON.stringify(CAPABILITY_INVENTORY_SCHEMA),
-      );
-      return await fetchInventoryViaInvoke(
-        "codex",
-        (inner) => this.invoke(inner),
-        opts,
-        { "--output-schema": schemaPath },
-      );
-    } finally {
-      try {
-        await Deno.remove(schemaPath);
-      } catch {
-        // best-effort cleanup
-      }
-    }
+    // FR-L50: the runner writes the schema file and removes it.
+    return fetchInventoryViaInvoke(
+      "codex",
+      (inner) => this.invoke(inner),
+      opts,
+      undefined,
+      CAPABILITY_INVENTORY_SCHEMA,
+    );
   },
 
   // FR-L42: zero-LLM-cost commands fast-channel via the ACP front.

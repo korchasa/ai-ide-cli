@@ -6,6 +6,7 @@ import {
   updateActiveTurnId,
 } from "./session.ts";
 import { SessionInputClosedError } from "../runtime/types.ts";
+import { RuntimeUnsupportedOptionError } from "../runtime/run-options.ts";
 import { defaultRegistry } from "../process-registry.ts";
 
 // --- Pure helpers ---
@@ -478,4 +479,64 @@ Deno.test({
       );
     }, { STUB_ABORT_MODE: "1" });
   },
+});
+
+/** Read the captured JSON-RPC requests the stub received. */
+async function readCapture(
+  captureFile: string,
+): Promise<Array<{ method?: string; params?: Record<string, unknown> }>> {
+  const raw = await Deno.readTextFile(captureFile);
+  return raw.trim().split("\n").map((line) => JSON.parse(line));
+}
+
+Deno.test({
+  name: "FR-L50 turn/start carries outputSchema",
+  sanitizeResources: false,
+  fn: async () => {
+    await withStubCodex(async ({ captureFile }) => {
+      const schema = { type: "object", required: ["verdict"] };
+      const session = await openCodexSession({
+        processRegistry: defaultRegistry,
+        outputSchema: schema,
+      });
+      await session.send("first");
+      await session.endInput();
+      await session.done;
+      const start = (await readCapture(captureFile)).find((r) =>
+        r.method === "turn/start"
+      );
+      assertEquals(start?.params?.outputSchema, schema);
+    });
+  },
+});
+
+Deno.test({
+  name: "FR-L52 thread/start carries ephemeral",
+  sanitizeResources: false,
+  fn: async () => {
+    await withStubCodex(async ({ captureFile }) => {
+      const session = await openCodexSession({
+        processRegistry: defaultRegistry,
+        ephemeral: true,
+      });
+      await session.endInput();
+      await session.done;
+      const start = (await readCapture(captureFile)).find((r) =>
+        r.method === "thread/start"
+      );
+      assertEquals(start?.params?.ephemeral, true);
+    });
+  },
+});
+
+Deno.test("FR-L52 ephemeral with resumeSessionId is refused before spawning", async () => {
+  await assertRejects(
+    () =>
+      openCodexSession({
+        processRegistry: defaultRegistry,
+        ephemeral: true,
+        resumeSessionId: "thread-abc",
+      }),
+    RuntimeUnsupportedOptionError,
+  );
 });

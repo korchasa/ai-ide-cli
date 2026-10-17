@@ -193,14 +193,16 @@ function normalizeEntry(entry: unknown): CapabilityRef | null {
   return ref;
 }
 
+// FR-L50
 /**
  * Adapter-shared driver for {@link RuntimeAdapter.fetchCapabilitiesSlow}.
  *
- * Dispatches a single-turn invocation with the shared system/task prompt
- * and the runtime-specific `extraArgs` (for example `--json-schema` on
- * Claude or `--output-schema <file>` on Codex). Parses the returned
- * `CliRunOutput.result` into a {@link CapabilityInventory}. The caller owns
- * any temporary files it passed through `extraArgs`.
+ * Dispatches a single-turn invocation with the shared system/task prompt,
+ * the runtime-specific `extraArgs` (for example `--max-turns` on Claude)
+ * and, for runtimes with schema support, `outputSchema` (FR-L50). Parses
+ * `CliRunOutput.structured_output` when the runtime filled it, else the
+ * reply text, into a {@link CapabilityInventory}. The caller owns any
+ * temporary files it passed through `extraArgs`.
  */
 export async function fetchInventoryViaInvoke(
   runtime: RuntimeId,
@@ -208,6 +210,7 @@ export async function fetchInventoryViaInvoke(
     systemPrompt?: string;
     taskPrompt: string;
     extraArgs?: ExtraArgsMap;
+    outputSchema?: Record<string, unknown>;
     timeoutSeconds: number;
     maxRetries: number;
     retryDelaySeconds: number;
@@ -220,6 +223,7 @@ export async function fetchInventoryViaInvoke(
   }) => Promise<RuntimeInvokeResult>,
   opts: FetchCapabilitiesOptions,
   extraArgs?: ExtraArgsMap,
+  outputSchema?: Record<string, unknown>,
 ): Promise<CapabilityInventory> {
   // FR-L20: the schema `extraArgs` (`--json-schema` / `--output-schema` /
   // `--max-turns`) are CLI-only flags with no ACP wire home — passing them
@@ -231,6 +235,8 @@ export async function fetchInventoryViaInvoke(
     systemPrompt: CAPABILITY_INVENTORY_SYSTEM_PROMPT,
     taskPrompt: CAPABILITY_INVENTORY_PROMPT,
     extraArgs: onAcp ? undefined : extraArgs,
+    // FR-L50: ACP has no schema field; the tolerant parser covers it.
+    ...(outputSchema && !onAcp ? { outputSchema } : {}),
     timeoutSeconds: opts.timeoutSeconds ?? 120,
     maxRetries: 0,
     retryDelaySeconds: 0,
@@ -250,7 +256,13 @@ export async function fetchInventoryViaInvoke(
       `fetchCapabilitiesSlow (${runtime}): invocation produced no output`,
     );
   }
-  return parseCapabilityInventoryResponse(result.output.result, runtime);
+  const structured = result.output.structured_output;
+  return parseCapabilityInventoryResponse(
+    structured !== undefined
+      ? JSON.stringify(structured)
+      : result.output.result,
+    runtime,
+  );
 }
 
 /** Best-effort JSON extraction; returns `undefined` on total failure. */

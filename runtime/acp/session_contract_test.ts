@@ -67,6 +67,11 @@ while IFS= read -r line; do
 done
 `;
 
+const USAGE_SCRIPT = HANDSHAKE_SCRIPT.replace(
+  `respond "$id" '{"stopReason":"end_turn"}'`,
+  `respond "$id" '{"stopReason":"end_turn","usage":{"inputTokens":11,"outputTokens":7,"cachedReadTokens":3,"totalTokens":21}}'`,
+);
+
 const PROMPT_RPC_ERROR_SCRIPT = `
 respond() {
   printf '{"jsonrpc":"2.0","id":%s,"result":%s}\\n' "$1" "$2"
@@ -261,6 +266,37 @@ for (const runtime of RUNTIMES) {
           }
           assert(threw, "expected re-iteration to throw");
         } finally {
+          await session.done;
+        }
+      });
+    },
+  );
+
+  Deno.test(
+    `RuntimeSession contract (acp/${runtime}) — FR-L49 turn-end event carries usage`,
+    async () => {
+      await withAcpSession(runtime, USAGE_SCRIPT, async (open) => {
+        const session = await open();
+        try {
+          let turnEnd: RuntimeSessionEvent | undefined;
+          const drainer = (async () => {
+            for await (const ev of session.events) {
+              if (ev.type === SYNTHETIC_TURN_END) {
+                turnEnd = ev;
+                break;
+              }
+            }
+          })();
+          await session.send("hello");
+          await drainer;
+          assert(turnEnd, "expected a synthetic turn-end");
+          assertEquals(turnEnd.raw["usage"], {
+            input_tokens: 11,
+            output_tokens: 7,
+            cached_tokens: 3,
+          });
+        } finally {
+          session.abort();
           await session.done;
         }
       });

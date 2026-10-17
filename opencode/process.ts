@@ -20,7 +20,7 @@
  */
 
 import type { CliRunOutput, Verbosity } from "../types.ts";
-import type { ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import type {
   OnRuntimeToolUseObservedCallback,
   RuntimeInvokeOptions,
@@ -176,6 +176,8 @@ export async function invokeOpenCodeCli(
         opts.onToolUseObserved,
         opts.onCallbackError,
         streamStallTimeoutSeconds,
+        // FR-L51
+        opts.processGroup,
       );
       if (output.is_error) {
         lastError = `OpenCode returned error: ${output.result}`;
@@ -255,6 +257,7 @@ async function executeOpenCodeProcess(
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   onCallbackError?: OnCallbackError,
   streamStallTimeoutSeconds: number = 120,
+  processGroup?: boolean,
 ): Promise<CliRunOutput> {
   const processEnv: Record<string, string> = { ...env };
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
@@ -266,12 +269,14 @@ async function executeOpenCodeProcess(
     stderr: "piped",
     ...(Object.keys(syncedEnv).length > 0 ? { env: syncedEnv } : {}),
     ...(cwd ? { cwd } : {}),
+    // FR-L51: own process group → pgid == pid.
+    ...(processGroup ? { detached: true } : {}),
   });
 
   const spawnedAt = Date.now();
   const process = cmd.spawn();
   const registry = processRegistry;
-  registry.register(process);
+  registry.register(process, { processGroup });
 
   let timedOut = false;
   let initEmitted = false;
@@ -297,11 +302,7 @@ async function executeOpenCodeProcess(
       : timeoutSignal;
     const onAbort = () => {
       if (timeoutSignal.aborted) timedOut = true;
-      try {
-        process.kill("SIGTERM");
-      } catch {
-        // Process may have already exited.
-      }
+      signalChild(process, "SIGTERM", processGroup);
     };
     combined.addEventListener("abort", onAbort, { once: true });
 
@@ -313,11 +314,7 @@ async function executeOpenCodeProcess(
       if (stallTimer !== undefined) clearTimeout(stallTimer);
       stallTimer = setTimeout(() => {
         streamStalled = true;
-        try {
-          process.kill("SIGTERM");
-        } catch {
-          // Process may have already exited.
-        }
+        signalChild(process, "SIGTERM", processGroup);
       }, streamStallTimeoutSeconds * 1000);
     };
     resetStallTimer();
@@ -342,11 +339,7 @@ async function executeOpenCodeProcess(
             path,
             (err) => {
               upstreamFatal = err;
-              try {
-                process.kill("SIGTERM");
-              } catch {
-                // Process may have already exited.
-              }
+              signalChild(process, "SIGTERM", processGroup);
             },
             detectorAbort.signal,
           );
@@ -375,11 +368,7 @@ async function executeOpenCodeProcess(
 
     const killForDenial = () => {
       denialAbort = true;
-      try {
-        process.kill("SIGTERM");
-      } catch {
-        // Process may already be gone.
-      }
+      signalChild(process, "SIGTERM", processGroup);
     };
 
     // deno-lint-ignore no-explicit-any

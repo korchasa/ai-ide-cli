@@ -17,6 +17,10 @@ import {
   validateMcpServers,
 } from "../runtime/mcp-injection.ts";
 import { decidePermissionMode } from "./permission-mode.ts";
+import {
+  rejectTypedFlagCollision,
+  validateOutputSchema,
+} from "../runtime/run-options.ts";
 
 /**
  * Flags reserved by {@link buildCodexArgs}. Keys in `extraArgs` that match
@@ -53,6 +57,12 @@ export const CODEX_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
   // the SDK reference list at the top of codex/process.ts). Repetition
   // is expected.
   "--config",
+  // FR-L50: typed `outputSchema` is preferred; legacy
+  // `extraArgs: { "--output-schema": "<file>" }` stays valid when it is
+  // unset. Collision is checked by `rejectTypedFlagCollision`.
+  "--output-schema",
+  // FR-L52: same back-compat reasoning for typed `ephemeral`.
+  "--ephemeral",
 ];
 
 /**
@@ -79,6 +89,8 @@ export function permissionModeToCodexArgs(mode?: string): string[] {
   return out;
 }
 
+// FR-L50
+// FR-L52
 /**
  * Build CLI arguments for the `codex` command.
  * Exported for testing.
@@ -88,8 +100,31 @@ export function permissionModeToCodexArgs(mode?: string): string[] {
  *
  * - Session resume: `resume <threadId>` positional subcommand.
  * - Permissions: see {@link permissionModeToCodexArgs}.
+ * - `outputSchemaPath`: the temp file the runner wrote `opts.outputSchema`
+ *   to (FR-L50) → `--output-schema <path>`. The builder stays pure, so
+ *   the runner owns the file.
+ * - `opts.ephemeral` → `--ephemeral` (FR-L52).
+ *
+ * @param opts Invocation options.
+ * @param outputSchemaPath Path of the written schema file, when any.
  */
-export function buildCodexArgs(opts: RuntimeInvokeOptions): string[] {
+export function buildCodexArgs(
+  opts: RuntimeInvokeOptions,
+  outputSchemaPath?: string,
+): string[] {
+  validateOutputSchema(opts.outputSchema);
+  rejectTypedFlagCollision(
+    "outputSchema",
+    opts.outputSchema,
+    ["--output-schema"],
+    opts.extraArgs,
+  );
+  rejectTypedFlagCollision(
+    "ephemeral",
+    opts.ephemeral,
+    ["--ephemeral"],
+    opts.extraArgs,
+  );
   const args: string[] = ["exec", "--experimental-json"];
 
   if (opts.model) {
@@ -114,6 +149,9 @@ export function buildCodexArgs(opts: RuntimeInvokeOptions): string[] {
   // mcp_servers.*` overrides in extraArgs win on duplication.
   validateMcpServers("codex", { mcpServers: opts.mcpServers });
   args.push(...buildCodexMcpServersArgs(opts.mcpServers));
+  // FR-L50 / FR-L52
+  if (outputSchemaPath) args.push("--output-schema", outputSchemaPath);
+  if (opts.ephemeral) args.push("--ephemeral");
   args.push(...expandExtraArgs(opts.extraArgs, CODEX_RESERVED_FLAGS));
 
   if (opts.resumeSessionId) {

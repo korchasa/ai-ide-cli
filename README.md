@@ -96,6 +96,9 @@ adapter.capabilitiesFor?.("acp");
 | typed assistant content blocks | yes (`ClaudeAssistantBlock`: `text` / `tool_use` / `thinking` discriminator) | partial (`OpenCodeToolUseEvent` from `run --format json`; `Part` union from `@opencode-ai/sdk` not re-exported yet — FR-L27 pending) | partial (`CursorAssistantBlock`: text-only — Cursor does NOT inline tool blocks; tool calls are sibling `tool_call/{started,completed}` events with a `tool_call.<name>ToolCall.{args\|result}` wrapper unflattened by `unwrapCursorToolCall`, FR-L30) | yes (`CodexThreadItem` 10-variant union: `agentMessage` / `reasoning` / `plan` / `commandExecution` / `fileChange` / `mcpToolCall` / `dynamicToolCall` / `webSearch` / …, FR-L26) |
 | structured init w/ capabilities | yes (`ClaudeSystemEvent` carries `tools[]` / `skills[]` / `agents[]` / `mcp_servers[]` / `slash_commands[]` / `plugins[]`) | no in event stream (capability inventory available out-of-band via the `/agent` and `/config` server endpoints) | no (init only carries `model` / `cwd` / `permissionMode` / `apiKeySource`) | no in event stream (`thread/start` response carries `instructionSources[]` only — no tool enum) |
 | per-assistant-turn lifecycle hook | yes (`ClaudeLifecycleHooks.onAssistant` fires once per assistant turn with the typed `ClaudeAssistantEvent`) | no (cross-runtime `RuntimeLifecycleHooks.onInit` / `onResult` only) | yes (`CursorLifecycleHooks.onAssistant` fires once per assistant turn with the typed `CursorAssistantEvent`, FR-L30) | no (cross-runtime hooks only — FR-L29 pending: `onCodexTurnCompleted` bound to `turn/completed`) |
+| outputSchema (FR-L50) | yes (`--json-schema`) | throws | throws | yes (`--output-schema`; session `turn/start.outputSchema`) |
+| processGroup (FR-L51) | yes | yes | yes | yes |
+| ephemeral (FR-L52)   | yes (`--no-session-persistence`) | throws | throws | yes (`--ephemeral`; session `thread/start.ephemeral`) |
 | settingSources cleanroom | yes (`CLAUDE_CONFIG_DIR` redirect, FR-L18) | silent ignore | silent ignore | silent ignore (FR-L28 pending — `CODEX_HOME` redirect) |
 
 Universal across all four runtimes: NDJSON event streaming, `AbortSignal`
@@ -315,6 +318,47 @@ For one-shot Claude invocations, `RuntimeInvokeOptions.systemPromptFile`
 maps to `--append-system-prompt-file <path>`. It is mutually exclusive
 with `systemPrompt`; OpenCode, Cursor, and Codex reject it until they
 gain native file-prompt support.
+
+## Per-run options
+
+Four opt-in fields on `RuntimeInvokeOptions` / `RuntimeSessionOptions`.
+A runtime that cannot honour one throws `RuntimeUnsupportedOptionError`
+(CLI) or `AcpUnsupportedOptionError` (ACP) before anything spawns —
+nothing is dropped silently.
+
+- **Token usage over ACP.** `transport: "acp"` fills `output.usage` on
+  invoke and `raw.usage` on each session turn-end, per turn, copied from
+  the front. No option needed.
+- **`outputSchema`** — a JSON Schema object. Claude (`--json-schema`) and
+  Codex (`--output-schema`, `turn/start.outputSchema` on sessions).
+  Invoke fills `output.structured_output`; a missing or unparsable object
+  sets `is_error` and `structured_output_error`.
+- **`processGroup: true`** — the runtime leads its own process group, so
+  abort, timeout and `killAll()` also kill the tools it forked. Every
+  runtime; throws on Windows. The group is outside the terminal's
+  foreground group, so Ctrl-C no longer reaches it directly — wire
+  `SIGINT` to `killAll()` (e.g. `installSignalHandlers()`).
+- **`ephemeral: true`** — leave no saved session on disk. Claude
+  (`--no-session-persistence`) and Codex (`--ephemeral`,
+  `thread/start.ephemeral`; refused with `resumeSessionId`).
+
+```ts
+const result = await getRuntimeAdapter("codex").invoke({
+  taskPrompt: "Return answer=ok and n=7.",
+  timeoutSeconds: 120,
+  maxRetries: 1,
+  retryDelaySeconds: 0,
+  outputSchema: {
+    type: "object",
+    properties: { answer: { type: "string" }, n: { type: "integer" } },
+    required: ["answer", "n"],
+    additionalProperties: false,
+  },
+  processGroup: true,
+  ephemeral: true,
+});
+console.log(result.output?.structured_output); // { answer: "ok", n: 7 }
+```
 
 ## Alternate Transport (ACP)
 

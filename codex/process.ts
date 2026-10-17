@@ -66,8 +66,9 @@ import {
   safeAwaitCallback,
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import { parseStructuredReply } from "../runtime/run-options.ts";
 import { stampLines } from "../runtime/log-format.ts";
-import type { ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import {
   type CodexExecEvent,
   type CodexExecItemCompletedEvent,
@@ -116,12 +117,42 @@ export async function invokeCodexCli(
   const mergedTaskPrompt = opts.systemPrompt
     ? `${opts.systemPrompt}\n\n${opts.taskPrompt}`
     : opts.taskPrompt;
-  const args = buildCodexArgs(opts);
+  // Validate before any file is written: a bad option must not leave a
+  // schema file behind.
+  buildCodexArgs(opts);
+  // FR-L50: `codex exec` reads the schema from a file. One file serves
+  // every attempt; it is removed whatever way the run ends.
+  const schemaPath = opts.outputSchema
+    ? await Deno.makeTempFile({
+      prefix: "codex-output-schema-",
+      suffix: ".json",
+    })
+    : undefined;
+  try {
+    if (schemaPath) {
+      await Deno.writeTextFile(schemaPath, JSON.stringify(opts.outputSchema));
+    }
+    return await runCodexAttempts(
+      opts,
+      buildCodexArgs(opts, schemaPath),
+      mergedTaskPrompt,
+    );
+  } finally {
+    if (schemaPath) await Deno.remove(schemaPath).catch(() => {});
+  }
+}
+
+/** Retry loop over {@link executeCodexProcess} for one prepared argv. */
+async function runCodexAttempts(
+  opts: RuntimeInvokeOptions,
+  args: string[],
+  mergedTaskPrompt: string,
+): Promise<RuntimeInvokeResult> {
   let lastError = "";
 
   for (let attempt = 1; attempt <= opts.maxRetries; attempt++) {
     try {
-      const { output, errorCategory } = await executeCodexProcess(
+      const { output: rawOutput, errorCategory } = await executeCodexProcess(
         args,
         mergedTaskPrompt,
         opts.timeoutSeconds,
@@ -136,7 +167,12 @@ export async function invokeCodexCli(
         opts.hooks,
         opts.onToolUseObserved,
         opts.onCallbackError,
+        { ephemeral: opts.ephemeral, processGroup: opts.processGroup },
       );
+      // FR-L50: an unparsable reply fails the attempt, so it is retried.
+      const output = opts.outputSchema
+        ? parseStructuredReply(rawOutput)
+        : rawOutput;
       if (output.is_error) {
         lastError = `Codex CLI returned error: ${output.result}`;
         // FR-L41: permanent upstream rejection (HTTP 400 invalid_request_error,
@@ -210,6 +246,7 @@ async function executeCodexProcess(
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   onCallbackError?: OnCallbackError,
+  runOpts: { ephemeral?: boolean; processGroup?: boolean } = {},
 ): Promise<{ output: CliRunOutput; errorCategory?: RuntimeErrorCategory }> {
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
   const syncedEnv = withSyncedPWD(env, cwd);
@@ -220,11 +257,13 @@ async function executeCodexProcess(
     stderr: "piped",
     ...(syncedEnv ? { env: syncedEnv } : {}),
     ...(cwd ? { cwd } : {}),
+    // FR-L51: own process group → pgid == pid.
+    ...(runOpts.processGroup ? { detached: true } : {}),
   });
 
   const process = cmd.spawn();
   const registry = processRegistry;
-  registry.register(process);
+  registry.register(process, { processGroup: runOpts.processGroup });
 
   let denialAbort = false;
 
@@ -234,11 +273,7 @@ async function executeCodexProcess(
       ? AbortSignal.any([userSignal, timeoutSignal])
       : timeoutSignal;
     const onAbort = () => {
-      try {
-        process.kill("SIGTERM");
-      } catch {
-        // Process may have already exited.
-      }
+      signalChild(process, "SIGTERM", runOpts.processGroup);
     };
     combined.addEventListener("abort", onAbort, { once: true });
 
@@ -317,11 +352,7 @@ async function executeCodexProcess(
               reason: "Aborted by onToolUseObserved callback",
             };
             denialAbort = true;
-            try {
-              process.kill("SIGTERM");
-            } catch {
-              // Process may have already exited.
-            }
+            signalChild(process, "SIGTERM", runOpts.processGroup);
           }
         }
       }
@@ -396,7 +427,7 @@ async function executeCodexProcess(
               },
             },
           ],
-          transcript_path: state.threadId
+          transcript_path: state.threadId && !runOpts.ephemeral
             ? await findCodexSessionFile(state.threadId, state.startMs)
             : undefined,
         },
@@ -422,7 +453,8 @@ async function executeCodexProcess(
     }
 
     const output = extractCodexOutput(state);
-    if (state.threadId) {
+    // FR-L52: an ephemeral run wrote no rollout, so there is none to find.
+    if (state.threadId && !runOpts.ephemeral) {
       output.transcript_path = await findCodexSessionFile(
         state.threadId,
         state.startMs,

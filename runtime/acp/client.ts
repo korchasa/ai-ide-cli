@@ -13,7 +13,7 @@
  * any line that does not parse as JSON.
  */
 
-import type { ProcessRegistry } from "../../process-registry.ts";
+import { type ProcessRegistry, signalChild } from "../../process-registry.ts";
 import { withSyncedPWD } from "../env-cwd-sync.ts";
 
 /** Inbound notification (server → client, no `id`). */
@@ -76,6 +76,11 @@ export interface AcpStdioClientOptions {
    * session keeps streaming.
    */
   onRequest?: AcpInboundRequestHandler;
+  /**
+   * Spawn the front as the leader of its own process group and signal
+   * the whole group on dispose (FR-L51).
+   */
+  processGroup?: boolean;
 }
 
 /**
@@ -162,6 +167,7 @@ export class AcpStdioClient {
   readonly #pending = new Map<number, Deferred<unknown>>();
   readonly #pendingMethods = new Map<number, string>();
   readonly #registry: ProcessRegistry;
+  readonly #processGroup: boolean;
   readonly #onRequest?: AcpInboundRequestHandler;
   readonly #onStderr?: (line: string) => void;
   #nextId = 1;
@@ -194,8 +200,11 @@ export class AcpStdioClient {
       stderr: "piped",
       env: syncedEnv,
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      // FR-L51: own process group → pgid == pid.
+      ...(opts.processGroup ? { detached: true } : {}),
     }).spawn();
-    this.#registry.register(this.#proc);
+    this.#processGroup = opts.processGroup === true;
+    this.#registry.register(this.#proc, { processGroup: this.#processGroup });
     this.#writer = this.#proc.stdin.getWriter();
     this.#exitStatus = this.#proc.status;
     this.#stdoutDone = this.#drainStdout();
@@ -341,11 +350,7 @@ export class AcpStdioClient {
         // already broken
       }
     }
-    try {
-      this.#proc.kill("SIGTERM");
-    } catch {
-      // already exited
-    }
+    signalChild(this.#proc, "SIGTERM", this.#processGroup);
     // SIGTERM-then-SIGKILL escalation. Some ACP fronts ignore SIGTERM
     // mid-prompt (codex-acp at 0.15.0 was observed to). Mirror the
     // pattern used in `ProcessRegistry.killAll` so a stuck front
@@ -358,11 +363,7 @@ export class AcpStdioClient {
     const winner = await Promise.race([exit, timer]);
     if (exitTimerId !== undefined) clearTimeout(exitTimerId);
     if (winner === "timeout") {
-      try {
-        this.#proc.kill("SIGKILL");
-      } catch {
-        // already exited
-      }
+      signalChild(this.#proc, "SIGKILL", this.#processGroup);
       await this.#exitStatus.catch(() => undefined);
     }
     this.#registry.unregister(this.#proc);

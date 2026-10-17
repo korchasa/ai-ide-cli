@@ -294,6 +294,30 @@ export interface RuntimeInvokeOptions {
    * as the legacy `OpenCode timed out` error (no `error_category`).
    */
   streamStallTimeoutSeconds?: number;
+  /**
+   * JSON Schema the final reply must match (FR-L50). Claude →
+   * `--json-schema`; Codex → `--output-schema <tmpfile>`. The parsed
+   * object lands in `CliRunOutput.structured_output`; a missing or
+   * unparsable reply sets `is_error` and `structured_output_error`.
+   * OpenCode / Cursor throw `RuntimeUnsupportedOptionError`, ACP throws
+   * `AcpUnsupportedOptionError`.
+   */
+  outputSchema?: Record<string, unknown>;
+  /**
+   * Spawn the runtime as the leader of its own process group (FR-L51,
+   * `detached: true` → `pgid == pid`). Every kill path — timeout, abort,
+   * `ProcessRegistry.killAll` — then signals the whole group, so tools
+   * the runtime forked die with it. Default `false`. Throws
+   * `RuntimeUnsupportedOptionError` on Windows.
+   */
+  processGroup?: boolean;
+  /**
+   * Keep the run's session files off disk (FR-L52). Codex →
+   * `--ephemeral`; Claude → `--no-session-persistence`. OpenCode / Cursor
+   * throw `RuntimeUnsupportedOptionError`, ACP throws
+   * `AcpUnsupportedOptionError`. Default `false`.
+   */
+  ephemeral?: boolean;
 }
 
 /** Result returned by a runtime adapter invocation. */

@@ -35,7 +35,7 @@
  * Entry point: {@link CodexAppServerClient}.
  */
 
-import type { ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import type { CodexUntypedNotification } from "./events.ts";
 import {
@@ -133,6 +133,8 @@ export interface CodexAppServerClientOptions {
    * {@link ProcessRegistry} so `killAll` is scoped to the embedder.
    */
   processRegistry: ProcessRegistry;
+  /** Spawn as the leader of its own process group (FR-L51). */
+  processGroup?: boolean;
 }
 
 /**
@@ -206,6 +208,7 @@ export class CodexAppServerClient {
   private readonly externalSignal?: AbortSignal;
   private readonly onExternalAbort?: () => void;
   private readonly registry: ProcessRegistry;
+  private readonly processGroup: boolean;
 
   private nextId = 1;
   private stdinClosed = false;
@@ -223,6 +226,7 @@ export class CodexAppServerClient {
     this.stdinWriter = process.stdin.getWriter();
     this.externalSignal = opts.signal;
     this.registry = opts.processRegistry;
+    this.processGroup = opts.processGroup === true;
 
     // External abort → SIGTERM. Registered only when a signal is provided so
     // clients without a signal incur no listener overhead.
@@ -308,10 +312,12 @@ export class CodexAppServerClient {
       stderr: "piped",
       ...(syncedEnv ? { env: syncedEnv } : {}),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      // FR-L51: own process group → pgid == pid.
+      ...(opts.processGroup ? { detached: true } : {}),
     });
     const process = cmd.spawn();
     const registry = opts.processRegistry;
-    registry.register(process);
+    registry.register(process, { processGroup: opts.processGroup });
     return new CodexAppServerClient(process, opts);
   }
 
@@ -419,11 +425,7 @@ export class CodexAppServerClient {
     this.aborted = true;
     // Fire-and-forget: the stdin pipe may already be broken after SIGTERM.
     this.forceCloseStdin().catch(() => {});
-    try {
-      this.process.kill("SIGTERM");
-    } catch {
-      // Process may have already exited.
-    }
+    signalChild(this.process, "SIGTERM", this.processGroup);
   }
 
   /**

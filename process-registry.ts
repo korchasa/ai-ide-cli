@@ -21,6 +21,41 @@
 
 const DEFAULT_GRACE_MS = 5000;
 
+// FR-L51
+/**
+ * Send `signal` to a child, or to its whole process group when
+ * `processGroup` is `true`. A child spawned with `detached: true` leads
+ * its own group (`pgid == pid`), so the group is addressed as `-pid`;
+ * that reaches the tools the child forked even after the child itself
+ * exited. A process or group that is already gone is not an error.
+ *
+ * @param p The spawned child.
+ * @param signal Signal to deliver.
+ * @param processGroup Signal the group led by `p` instead of `p` alone.
+ */
+export function signalChild(
+  p: Deno.ChildProcess,
+  signal: Deno.Signal,
+  processGroup?: boolean,
+): void {
+  try {
+    if (processGroup) Deno.kill(-p.pid, signal);
+    else p.kill(signal);
+  } catch {
+    // Already exited (ESRCH) — nothing to signal.
+  }
+}
+
+/** Options for {@link ProcessRegistry.register}. */
+export interface RegisterOptions {
+  /**
+   * The child leads its own process group (spawned with
+   * `detached: true`), so {@link ProcessRegistry.killAll} signals the
+   * whole group (FR-L51).
+   */
+  processGroup?: boolean;
+}
+
 interface ProcessRegistryOptions {
   /**
    * Milliseconds to wait after `SIGTERM` before escalating to `SIGKILL`.
@@ -38,6 +73,7 @@ interface ProcessRegistryOptions {
  */
 export class ProcessRegistry {
   readonly #processes = new Set<Deno.ChildProcess>();
+  readonly #groupLeaders = new Set<Deno.ChildProcess>();
   readonly #shutdownCallbacks: Array<() => Promise<void> | void> = [];
   readonly #graceMs: number;
 
@@ -52,14 +88,20 @@ export class ProcessRegistry {
     return this.#processes.size;
   }
 
-  /** Register a child process for tracking. Idempotent. */
-  register(p: Deno.ChildProcess): void {
+  /**
+   * Register a child process for tracking. Idempotent. Pass
+   * `{processGroup: true}` for a child spawned with `detached: true`, so
+   * {@link killAll} signals its whole group (FR-L51).
+   */
+  register(p: Deno.ChildProcess, opts: RegisterOptions = {}): void {
     this.#processes.add(p);
+    if (opts.processGroup) this.#groupLeaders.add(p);
   }
 
   /** Unregister a child process (e.g. after it exits normally). */
   unregister(p: Deno.ChildProcess): void {
     this.#processes.delete(p);
+    this.#groupLeaders.delete(p);
   }
 
   /** Register a callback to run during shutdown (lock release, state save).
@@ -75,16 +117,15 @@ export class ProcessRegistry {
   /** Kill all registered processes and run shutdown callbacks.
    *
    * Sends `SIGTERM`, waits up to `graceMs` for graceful exit, then `SIGKILL`.
-   * Callbacks run after the process wait completes.
+   * A group leader (FR-L51) gets both signals on its whole group; the
+   * wait ends when the leaders exit, so a group member that ignores
+   * `SIGTERM` is killed then. Callbacks run after the process wait
+   * completes.
    */
   async killAll(): Promise<void> {
     const waitPromises: Promise<unknown>[] = [];
     for (const p of this.#processes) {
-      try {
-        p.kill("SIGTERM");
-      } catch {
-        // Process may have already exited.
-      }
+      signalChild(p, "SIGTERM", this.#groupLeaders.has(p));
       waitPromises.push(
         p.status.catch(() => {
           /* ignore */
@@ -105,13 +146,10 @@ export class ProcessRegistry {
     }
 
     for (const p of this.#processes) {
-      try {
-        p.kill("SIGKILL");
-      } catch {
-        // Already exited.
-      }
+      signalChild(p, "SIGKILL", this.#groupLeaders.has(p));
     }
     this.#processes.clear();
+    this.#groupLeaders.clear();
 
     for (const cb of this.#shutdownCallbacks) {
       try {
@@ -126,6 +164,7 @@ export class ProcessRegistry {
   /** Reset tracker state. For test isolation only. */
   _reset(): void {
     this.#processes.clear();
+    this.#groupLeaders.clear();
     this.#shutdownCallbacks.length = 0;
   }
 
@@ -154,8 +193,11 @@ export class ProcessRegistry {
 export const defaultRegistry: ProcessRegistry = new ProcessRegistry();
 
 /** Register a child process in the default registry. */
-export function register(p: Deno.ChildProcess): void {
-  defaultRegistry.register(p);
+export function register(
+  p: Deno.ChildProcess,
+  opts: RegisterOptions = {},
+): void {
+  defaultRegistry.register(p, opts);
 }
 
 /** Unregister a child process from the default registry. */

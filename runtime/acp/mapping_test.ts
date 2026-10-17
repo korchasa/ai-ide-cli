@@ -14,6 +14,7 @@ import {
   pickConfigForModel,
   pickConfigForReasoningEffort,
   pickModeForPermissionMode,
+  usageFromPromptResponse,
 } from "./mapping.ts";
 import { SYNTHETIC_TURN_END } from "../types.ts";
 
@@ -30,6 +31,8 @@ Deno.test("ACP_UNSUPPORTED_INVOKE_OPTIONS pins the invoke surface set", () => {
     "streamLogPath",
     "verbosity",
     "onOutput",
+    "outputSchema",
+    "ephemeral",
   ]);
 });
 
@@ -39,6 +42,8 @@ Deno.test("ACP_UNSUPPORTED_SESSION_OPTIONS pins the session surface set", () => 
     "agent",
     "extraArgs",
     "strictMcpConfig",
+    "outputSchema",
+    "ephemeral",
   ]);
 });
 
@@ -387,4 +392,62 @@ Deno.test("codexThreadStartEnv refuses a CODEX_CONFIG that is not a JSON object"
       "CODEX_CONFIG",
     );
   }
+});
+
+Deno.test("FR-L49 usageFromPromptResponse maps every ACP usage field", () => {
+  assertEquals(
+    usageFromPromptResponse({
+      stopReason: "end_turn",
+      usage: {
+        totalTokens: 124898,
+        inputTokens: 1018,
+        cachedReadTokens: 123776,
+        cachedWriteTokens: 5,
+        outputTokens: 104,
+        thoughtTokens: 7,
+      },
+    }),
+    {
+      input_tokens: 1018,
+      output_tokens: 104,
+      cached_tokens: 123776,
+      cache_write_tokens: 5,
+      reasoning_tokens: 7,
+    },
+  );
+});
+
+Deno.test("FR-L49 usageFromPromptResponse leaves fields the front omitted undefined", () => {
+  const usage = usageFromPromptResponse({
+    usage: { inputTokens: 0, outputTokens: 3 },
+  });
+  assertEquals(usage, { input_tokens: 0, output_tokens: 3 });
+  assert(!("cached_tokens" in usage!));
+});
+
+Deno.test("FR-L49 usageFromPromptResponse returns undefined without usage", () => {
+  assertEquals(usageFromPromptResponse({ stopReason: "end_turn" }), undefined);
+  assertEquals(usageFromPromptResponse({ usage: null }), undefined);
+  assertEquals(
+    usageFromPromptResponse({ usage: { inputTokens: "x" } }),
+    undefined,
+  );
+});
+
+Deno.test("FR-L49 buildTurnEndEvent carries the turn usage", () => {
+  const event = buildTurnEndEvent("codex", "end_turn", { input_tokens: 2 });
+  assertEquals(event.raw, {
+    stopReason: "end_turn",
+    usage: { input_tokens: 2 },
+  });
+  assertEquals(buildTurnEndEvent("codex", "end_turn").raw, {
+    stopReason: "end_turn",
+  });
+});
+
+Deno.test("FR-L52 collectUnsupportedOptions treats ephemeral: false as unset", () => {
+  assertEquals(collectUnsupportedOptions("invoke", { ephemeral: false }), []);
+  assertEquals(collectUnsupportedOptions("session", { ephemeral: true }), [
+    "ephemeral",
+  ]);
 });

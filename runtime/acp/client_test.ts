@@ -257,3 +257,52 @@ Deno.test("AcpRpcError message carries the error data details", () => {
     "initialize → JSON-RPC error -32601: Method not found",
   );
 });
+
+Deno.test({
+  name: "FR-L51 detached front reports pgid == pid and dispose kills its group",
+  ignore: Deno.build.os === "windows",
+  fn: async () => {
+    const dir = await Deno.makeTempDir({ prefix: "acp-pgroup-" });
+    const pidFile = `${dir}/grandchild.pid`;
+    const registry = new ProcessRegistry();
+    // The "front" forks a grandchild, records its pid, then idles on stdin.
+    const client = new AcpStdioClient({
+      cmd: "/bin/sh",
+      args: ["-c", `sleep 30 & echo $! > ${pidFile}; cat > /dev/null`],
+      processRegistry: registry,
+      processGroup: true,
+    });
+    try {
+      const [proc] = [...registry._getProcesses()];
+      let grandchild = 0;
+      for (let i = 0; i < 100 && grandchild === 0; i++) {
+        await new Promise((r) => setTimeout(r, 20));
+        grandchild = Number(
+          (await Deno.readTextFile(pidFile).catch(() => "")).trim(),
+        );
+      }
+      assert(grandchild > 0, "front never recorded its grandchild");
+      const ps = await new Deno.Command("ps", {
+        args: ["-o", "pgid=", "-p", String(proc.pid)],
+      }).output();
+      assertEquals(
+        Number(new TextDecoder().decode(ps.stdout).trim()),
+        proc.pid,
+      );
+      await client.dispose();
+      let alive = true;
+      for (let i = 0; i < 40 && alive; i++) {
+        const probe = await new Deno.Command("kill", {
+          args: ["-0", String(grandchild)],
+          stderr: "null",
+        }).output();
+        alive = probe.success;
+        if (alive) await new Promise((r) => setTimeout(r, 50));
+      }
+      assertEquals(alive, false, "grandchild outlived dispose");
+    } finally {
+      await client.dispose();
+      await Deno.remove(dir, { recursive: true });
+    }
+  },
+});

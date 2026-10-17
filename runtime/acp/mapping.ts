@@ -22,7 +22,7 @@
  * coverage gaps without grepping logs.
  */
 
-import type { RuntimeId } from "../../types.ts";
+import type { CliRunUsage, RuntimeId } from "../../types.ts";
 import type { RuntimeInvokeOptions, RuntimeSessionOptions } from "../types.ts";
 import type { McpServers } from "../mcp-injection.ts";
 import { validateMcpServers } from "../mcp-injection.ts";
@@ -421,6 +421,10 @@ export function collectDegradedOptions(
  *   advertises the capability, else throwing the SAME
  *   `AcpUnsupportedOptionError` (later in the lifecycle, after spawn).
  * - `extraArgs` has no destination on the wire (ACP carries no CLI argv).
+ * - `outputSchema` (FR-L50): ACP has no schema field; embedding it in the
+ *   prompt would be a fallback the caller did not ask for.
+ * - `ephemeral` (FR-L52): no front exposes a "do not persist" switch.
+ *   `ephemeral: false` asks for today's behaviour and does not count.
  *
  * Set membership — not heuristics — is the source of truth. Adding a new
  * field to `RuntimeInvokeOptions` does NOT silently bypass the check, but
@@ -438,6 +442,8 @@ export const ACP_UNSUPPORTED_INVOKE_OPTIONS = [
   "streamLogPath",
   "verbosity",
   "onOutput",
+  "outputSchema",
+  "ephemeral",
 ] as const;
 
 /**
@@ -452,15 +458,18 @@ export const ACP_UNSUPPORTED_SESSION_OPTIONS = [
   "agent",
   "extraArgs",
   "strictMcpConfig",
+  "outputSchema",
+  "ephemeral",
 ] as const;
 
 /**
  * Pure: return the names of fields that are set on `opts` and listed in
  * the relevant pinned tuple. Presence-based — anything other than
  * `undefined` / `null` counts as set (empty array / empty string / `0` /
- * `false` all encode caller intent). The sole exception is `extraArgs`:
- * a map with zero entries does NOT count, because the engine cascade
- * resolves an unset `extraArgs` to `{}`. Never throws.
+ * `false` all encode caller intent). Two exceptions: an `extraArgs` map
+ * with zero entries does NOT count, because the engine cascade resolves
+ * an unset `extraArgs` to `{}`; and `ephemeral: false` does not count,
+ * because it is the opt-in switch turned off (FR-L52). Never throws.
  *
  * @param kind Whether to validate against the invoke or session tuple.
  * @param opts Option bag read by field name.
@@ -477,6 +486,7 @@ export function collectUnsupportedOptions(
   for (const field of set) {
     const value = opts[field];
     if (value === undefined || value === null) continue;
+    if (field === "ephemeral" && value === false) continue;
     if (
       field === "extraArgs" &&
       typeof value === "object" &&
@@ -518,15 +528,55 @@ export function mapSessionUpdate(
  * Build a synthetic turn-end event from the terminal
  * `PromptResponse.stopReason`. Mirrors the cross-runtime
  * {@link SYNTHETIC_TURN_END} contract emitted by every native adapter.
+ * `raw.usage` carries the turn's normalised token usage when the front
+ * reported one (FR-L49), and is absent otherwise.
  */
 export function buildTurnEndEvent(
   runtime: RuntimeId,
   stopReason: string,
+  usage?: CliRunUsage,
 ): RuntimeSessionEvent {
   return {
     runtime,
     type: SYNTHETIC_TURN_END,
-    raw: { stopReason },
+    raw: usage ? { stopReason, usage } : { stopReason },
     synthetic: true,
   };
+}
+
+const ACP_USAGE_FIELDS: ReadonlyArray<
+  readonly [string, keyof CliRunUsage]
+> = [
+  ["inputTokens", "input_tokens"],
+  ["outputTokens", "output_tokens"],
+  ["cachedReadTokens", "cached_tokens"],
+  ["cachedWriteTokens", "cache_write_tokens"],
+  ["thoughtTokens", "reasoning_tokens"],
+];
+
+// FR-L49
+/**
+ * Pure: project the `usage` object of an ACP `session/prompt` response
+ * onto {@link CliRunUsage}. The figure covers one prompt turn on both
+ * piloted fronts, so it is copied as-is. Fields the front did not send
+ * (or sent as a non-number) stay absent; a response without a usable
+ * `usage` yields `undefined`, never zeros — `PromptResponse.usage` is
+ * UNSTABLE in ACP v1.
+ *
+ * @param res The `session/prompt` response object.
+ */
+export function usageFromPromptResponse(
+  res: Record<string, unknown>,
+): CliRunUsage | undefined {
+  const raw = res["usage"];
+  if (!raw || typeof raw !== "object") return undefined;
+  const wire = raw as Record<string, unknown>;
+  const usage: CliRunUsage = {};
+  for (const [from, to] of ACP_USAGE_FIELDS) {
+    const value = wire[from];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      usage[to] = value;
+    }
+  }
+  return Object.keys(usage).length === 0 ? undefined : usage;
 }

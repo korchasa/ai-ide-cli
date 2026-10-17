@@ -188,8 +188,11 @@ engine or any external workflow package.
 `CliRunOutput` — runtime-neutral output shape:
 `result`, `session_id`, `total_cost_usd`, `duration_ms`, `duration_api_ms`,
 `num_turns`, `is_error`, optional `permission_denials`, `runtime`,
-`transcript_path`, `transcript_error`, `usage`. All runtime extractors
-produce this shape.
+`transcript_path`, `transcript_error`, `usage`, `structured_output` +
+`structured_output_error` (FR-L50). All runtime extractors produce this
+shape. `CliRunUsage`: `input_tokens`, `output_tokens`, `cached_tokens`,
+`cache_write_tokens` (FR-L49), `reasoning_tokens`, `cost_usd` — absent =
+not reported.
 
 ### 3.2 `process-registry.ts` — Process Tracker
 
@@ -209,7 +212,11 @@ Pure tracker. No signal wiring. Two flavors share one implementation:
 
 `killAll()` sequence (both flavors): SIGTERM all →
 `Promise.race([allSettled, graceMs timeout])` → SIGKILL survivors →
-run shutdown callbacks.
+run shutdown callbacks. `register(p, {processGroup: true})` marks a group
+leader (FR-L51); both signals then go to `-pid` via the exported
+`signalChild(p, sig, processGroup)`, which every adapter kill path also
+uses. The wait ends when leaders exit, so a member ignoring SIGTERM gets
+SIGKILL then.
 
 `processRegistry` is **required** on `RuntimeInvokeOptions` and
 `RuntimeSessionOptions` (and on every per-runtime invoke/session options
@@ -1889,6 +1896,53 @@ stay on the slow path.
   `CommandsUnavailableError(no_fast_channel)` on `cli` before any I/O;
   cursor leaves the method undefined. No auto-fallback into
   `fetchCapabilitiesSlow` — the choice is explicit.
+
+### 3.x Per-Run Options (FR-L49..FR-L52)
+
+`runtime/run-options.ts` — cycle-free leaf shared by every runtime:
+`RuntimeUnsupportedOptionError(runtime, fields)` (CLI counterpart of
+`AcpUnsupportedOptionError`), `rejectUnsupportedRunOptions` (`false` =
+unset), `rejectTypedFlagCollision` (typed field + same `extraArgs` flag
+throws; flag alone stays open — FR-L24 rule, so the new flags sit in
+`*_INTENTIONALLY_OPEN_FLAGS`, not reserved), `validateOutputSchema`,
+`parseStructuredReply` (JSON-parse final message), `requireStructuredOutput`
+(missing object → error), `rejectProcessGroupOnWindows`.
+
+- **Usage (FR-L49).** `runtime/acp/mapping.ts:usageFromPromptResponse`
+  maps `PromptResponse.usage` (`inputTokens` / `outputTokens` /
+  `cachedReadTokens` / `cachedWriteTokens` / `thoughtTokens`) to
+  `CliRunUsage`, copied as-is: both fronts report one prompt turn
+  (measured / read 2026-10-17, SRS §3.47). `invokeViaAcp` puts it on
+  `output.usage`; the ACP session puts it on the synthetic turn-end as
+  `raw.usage` (`buildTurnEndEvent(runtime, stopReason, usage?)`).
+  `claude/stream.ts` maps `cache_creation_input_tokens`.
+- **Schema (FR-L50).** `outputSchema` → Claude `--json-schema <JSON>`
+  (`buildClaudeRunOptionArgs`, invoke + session); `structured_output`
+  copied from the `result` event (`null` = absent); `executeClaudeProcess`
+  applies `requireStructuredOutput`. Codex exec: `invokeCodexCli`
+  validates, writes one temp file for all attempts
+  (`buildCodexArgs(opts, schemaPath)` → `--output-schema`, before
+  `resume`), removes it in `finally`; each attempt runs
+  `parseStructuredReply`, so a bad reply is retried. Codex app-server:
+  `outputSchema` on `turn/start` only. OpenCode / Cursor →
+  `RuntimeUnsupportedOptionError`; ACP → tuple entry. Sessions return no
+  parsed object. `fetchInventoryViaInvoke(..., extraArgs?, outputSchema?)`
+  passes the schema on CLI, drops it on ACP, prefers `structured_output`.
+- **Process group (FR-L51).** `processGroup` → `detached: true` at the
+  agent spawn sites (claude invoke/session, codex exec/app-server,
+  opencode run/serve, cursor invoke/per-send, `AcpStdioClient`), registered
+  as group leader; every SIGTERM/SIGKILL there goes through `signalChild`.
+  Excluded: `launchInteractive` (inherited TTY), `cursor create-chat`,
+  `opencode export`. Without it an orphaned grandchild holds the stdout
+  pipe open, so an aborted run waits for it (`runtime/process_group_test.ts`
+  control case). Trade-off: a detached group leaves the terminal's
+  foreground group → tty Ctrl-C no longer reaches it; the consumer's
+  `SIGINT` → `killAll()` handler does. A leader that exited normally is
+  unregistered, so `killAll` does not reap its leftover group members.
+- **Ephemeral (FR-L52).** Codex exec `--ephemeral` + no rollout lookup;
+  app-server `thread/start {ephemeral: true}`, refused with
+  `resumeSessionId`; Claude `--no-session-persistence`; OpenCode / Cursor
+  throw; ACP tuple entry (`ephemeral: false` not counted).
 
 ## 5. Constraints
 

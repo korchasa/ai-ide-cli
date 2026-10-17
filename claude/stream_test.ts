@@ -417,6 +417,50 @@ Deno.test("extractClaudeOutput — populates usage from result.usage tokens + co
   });
 });
 
+Deno.test("FR-L50 reads structured_output from the result event", () => {
+  const base = {
+    type: "result" as const,
+    subtype: "success",
+    result: "",
+    session_id: "s1",
+    duration_ms: 10,
+    num_turns: 1,
+    is_error: false,
+  };
+  assertEquals(
+    extractClaudeOutput({ ...base, structured_output: { answer: "ok", n: 7 } })
+      .structured_output,
+    { answer: "ok", n: 7 },
+  );
+  // The CLI sends `structured_output: null` when no schema was set.
+  const none = extractClaudeOutput({ ...base, structured_output: null });
+  assertEquals("structured_output" in none, false);
+});
+
+Deno.test("FR-L49 cache_creation_input_tokens maps to cache_write_tokens", () => {
+  const out = extractClaudeOutput({
+    type: "result",
+    subtype: "success",
+    result: "ok",
+    session_id: "s1",
+    duration_ms: 10,
+    num_turns: 1,
+    is_error: false,
+    usage: {
+      input_tokens: 3,
+      output_tokens: 4,
+      cache_read_input_tokens: 5,
+      cache_creation_input_tokens: 6,
+    },
+  });
+  assertEquals(out.usage, {
+    input_tokens: 3,
+    output_tokens: 4,
+    cached_tokens: 5,
+    cache_write_tokens: 6,
+  });
+});
+
 Deno.test("extractClaudeOutput — leaves cost / api duration undefined when result event omits them", () => {
   const out = extractClaudeOutput({
     type: "result",

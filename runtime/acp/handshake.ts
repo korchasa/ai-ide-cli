@@ -67,6 +67,8 @@ export function spawnClient(opts: {
   acpFront?: RuntimeInvokeOptions["acpFront"];
   /** FR-L47: the session's model; the Codex front opens its thread on it. */
   model?: string;
+  /** FR-L51: spawn the front as the leader of its own process group. */
+  processGroup?: boolean;
 }): AcpStdioClient {
   const front = opts.acpFront ?? getAcpFront(opts.runtime);
   if (!opts.acpFront && !front.pilot) throw notPiloted(opts.runtime);
@@ -83,6 +85,7 @@ export function spawnClient(opts: {
       processRegistry: opts.processRegistry,
       onStderr: opts.onStderr,
       onRequest: opts.onRequest,
+      processGroup: opts.processGroup,
     });
   } catch (err) {
     if (err instanceof Deno.errors.NotFound) {

@@ -486,8 +486,13 @@ export async function processStreamEvent(
   }
 }
 
-/** Extract CliRunOutput fields from a stream-json result event. */
+/**
+ * Extract CliRunOutput fields from a stream-json result event.
+ * `structured_output` is copied when the event carries a non-null one —
+ * the CLI fills it when `--json-schema` was set (FR-L50).
+ */
 export function extractClaudeOutput(event: ClaudeResultEvent): CliRunOutput {
+  const structured = event.structured_output;
   return {
     runtime: "claude",
     result: event.result ?? "",
@@ -499,6 +504,9 @@ export function extractClaudeOutput(event: ClaudeResultEvent): CliRunOutput {
     is_error: event.is_error ?? event.subtype !== "success",
     usage: extractClaudeUsage(event),
     permission_denials: event.permission_denials,
+    ...(structured !== undefined && structured !== null
+      ? { structured_output: structured }
+      : {}),
   };
 }
 
@@ -516,10 +524,18 @@ function extractClaudeUsage(event: ClaudeResultEvent): CliRunUsage | undefined {
   // creation counter (`cache_creation_input_tokens`) is a different signal
   // and stays out of the cached-tokens roll-up.
   const cachedTokens = pickNumber(rawUsage, "cache_read_input_tokens");
+  // FR-L49: prompt-cache writes are billed apart from reads.
+  const cacheWriteTokens = pickNumber(
+    rawUsage,
+    "cache_creation_input_tokens",
+  );
   const usage: CliRunUsage = {};
   if (inputTokens !== undefined) usage.input_tokens = inputTokens;
   if (outputTokens !== undefined) usage.output_tokens = outputTokens;
   if (cachedTokens !== undefined) usage.cached_tokens = cachedTokens;
+  if (cacheWriteTokens !== undefined) {
+    usage.cache_write_tokens = cacheWriteTokens;
+  }
   if (cost !== undefined) usage.cost_usd = cost;
   return Object.keys(usage).length === 0 ? undefined : usage;
 }

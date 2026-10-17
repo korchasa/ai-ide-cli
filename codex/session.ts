@@ -85,6 +85,10 @@ import {
 } from "./app-server.ts";
 import { isCodexNotification } from "./events.ts";
 import {
+  RuntimeUnsupportedOptionError,
+  validateOutputSchema,
+} from "../runtime/run-options.ts";
+import {
   type ApprovalPolicy,
   decidePermissionMode,
   type SandboxMode,
@@ -168,6 +172,16 @@ export async function openCodexSession(
     binary?: string;
   },
 ): Promise<CodexSession> {
+  // FR-L52: `thread/resume` has no `ephemeral` field, so a resumed thread
+  // would keep writing its rollout — refuse instead of dropping the flag.
+  if (opts.ephemeral && opts.resumeSessionId) {
+    throw new RuntimeUnsupportedOptionError("codex", [
+      "ephemeral",
+      "resumeSessionId",
+    ]);
+  }
+  // FR-L50
+  validateOutputSchema(opts.outputSchema);
   const extraArgv = expandCodexSessionExtraArgs(opts.extraArgs);
   // FR-L25: abstract reasoning effort → Codex app-server --config override,
   // inserted before the caller's extraArgs so they can still override.
@@ -193,6 +207,8 @@ export async function openCodexSession(
     signal: opts.signal,
     onStderr: opts.onStderr,
     processRegistry: opts.processRegistry,
+    // FR-L51
+    processGroup: opts.processGroup,
   });
 
   // Deliberately do not await the subprocess exit here — the client's
@@ -271,10 +287,12 @@ export async function openCodexSession(
       if (sessionAborted) throw new SessionAbortedError("codex");
       if (ended) throw new SessionInputClosedError("codex");
       const isFirstTurn = activeTurnId === null;
+      // FR-L50: only `turn/start` carries a schema; it binds the turn.
       const params = isFirstTurn
         ? {
           threadId,
           input: [{ type: "text", text: content, text_elements: [] }],
+          ...(opts.outputSchema ? { outputSchema: opts.outputSchema } : {}),
         }
         : {
           threadId,
@@ -395,6 +413,8 @@ async function startThread(
   if (approvalPolicy) params.approvalPolicy = approvalPolicy;
   if (sandbox) params.sandbox = sandbox;
   if (opts.systemPrompt) params.baseInstructions = opts.systemPrompt;
+  // FR-L52: keep the thread's rollout off disk.
+  if (opts.ephemeral) params.ephemeral = true;
 
   const result = await client.request<{ thread: { id: string } }>(
     "thread/start",

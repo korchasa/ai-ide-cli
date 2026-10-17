@@ -20,6 +20,11 @@ import type { ExtraArgsMap, RuntimeInvokeResult } from "../runtime/types.ts";
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
+import {
+  rejectTypedFlagCollision,
+  requireStructuredOutput,
+  validateOutputSchema,
+} from "../runtime/run-options.ts";
 import { withNonessentialTrafficDisabled } from "./nonessential-traffic.ts";
 import {
   type ReasoningEffort,
@@ -36,7 +41,7 @@ import {
   type SettingSource,
 } from "../runtime/setting-sources.ts";
 import { validateClaudePermissionMode } from "./permission-mode.ts";
-import type { ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import {
   type ClaudeLifecycleHooks,
   type ClaudeStreamEvent,
@@ -96,6 +101,12 @@ export const CLAUDE_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
   // `claudeArgs: { "--strict-mcp-config": "" }` keeps working when
   // the typed field is unset.
   "--strict-mcp-config",
+  // FR-L50: typed `outputSchema` is preferred; legacy
+  // `claudeArgs: { "--json-schema": "..." }` stays valid when it is unset.
+  // Collision is checked by `rejectTypedFlagCollision`.
+  "--json-schema",
+  // FR-L52: same back-compat reasoning for typed `ephemeral`.
+  "--no-session-persistence",
   // File-based system prompt delivery is preferred through
   // `systemPromptFile`, but the legacy extraArgs path remains valid when
   // the typed field is unset. Collision is checked by
@@ -210,6 +221,48 @@ export interface ClaudeInvokeOptions {
    * back-compat. See FR-L35.
    */
   strictMcpConfig?: boolean;
+  /** JSON Schema for the final reply → `--json-schema` (FR-L50). */
+  outputSchema?: Record<string, unknown>;
+  /** Spawn as the leader of its own process group (FR-L51). */
+  processGroup?: boolean;
+  /** Keep session files off disk → `--no-session-persistence` (FR-L52). */
+  ephemeral?: boolean;
+}
+
+// FR-L50
+// FR-L52
+/**
+ * Argv for the typed per-run options shared by the one-shot and session
+ * builders: `outputSchema` → `--json-schema <JSON>`, `ephemeral` →
+ * `--no-session-persistence`. Throws on a non-object schema or when the
+ * same flag is also in `claudeArgs`.
+ *
+ * @param opts The typed fields plus the caller's `claudeArgs`.
+ */
+export function buildClaudeRunOptionArgs(opts: {
+  outputSchema?: Record<string, unknown>;
+  ephemeral?: boolean;
+  claudeArgs?: ExtraArgsMap;
+}): string[] {
+  validateOutputSchema(opts.outputSchema);
+  rejectTypedFlagCollision(
+    "outputSchema",
+    opts.outputSchema,
+    ["--json-schema"],
+    opts.claudeArgs,
+  );
+  rejectTypedFlagCollision(
+    "ephemeral",
+    opts.ephemeral,
+    ["--no-session-persistence"],
+    opts.claudeArgs,
+  );
+  const args: string[] = [];
+  if (opts.outputSchema) {
+    args.push("--json-schema", JSON.stringify(opts.outputSchema));
+  }
+  if (opts.ephemeral) args.push("--no-session-persistence");
+  return args;
 }
 
 /**
@@ -376,6 +429,9 @@ export function buildClaudeArgs(opts: ClaudeInvokeOptions): string[] {
     extraArgs: opts.claudeArgs,
   });
 
+  // FR-L50 / FR-L52: typed schema + ephemeral flags.
+  args.push(...buildClaudeRunOptionArgs(opts));
+
   // Extra CLI args go next (expanded from the map shape).
   args.push(...expandExtraArgs(opts.claudeArgs, CLAUDE_RESERVED_FLAGS));
 
@@ -460,11 +516,13 @@ async function executeClaudeProcess(
     stderr: "piped",
     env: syncedEnv,
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
+    // FR-L51: own process group → pgid == pid.
+    ...(opts.processGroup ? { detached: true } : {}),
   });
 
   const process = cmd.spawn();
   const registry = opts.processRegistry;
-  registry.register(process);
+  registry.register(process, { processGroup: opts.processGroup });
 
   // Build a combined abort signal: user signal + timeout. SIGTERM fires
   // on either source, the retry-sleep reacts to the user signal only.
@@ -474,22 +532,14 @@ async function executeClaudeProcess(
     : timeoutSignal;
   const runController = new AbortController();
   const onExternalAbort = () => {
-    try {
-      process.kill("SIGTERM");
-    } catch {
-      // Process may have already exited.
-    }
+    signalChild(process, "SIGTERM", opts.processGroup);
   };
   combined.addEventListener("abort", onExternalAbort, { once: true });
 
   // Local aborts from onToolUseObserved go through runController so we can
   // tell them apart from user/timeout aborts.
   const onRunAbort = () => {
-    try {
-      process.kill("SIGTERM");
-    } catch {
-      // Process may have already exited.
-    }
+    signalChild(process, "SIGTERM", opts.processGroup);
   };
   runController.signal.addEventListener("abort", onRunAbort, { once: true });
 
@@ -609,7 +659,10 @@ async function executeClaudeProcess(
     }
 
     if (state.resultEvent) {
-      return state.resultEvent;
+      // FR-L50: a schema run that came back without the object fails.
+      return opts.outputSchema
+        ? requireStructuredOutput(state.resultEvent)
+        : state.resultEvent;
     }
 
     if (!status.success) {

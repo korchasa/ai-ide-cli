@@ -60,6 +60,12 @@ export interface CliRunUsage {
   /** Cached input tokens (prompt-cache hits) summed across turns. */
   cached_tokens?: number;
   /**
+   * Input tokens written to the prompt cache, summed across turns. Claude
+   * reports them (CLI `cache_creation_input_tokens`, ACP
+   * `cachedWriteTokens`); other runtimes leave this `undefined` (FR-L49).
+   */
+  cache_write_tokens?: number;
+  /**
    * Reasoning tokens emitted by reasoning-capable models, summed across
    * turns. Currently surfaced only by Codex (`rust-v0.128.0`+, wire-key
    * `reasoning_output_tokens`); other runtimes leave this `undefined`.
@@ -111,6 +117,18 @@ export interface CliRunOutput {
   usage?: CliRunUsage;
   /** Tools the agent tried to use but was denied permission for. */
   permission_denials?: PermissionDenial[];
+  /**
+   * Parsed reply of a run that set `outputSchema` (FR-L50): Claude's
+   * `result.structured_output`, or Codex's final message parsed as JSON.
+   * Absent when no schema was requested or the reply was unusable — then
+   * {@link structured_output_error} says why and `is_error` is `true`.
+   */
+  structured_output?: unknown;
+  /**
+   * Why a run that set `outputSchema` produced no {@link structured_output}
+   * (missing object, unparsable reply). `result` keeps the raw text.
+   */
+  structured_output_error?: string;
   /**
    * Absolute path to the runtime's persisted session transcript file, when
    * the runtime exposes one (Codex writes a NDJSON rollout to

@@ -9,6 +9,7 @@
  * https://github.com/anthropics/claude-agent-sdk-typescript
  */
 
+import { rejectProcessGroupOnWindows } from "./run-options.ts";
 import { invokeClaudeCli } from "../claude/process.ts";
 import { openClaudeSession } from "../claude/session.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
@@ -151,6 +152,8 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     return this.capabilities;
   },
   async invoke(opts) {
+    // FR-L51: Deno cannot signal a process group on Windows.
+    rejectProcessGroupOnWindows("claude", opts);
     // FR-L39: opt-in ACP transport routes through the universal adapter
     // instead of the CLI subprocess. Default `transport === "cli"` keeps
     // every byte-for-byte existing behaviour intact.
@@ -224,6 +227,10 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       // FR-L35
       mcpServers: opts.mcpServers,
       strictMcpConfig: opts.strictMcpConfig,
+      // FR-L50 / FR-L51 / FR-L52
+      outputSchema: opts.outputSchema,
+      processGroup: opts.processGroup,
+      ephemeral: opts.ephemeral,
       processRegistry: opts.processRegistry,
     });
     if (result.output) opts.hooks?.onResult?.(result.output);
@@ -231,6 +238,8 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    // FR-L51: Deno cannot signal a process group on Windows.
+    rejectProcessGroupOnWindows("claude", opts);
     if (opts.transport === "acp") {
       return openSessionViaAcp("claude", opts);
     }
@@ -251,6 +260,10 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       // FR-L35
       mcpServers: opts.mcpServers,
       strictMcpConfig: opts.strictMcpConfig,
+      // FR-L50 / FR-L51 / FR-L52
+      outputSchema: opts.outputSchema,
+      processGroup: opts.processGroup,
+      ephemeral: opts.ephemeral,
       onEvent: adaptEventCallback(
         opts.onEvent,
         claudeEventToRuntime,
@@ -275,10 +288,9 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
       "claude",
       (inner) => this.invoke(inner),
       opts,
-      {
-        "--json-schema": JSON.stringify(CAPABILITY_INVENTORY_SCHEMA),
-        "--max-turns": "1",
-      },
+      { "--max-turns": "1" },
+      // FR-L50: the schema rides on the typed option.
+      CAPABILITY_INVENTORY_SCHEMA,
     );
   },
 

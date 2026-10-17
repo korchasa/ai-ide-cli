@@ -65,6 +65,53 @@ Deno.test("fetchInventoryViaInvoke passes schema extraArgs through on CLI transp
   assertEquals(received?.extraArgs, { "--json-schema": "{}" });
 });
 
+// FR-L50: the schema moved onto the typed `outputSchema` option — passed
+// on CLI, dropped on ACP (no wire field there), and the parsed object is
+// preferred over the reply text.
+Deno.test("FR-L50 fetchInventoryViaInvoke passes outputSchema on CLI and drops it on ACP", async () => {
+  const seen: Record<string, unknown>[] = [];
+  const invoke = (opts: unknown) => {
+    seen.push(opts as Record<string, unknown>);
+    return Promise.resolve(okResult(INVENTORY_JSON));
+  };
+  const schema = { type: "object" };
+  await fetchInventoryViaInvoke(
+    "codex",
+    invoke,
+    { processRegistry: new ProcessRegistry() } as FetchCapabilitiesOptions,
+    undefined,
+    schema,
+  );
+  await fetchInventoryViaInvoke(
+    "codex",
+    invoke,
+    {
+      processRegistry: new ProcessRegistry(),
+      transport: "acp",
+    } as FetchCapabilitiesOptions,
+    undefined,
+    schema,
+  );
+  assertEquals(seen[0].outputSchema, schema);
+  assertEquals(seen[1].outputSchema, undefined);
+});
+
+Deno.test("FR-L50 fetchInventoryViaInvoke reads structured_output before the reply text", async () => {
+  const inv = await fetchInventoryViaInvoke(
+    "claude",
+    () => {
+      const res = okResult("Here is the inventory.");
+      res.output.structured_output = {
+        skills: [{ name: "gamma" }],
+        commands: [],
+      };
+      return Promise.resolve(res);
+    },
+    { processRegistry: new ProcessRegistry() } as FetchCapabilitiesOptions,
+  );
+  assertEquals(inv.skills, [{ name: "gamma" }]);
+});
+
 Deno.test("parseCapabilityInventoryResponse — pure minified JSON", () => {
   const json =
     '{"skills":[{"name":"simplify"},{"name":"skill-x","plugin":"p@v"}],' +

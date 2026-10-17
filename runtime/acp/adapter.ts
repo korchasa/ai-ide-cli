@@ -48,10 +48,11 @@ import {
   collectDegradedOptions,
   collectUnsupportedOptions,
   mapSessionUpdate,
+  usageFromPromptResponse,
 } from "./mapping.ts";
 import { createPermissionHandler } from "./permissions.ts";
 
-interface PromptResult {
+interface PromptResult extends Record<string, unknown> {
   stopReason?: string;
 }
 
@@ -376,6 +377,8 @@ async function attemptInvocation(
       onStderr: undefined,
       acpFront: opts.acpFront,
       model: opts.model,
+      // FR-L51
+      processGroup: opts.processGroup,
       // FR-L43: one shared router — permission requests are served, every
       // other inbound method is answered -32601 and reported once.
       onRequest: createInboundRequestHandler({
@@ -487,6 +490,8 @@ async function attemptInvocation(
     // branch on `runtime_error.kind`.
     const isError = stopReason !== "end_turn";
     const stopAnalysis = classifyStopReason(stopReason, runtime);
+    // FR-L49: one invoke is one prompt turn, the scope the fronts report.
+    const usage = usageFromPromptResponse(promptRes);
 
     const result = {
       runtime,
@@ -495,6 +500,7 @@ async function attemptInvocation(
       duration_ms: durationMs,
       num_turns: turn,
       is_error: isError,
+      ...(usage ? { usage } : {}),
     };
     opts.hooks?.onResult?.(result);
     return {
@@ -603,7 +609,12 @@ class AcpRuntimeSession implements RuntimeSession {
     try {
       const res = (await this.#activePrompt) as PromptResult;
       this.#queue.push(
-        buildTurnEndEvent(this.runtime, res.stopReason ?? "end_turn"),
+        buildTurnEndEvent(
+          this.runtime,
+          res.stopReason ?? "end_turn",
+          // FR-L49: per-turn usage rides on the synthetic turn-end.
+          usageFromPromptResponse(res),
+        ),
       );
     } catch (err) {
       if (err instanceof AcpRpcError) {
@@ -670,6 +681,8 @@ export async function openSessionViaAcp(
     onStderr: opts.onStderr,
     acpFront: opts.acpFront,
     model: opts.model,
+    // FR-L51
+    processGroup: opts.processGroup,
     // FR-L43: same router as the invoke path.
     onRequest: createInboundRequestHandler({
       runtime,

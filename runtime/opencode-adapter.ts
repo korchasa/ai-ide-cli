@@ -31,6 +31,10 @@ import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { validateMcpServers } from "./mcp-injection.ts";
 import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
+import {
+  rejectProcessGroupOnWindows,
+  rejectUnsupportedRunOptions,
+} from "./run-options.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
@@ -159,12 +163,19 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     return this.capabilities;
   },
   invoke(opts) {
+    // FR-L51: Deno cannot signal a process group on Windows.
+    rejectProcessGroupOnWindows("opencode", opts);
     // FR-L39: opt-in ACP transport. Default `transport === "cli"` keeps
     // the CLI path unchanged.
     if (opts.transport === "acp") {
       return invokeViaAcp("opencode", opts);
     }
     rejectUnsupportedSystemPromptFile("opencode", opts);
+    // FR-L50 / FR-L52: no schema flag, no way to skip session files.
+    rejectUnsupportedRunOptions("opencode", opts, [
+      "outputSchema",
+      "ephemeral",
+    ]);
     validateToolFilter("opencode", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("opencode", opts);
@@ -199,9 +210,16 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    // FR-L51: Deno cannot signal a process group on Windows.
+    rejectProcessGroupOnWindows("opencode", opts);
     if (opts.transport === "acp") {
       return openSessionViaAcp("opencode", opts);
     }
+    // FR-L50 / FR-L52
+    rejectUnsupportedRunOptions("opencode", opts, [
+      "outputSchema",
+      "ephemeral",
+    ]);
     validateToolFilter("opencode", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("opencode", opts);
@@ -222,6 +240,8 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       onEvent: adaptEventCallback(opts.onEvent, opencodeEventToRuntime),
       onStderr: opts.onStderr,
       onCallbackError: opts.onCallbackError,
+      // FR-L51
+      processGroup: opts.processGroup,
       processRegistry: opts.processRegistry,
     });
     return adaptRuntimeSession("opencode", inner, opencodeEventToRuntime);

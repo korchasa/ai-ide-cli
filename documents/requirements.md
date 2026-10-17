@@ -3016,3 +3016,125 @@ runs); OpenCode and Codex dispatch at completion time.
   - [ ] The consumer moves to the wide range: `@korchasa/flowai-workflow`
         declares `jsr:@korchasa/ai-ide-cli@^1` instead of `^0.10.0`. Done
         in that repository once 1.0.0 is published.
+
+### 3.47 FR-L49: Token Usage On The ACP Transport
+
+- **Description:** `invokeViaAcp` fills `CliRunOutput.usage` from the
+  `usage` object of the `session/prompt` response, and the ACP session
+  puts the same normalised figure on the synthetic turn-end event as
+  `raw.usage`. Mapping: `inputTokens` → `input_tokens`, `outputTokens` →
+  `output_tokens`, `cachedReadTokens` → `cached_tokens`,
+  `cachedWriteTokens` → `cache_write_tokens`, `thoughtTokens` →
+  `reasoning_tokens`. A field the front did not send stays `undefined`,
+  and a response without `usage` leaves `usage` `undefined` — never `0`,
+  because `PromptResponse.usage` is UNSTABLE in ACP v1.
+  `CliRunUsage` gains `cache_write_tokens` (prompt-cache writes), and the
+  Claude CLI path fills it from `cache_creation_input_tokens`.
+- **Scope rule:** the figure covers one prompt turn — every request the
+  model made inside it — on both fronts, so the library copies it without
+  normalising. Verified 2026-10-17 at the locked fronts:
+  `@agentclientprotocol/codex-acp` 2.2.2 with codex 0.159.1 reported
+  124 898 total tokens for a turn of 4 model requests, equal to the
+  turn's delta of `total_token_usage` in the rollout (30 995 → 155 893);
+  `@agentclientprotocol/claude-agent-acp` resets `accumulatedUsage` on
+  each turn activation (read in 0.77.0, 0.84.0 and 0.92.0). On ACP
+  `input_tokens` excludes cache reads on both fronts (codex: 1 018 input
+  + 123 776 cached = 124 794, the rollout's input delta). This differs
+  from the Codex CLI path, where `input_tokens` includes cached input.
+- **Motivation:** the flowai acceptance runner records per-scenario token
+  cost; without usage on ACP it re-derives codex usage from rollout
+  files.
+- **Dep:** FR-L39.
+- **Acceptance criteria:**
+  - [x] The mapper copies every field, leaves absent ones `undefined` and
+        returns `undefined` without `usage`. Tests:
+        `runtime/acp/mapping_test.ts::FR-L49 *`.
+  - [x] ACP invoke result and ACP session turn-end carry the usage. Tests:
+        `runtime/acp/adapter_test.ts::FR-L49 *`,
+        `runtime/acp/session_contract_test.ts::FR-L49 turn-end event carries usage`.
+  - [x] Claude CLI maps `cache_creation_input_tokens`. Test:
+        `claude/stream_test.ts::FR-L49 cache_creation_input_tokens maps to cache_write_tokens`.
+  - Real-binary evidence (2026-10-17, codex-acp 2.2.2):
+    `e2e/run_options_e2e_test.ts::FR-L49` two-turn session → turn 1
+    `{input_tokens: 23804, output_tokens: 5, cached_tokens: 7168}`, turn 2
+    `{input_tokens: 142, output_tokens: 5, cached_tokens: 30848}` — per
+    turn, not cumulative.
+
+### 3.48 FR-L50: Schema-Constrained Replies (`outputSchema`)
+
+- **Description:** `outputSchema?: Record<string, unknown>` on
+  `RuntimeInvokeOptions` and `RuntimeSessionOptions` constrains the final
+  reply to a JSON Schema. Mapping: Claude CLI invoke and session →
+  `--json-schema <JSON>`; Codex exec → the schema written to a temp file,
+  `--output-schema <path>`, the file removed after the attempt; Codex
+  app-server session → `outputSchema` on every `turn/start` (`turn/steer`
+  has no such field). OpenCode, Cursor → `RuntimeUnsupportedOptionError`;
+  ACP → `AcpUnsupportedOptionError` (ACP has no wire field; the library
+  does not embed the schema in the prompt). Setting the typed field and
+  the same flag in `extraArgs` throws; the flags stay open in
+  `extraArgs` when the typed field is unset (FR-L24 rule).
+- **Result:** on invoke, `CliRunOutput.structured_output` holds the parsed
+  object — Claude: the `structured_output` field of the `result` event;
+  Codex: `JSON.parse` of the final message. A missing or unparsable reply
+  on a run that did not already fail sets `is_error: true` and
+  `structured_output_error` with the reason; `result` keeps the raw text.
+  Sessions return no parsed object: the turn's native final event carries
+  the reply.
+- **Motivation:** the flowai LLM judge returns a checklist verdict as one
+  JSON object.
+- **Dep:** FR-L39, FR-L20 (`fetchCapabilitiesSlow` moves onto the option).
+- **Acceptance criteria:**
+  - [x] Each runtime maps the option or throws. Tests:
+        `runtime/reserved-flag-coverage_test.ts::FR-L50 *`,
+        `codex/session_test.ts::FR-L50 turn/start carries outputSchema`,
+        `runtime/acp/adapter_test.ts::FR-L50 outputSchema on ACP throws AcpUnsupportedOptionError`.
+  - [x] The parsed object reaches the result; a bad reply is an error.
+        Tests: `claude/stream_test.ts::FR-L50 *`,
+        `codex/process_test.ts::FR-L50 *`.
+
+### 3.49 FR-L51: Runtime In Its Own Process Group (`processGroup`)
+
+- **Description:** `processGroup: true` on `RuntimeInvokeOptions` or
+  `RuntimeSessionOptions` spawns the agent process with `detached: true`,
+  so it leads a new process group (`pgid == pid`). Every kill path then
+  signals the whole group (`Deno.kill(-pid, sig)`): invoke timeout and
+  abort, session `abort()`, ACP client dispose, and
+  `ProcessRegistry.killAll`, which learns the flag from
+  `register(p, {processGroup: true})` and escalates SIGTERM → SIGKILL on
+  the group after `graceMs`. A consumer watchdog reads the pid from its
+  own `ProcessRegistry` and uses it as the pgid.
+- **Covered spawns:** Claude invoke and session, Codex exec and
+  app-server, OpenCode run and serve, Cursor invoke and per-send
+  subprocess, every ACP front. Not covered: `launchInteractive` (an
+  inherited terminal cannot be read from a background process group, and
+  its options carry no such field) and the short helpers
+  `cursor agent create-chat` and `opencode export`.
+- **Platform:** Windows has no negative-pid signal in Deno; the option
+  throws `RuntimeUnsupportedOptionError` there.
+- **Motivation:** the flowai watchdog kills the agent with everything it
+  forked on a fork loop or memory bloat; today it spawns through a Python
+  `setsid` wrapper to get the group.
+- **Acceptance criteria:**
+  - [x] `killAll` signals the group. Test:
+        `process-registry_test.ts::FR-L51 *`.
+  - [x] A detached ACP front reports `pgid == pid`, and its dispose kills
+        a grandchild. Tests: `runtime/acp/client_test.ts::FR-L51 *`.
+  - [x] Every covered spawn site passes `detached`. Tests: `FR-L51` tests
+        per runtime (`deno test -A --filter FR-L51`).
+
+### 3.50 FR-L52: Runs Without Session Files On Disk (`ephemeral`)
+
+- **Description:** `ephemeral: true` on `RuntimeInvokeOptions` or
+  `RuntimeSessionOptions` keeps the run's session files off disk. Codex
+  exec → `--ephemeral` (and no rollout lookup, so no `transcript_error`);
+  Codex app-server → `thread/start {ephemeral: true}`, while with
+  `resumeSessionId` it throws (`thread/resume` has no such field); Claude
+  CLI invoke and session → `--no-session-persistence`. OpenCode, Cursor
+  → `RuntimeUnsupportedOptionError`; ACP → `AcpUnsupportedOptionError`.
+  Typed field plus the same flag in `extraArgs` throws.
+- **Motivation:** the flowai codex judge must not leave rollouts in the
+  agent's `CODEX_HOME`, where they pass for the agent's session.
+- **Acceptance criteria:**
+  - [x] Each runtime maps the option or throws. Tests:
+        `runtime/reserved-flag-coverage_test.ts::FR-L52 *`,
+        `codex/session_test.ts::FR-L52 thread/start carries ephemeral`.

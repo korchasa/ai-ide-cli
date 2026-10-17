@@ -17,7 +17,7 @@
  * Entry point: {@link openOpenCodeSession}.
  */
 
-import type { ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import {
   SessionAbortedError,
@@ -112,6 +112,8 @@ export interface OpenCodeSessionOptions {
    * {@link ProcessRegistry} so `killAll` is scoped to the embedder.
    */
   processRegistry: ProcessRegistry;
+  /** Spawn `opencode serve` as the leader of its own process group (FR-L51). */
+  processGroup?: boolean;
 }
 
 /** Terminal state of the OpenCode server subprocess. */
@@ -214,11 +216,13 @@ export async function openOpenCodeSession(
     stderr: "piped",
     env: syncedEnv,
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
+    // FR-L51: own process group → pgid == pid.
+    ...(opts.processGroup ? { detached: true } : {}),
   });
 
   const process = cmd.spawn();
   const registry = opts.processRegistry;
-  registry.register(process);
+  registry.register(process, { processGroup: opts.processGroup });
 
   let readyResolve: (() => void) | null = null;
   let readyReject: ((e: Error) => void) | null = null;
@@ -303,11 +307,7 @@ export async function openOpenCodeSession(
   let aborted = false;
   const abortRequests: Promise<void>[] = [];
   const doKill = () => {
-    try {
-      process.kill("SIGTERM");
-    } catch {
-      // Process may have already exited.
-    }
+    signalChild(process, "SIGTERM", opts.processGroup);
   };
   const onExternalAbort = () => {
     aborted = true;

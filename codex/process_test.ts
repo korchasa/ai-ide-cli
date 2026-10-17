@@ -15,6 +15,7 @@ import type { CodexExecEvent } from "./exec-events.ts";
 import type { RuntimeInvokeOptions } from "../runtime/types.ts";
 import { defaultRegistry } from "../process-registry.ts";
 import { join } from "@std/path";
+import { exists } from "@std/fs";
 
 function makeInvokeOpts(
   overrides?: Partial<RuntimeInvokeOptions>,
@@ -594,5 +595,113 @@ printf '%s\\n' '{"type":"turn.failed","error":{"message":${
     });
   } finally {
     await Deno.remove(counterFile).catch(() => {});
+  }
+});
+
+// FR-L50: the stub echoes the schema file it was handed as the agent's
+// final message, so the parsed reply proves the file existed during the
+// run and carried the schema.
+const ECHO_SCHEMA_STUB = `#!/usr/bin/env bash
+schema=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--output-schema" ]; then schema="$a"; fi
+  prev="$a"
+done
+printf '%s\\n' "$schema" > "$CODEX_STUB_SEEN"
+body=$(tr -d '\\n' < "$schema" | sed 's/"/\\\\"/g')
+printf '%s\\n' '{"type":"thread.started","thread_id":"thrd_schema"}'
+printf '{"type":"item.completed","item":{"id":"a1","type":"agent_message","text":"%s"}}\\n' "$body"
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2,"cached_input_tokens":0}}'
+`;
+
+Deno.test("invokeCodexCli — FR-L50 writes outputSchema to a temp file, parses the reply, removes the file", async () => {
+  const seen = await Deno.makeTempFile({ prefix: "codex-schema-seen-" });
+  Deno.env.set("CODEX_STUB_SEEN", seen);
+  try {
+    const schema = { type: "object", properties: { a: { type: "string" } } };
+    const result = await withStubCodex(
+      ECHO_SCHEMA_STUB,
+      () =>
+        invokeCodexCli(
+          makeInvokeOpts({ outputSchema: schema, ephemeral: true }),
+        ),
+    );
+    assert(result.output, JSON.stringify(result));
+    assertEquals(result.output.is_error, false);
+    assertEquals(result.output.structured_output, schema);
+    const schemaPath = (await Deno.readTextFile(seen)).trim();
+    assert(schemaPath.length > 0, "stub saw no --output-schema");
+    assertEquals(await exists(schemaPath), false, "schema file left behind");
+  } finally {
+    Deno.env.delete("CODEX_STUB_SEEN");
+    await Deno.remove(seen).catch(() => {});
+  }
+});
+
+Deno.test("invokeCodexCli — FR-L50 an unparsable reply is an error with structured_output_error", async () => {
+  const script = `#!/usr/bin/env bash
+printf '%s\\n' '{"type":"thread.started","thread_id":"thrd_bad"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"a1","type":"agent_message","text":"not json"}}'
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2,"cached_input_tokens":0}}'
+`;
+  const result = await withStubCodex(
+    script,
+    () =>
+      invokeCodexCli(
+        makeInvokeOpts({ outputSchema: { type: "object" }, ephemeral: true }),
+      ),
+  );
+  assert(result.output, JSON.stringify(result));
+  assertEquals(result.output.is_error, true);
+  assertEquals(result.output.result, "not json");
+  assert(
+    result.output.structured_output_error?.startsWith(
+      "reply is not JSON for the requested outputSchema",
+    ),
+  );
+});
+
+Deno.test("invokeCodexCli — FR-L52 ephemeral skips the rollout lookup", async () => {
+  const script = `#!/usr/bin/env bash
+printf '%s\\n' '{"type":"thread.started","thread_id":"thrd_ephemeral"}'
+printf '%s\\n' '{"type":"item.completed","item":{"id":"a1","type":"agent_message","text":"ok"}}'
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2,"cached_input_tokens":0}}'
+`;
+  // A rollout for the stub's thread sits in a private CODEX_HOME, so the
+  // non-ephemeral run finds it and the ephemeral one must not look.
+  const home = await Deno.makeTempDir({ prefix: "codex-ephemeral-home-" });
+  const now = new Date();
+  const day = join(
+    home,
+    "sessions",
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  );
+  await Deno.mkdir(day, { recursive: true });
+  await Deno.writeTextFile(join(day, "rollout-x-thrd_ephemeral.jsonl"), "{}\n");
+  const prevHome = Deno.env.get("CODEX_HOME");
+  Deno.env.set("CODEX_HOME", home);
+  try {
+    const persisted = await withStubCodex(
+      script,
+      () => invokeCodexCli(makeInvokeOpts()),
+    );
+    assert(
+      persisted.output?.transcript_path,
+      "control run must find the rollout",
+    );
+    const result = await withStubCodex(
+      script,
+      () => invokeCodexCli(makeInvokeOpts({ ephemeral: true })),
+    );
+    assert(result.output, JSON.stringify(result));
+    assertEquals(result.output.transcript_path, undefined);
+    assertEquals(result.output.transcript_error, undefined);
+  } finally {
+    if (prevHome === undefined) Deno.env.delete("CODEX_HOME");
+    else Deno.env.set("CODEX_HOME", prevHome);
+    await Deno.remove(home, { recursive: true });
   }
 });

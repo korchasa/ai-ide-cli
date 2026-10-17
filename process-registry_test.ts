@@ -12,6 +12,7 @@ import {
   onShutdown,
   ProcessRegistry,
   register,
+  signalChild,
   unregister,
 } from "./process-registry.ts";
 
@@ -122,4 +123,90 @@ Deno.test("ProcessRegistry.killAll escalates to SIGKILL after grace timeout", as
     true,
     `killAll took ${elapsed}ms, expected < 1500ms`,
   );
+});
+
+/**
+ * Spawn `/bin/sh` that forks a `sleep` grandchild, prints its pid and
+ * waits. Returns the shell handle and the grandchild pid.
+ */
+async function spawnForkingShell(
+  detached: boolean,
+): Promise<{ child: Deno.ChildProcess; grandchild: number }> {
+  const child = new Deno.Command("/bin/sh", {
+    args: ["-c", "sleep 30 & echo $!; wait"],
+    stdin: "null",
+    stdout: "piped",
+    stderr: "null",
+    detached,
+  }).spawn();
+  const reader = child.stdout.getReader();
+  let text = "";
+  while (!text.includes("\n")) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += new TextDecoder().decode(value);
+  }
+  reader.releaseLock();
+  await child.stdout.cancel();
+  return { child, grandchild: Number(text.trim()) };
+}
+
+/** `kill -0 <pid>` succeeds while the process exists. */
+async function isAlive(pid: number): Promise<boolean> {
+  const { success } = await new Deno.Command("kill", {
+    args: ["-0", String(pid)],
+    stdout: "null",
+    stderr: "null",
+  }).output();
+  return success;
+}
+
+async function waitDead(pid: number, ms = 2000): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (!(await isAlive(pid))) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return !(await isAlive(pid));
+}
+
+Deno.test({
+  name: "FR-L51 killAll signals the whole group",
+  ignore: Deno.build.os === "windows",
+  fn: async () => {
+    // Control: a plain child leaves its grandchild behind.
+    const plain = await spawnForkingShell(false);
+    const control = new ProcessRegistry({ graceMs: 500 });
+    control.register(plain.child);
+    await control.killAll();
+    await plain.child.status;
+    const survived = await isAlive(plain.grandchild);
+    Deno.kill(plain.grandchild, "SIGKILL");
+    assertEquals(
+      survived,
+      true,
+      "control: grandchild should outlive a plain kill",
+    );
+
+    const grouped = await spawnForkingShell(true);
+    const registry = new ProcessRegistry({ graceMs: 500 });
+    registry.register(grouped.child, { processGroup: true });
+    await registry.killAll();
+    await grouped.child.status;
+    assertEquals(await waitDead(grouped.grandchild), true);
+  },
+});
+
+Deno.test({
+  name: "FR-L51 signalChild sends to the group only when asked",
+  ignore: Deno.build.os === "windows",
+  fn: async () => {
+    const grouped = await spawnForkingShell(true);
+    signalChild(grouped.child, "SIGTERM", true);
+    await grouped.child.status;
+    assertEquals(await waitDead(grouped.grandchild), true);
+    // An exited child is not an error.
+    signalChild(grouped.child, "SIGTERM", true);
+    signalChild(grouped.child, "SIGTERM", false);
+  },
 });

@@ -24,6 +24,10 @@ import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { validateMcpServers } from "./mcp-injection.ts";
 import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
+import {
+  rejectProcessGroupOnWindows,
+  rejectUnsupportedRunOptions,
+} from "./run-options.ts";
 
 // FR-L24: see runtime/opencode-adapter.ts for the shared rationale.
 let warnedToolFilter = false;
@@ -158,9 +162,13 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     sessionFidelity: "emulated",
   },
   invoke(opts) {
+    // FR-L51: Deno cannot signal a process group on Windows.
+    rejectProcessGroupOnWindows("cursor", opts);
     // FR-L39
     if (opts.transport === "acp") return invokeViaAcp("cursor", opts);
     rejectUnsupportedSystemPromptFile("cursor", opts);
+    // FR-L50 / FR-L52: no schema flag, no way to skip session files.
+    rejectUnsupportedRunOptions("cursor", opts, ["outputSchema", "ephemeral"]);
     validateToolFilter("cursor", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("cursor", opts);
@@ -183,7 +191,11 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
   },
 
   async openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
+    // FR-L51: Deno cannot signal a process group on Windows.
+    rejectProcessGroupOnWindows("cursor", opts);
     if (opts.transport === "acp") return openSessionViaAcp("cursor", opts);
+    // FR-L50 / FR-L52
+    rejectUnsupportedRunOptions("cursor", opts, ["outputSchema", "ephemeral"]);
     validateToolFilter("cursor", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("cursor", opts);
@@ -207,6 +219,8 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
       ),
       onStderr: opts.onStderr,
       onCallbackError: opts.onCallbackError,
+      // FR-L51
+      processGroup: opts.processGroup,
       processRegistry: opts.processRegistry,
     });
     return adaptRuntimeSession(

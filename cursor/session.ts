@@ -49,7 +49,7 @@ import {
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
-import type { ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import { buildCursorSendArgs } from "./argv.ts";
 import { createCursorChat } from "./chat.ts";
 import { decodeConcat, pumpCursorStderr, pumpCursorStdout } from "./pumps.ts";
@@ -127,6 +127,8 @@ export interface CursorSessionOptions {
    * {@link ProcessRegistry} so `killAll` is scoped to the embedder.
    */
   processRegistry: ProcessRegistry;
+  /** Spawn each per-send subprocess as a process-group leader (FR-L51). */
+  processGroup?: boolean;
 }
 
 // FR-L30: re-export the typed discriminated union from cursor/stream.ts as
@@ -282,19 +284,17 @@ export async function openCursorSession(
       stderr: "piped",
       ...(syncedEnv ? { env: syncedEnv } : {}),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      // FR-L51: own process group → pgid == pid.
+      ...(opts.processGroup ? { detached: true } : {}),
     }).spawn();
 
     currentProcess = proc;
     currentPid = proc.pid;
-    registry.register(proc);
+    registry.register(proc, { processGroup: opts.processGroup });
 
     // If abort landed between spawn and registration, catch it now.
     if (aborted) {
-      try {
-        proc.kill("SIGTERM");
-      } catch {
-        // already exited
-      }
+      signalChild(proc, "SIGTERM", opts.processGroup);
     }
 
     const stdoutPump = pumpCursorStdout(
@@ -406,11 +406,7 @@ export async function openCursorSession(
     aborted = true;
     inputClosed = true;
     if (currentProcess) {
-      try {
-        currentProcess.kill("SIGTERM");
-      } catch {
-        // already exited
-      }
+      signalChild(currentProcess, "SIGTERM", opts.processGroup);
     }
     wakeWorker();
   }

@@ -22,7 +22,7 @@ import {
   analyzeRuntimeErrorSignal,
   type RuntimeErrorAnalysis,
 } from "../runtime/runtime-error-analysis.ts";
-import type { ProcessRegistry } from "../process-registry.ts";
+import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import {
   type CursorAssistantEvent,
   type CursorLifecycleHooks,
@@ -252,6 +252,8 @@ export async function invokeCursorCli(
         opts.hooks,
         opts.onToolUseObserved,
         opts.cursorHooks,
+        // FR-L51
+        opts.processGroup,
       );
       if (output.is_error) {
         lastError = `Cursor CLI returned error: ${output.result}`;
@@ -333,6 +335,7 @@ async function executeCursorProcess(
   hooks?: RuntimeLifecycleHooks,
   onToolUseObserved?: OnRuntimeToolUseObservedCallback,
   cursorHooks?: CursorLifecycleHooks,
+  processGroup?: boolean,
 ): Promise<CliRunOutput> {
   // FR-L33: sync env.PWD with cwd at the spawn boundary.
   const syncedEnv = withSyncedPWD(env, cwd);
@@ -343,11 +346,13 @@ async function executeCursorProcess(
     stderr: "piped",
     ...(syncedEnv ? { env: syncedEnv } : {}),
     ...(cwd ? { cwd } : {}),
+    // FR-L51: own process group → pgid == pid.
+    ...(processGroup ? { detached: true } : {}),
   });
 
   const process = cmd.spawn();
   const registry = processRegistry;
-  registry.register(process);
+  registry.register(process, { processGroup });
 
   try {
     const timeoutSignal = AbortSignal.timeout(timeoutSeconds * 1000);
@@ -355,11 +360,7 @@ async function executeCursorProcess(
       ? AbortSignal.any([userSignal, timeoutSignal])
       : timeoutSignal;
     const onAbort = () => {
-      try {
-        process.kill("SIGTERM");
-      } catch {
-        // Process may have already exited.
-      }
+      signalChild(process, "SIGTERM", processGroup);
     };
     combined.addEventListener("abort", onAbort, { once: true });
 
@@ -449,11 +450,7 @@ async function executeCursorProcess(
               reason: "Aborted by onToolUseObserved callback",
             };
             denialAbort = true;
-            try {
-              process.kill("SIGTERM");
-            } catch {
-              // Process may have already exited.
-            }
+            signalChild(process, "SIGTERM", processGroup);
           }
         }
       }

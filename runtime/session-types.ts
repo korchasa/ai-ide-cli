@@ -115,6 +115,26 @@ export interface RuntimeSessionOptions {
    * Same contract as {@link RuntimeInvokeOptions.acpFront}.
    */
   acpFront?: AcpFrontLauncher;
+  /**
+   * JSON Schema every turn's final reply must match (FR-L50). Claude →
+   * `--json-schema`; Codex app-server → `outputSchema` on each
+   * `turn/start` (a `turn/steer` cannot carry it). Sessions return no
+   * parsed object — the turn's native final event carries the reply.
+   * OpenCode / Cursor throw `RuntimeUnsupportedOptionError`, ACP throws
+   * `AcpUnsupportedOptionError`.
+   */
+  outputSchema?: Record<string, unknown>;
+  /**
+   * Spawn the session's process as the leader of its own process group
+   * (FR-L51). Same contract as {@link RuntimeInvokeOptions.processGroup}.
+   */
+  processGroup?: boolean;
+  /**
+   * Keep the session's files off disk (FR-L52). Codex app-server →
+   * `thread/start {ephemeral: true}` (throws with `resumeSessionId`);
+   * Claude → `--no-session-persistence`. OpenCode / Cursor / ACP throw.
+   */
+  ephemeral?: boolean;
 }
 
 /**

@@ -410,6 +410,10 @@ export {
   collectUnsupportedOptions,
 } from "./runtime/acp/mapping.ts";
 
+// FR-L50 / FR-L51 / FR-L52: the CLI-side counterpart, thrown when a
+// runtime cannot honour `outputSchema`, `ephemeral` or `processGroup`.
+export { RuntimeUnsupportedOptionError } from "./runtime/run-options.ts";
+
 // --- Process registry (pure tracker) ---
 export {
   defaultRegistry,
@@ -417,5 +421,7 @@ export {
   onShutdown,
   ProcessRegistry,
   register,
+  type RegisterOptions,
+  signalChild,
   unregister,
 } from "./process-registry.ts";
