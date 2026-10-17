@@ -47,7 +47,12 @@ Deno.test({
         // build that suppresses `agent_message_chunk` for trivial
         // prompts. Routed through `session/set_config_option`; see
         // `runtime/acp/mapping.ts:pickConfigForModel`.
-        model: "openai/gpt-5.4-mini-fast",
+        //
+        // Not `gpt-5.4-mini-fast`: OpenAI rejects the mini models on a
+        // ChatGPT-account sign-in (observed 2026-10-17), and OpenCode's ACP front
+        // swallows that error — the turn ends with an empty reply,
+        // zero usage and `is_error: false`.
+        model: "openai/gpt-5.6-luna-fast",
         signal: controller.signal,
         transport: "acp",
       });

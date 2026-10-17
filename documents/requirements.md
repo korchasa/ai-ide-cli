@@ -2220,7 +2220,7 @@ stable — never renumber on move.
         Evidence: `e2e/acp_codex_smoke_e2e_test.ts::e2e acp/codex/transport=acp returns ok`.
   - [x] Real-binary smoke against `opencode acp` (gated on `E2E=1` +
         `opencode` on PATH + opencode auth probe; `model:
-        "openai/gpt-5.4-mini-fast"` pinned via
+        "openai/gpt-5.6-luna-fast"` pinned via
         `session/set_config_option` because opencode's default model
         is user-configurable and may suppress
         `agent_message_chunk` for trivial prompts): one trivial
