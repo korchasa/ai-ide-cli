@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.2.0](https://github.com/korchasa/ai-ide-cli/compare/v1.1.0...v1.2.0) (2026-10-17)
+
+
+### Features
+
+* **runtime:** opt out of env inheritance with inheritEnv: false ([5281b99](https://github.com/korchasa/ai-ide-cli/commit/5281b999bb28dfffd6010b2f59a55f115df365e3))
+
+
+### Documentation
+
+* **srs:** name the model the Codex ACP smoke actually pins ([8321963](https://github.com/korchasa/ai-ide-cli/commit/8321963d1320777d818d36cc6dbaf802e1f7c9dc))
+* **tasks:** record claude e2e for FR-L49 and FR-L50, close task ([d385bfb](https://github.com/korchasa/ai-ide-cli/commit/d385bfb5ab0cc0a2a799f43d6623b33b4049db1b))
+* **tasks:** record real-binary runs for FR-L42, close task ([3605647](https://github.com/korchasa/ai-ide-cli/commit/3605647a4e4e595c007cd2062314097c0276fb98))
+
 ## [1.1.0](https://github.com/korchasa/ai-ide-cli/compare/v1.0.0...v1.1.0) (2026-10-17)
 
 
