@@ -195,7 +195,11 @@ a `!` commit, which is why leaving that series took one deliberate
   `deno task e2e` / `deno task e2e:<runtime>`. Gated by `E2E=1` +
   `E2E_RUNTIMES` + per-runtime binary probe + auth probe. E2E does
   NOT run in CI (FR-L34) — `.github/workflows/e2e.yml` is manual
-  `workflow_dispatch` only.
+  `workflow_dispatch` only. Inside the Claude desktop app `claude`
+  authenticates through the host's env, not a login of its own: an e2e
+  that strips the env (`inheritEnv: false`, `env -i`) answers
+  `Not logged in` there (2026-10-18) — that is the machine, not a
+  regression; run such cases from a terminal-logged-in `claude`.
 - `scripts/smoke.ts` — ad-hoc real-binary capture script for adding
   typed stream-event unions to a new runtime (e.g. `cursor-events`).
   Not a regression suite — that role moved to `e2e/`. Manual,
