@@ -525,10 +525,11 @@ front that never pushes before the ceiling rejects with
 Per-transport support (read it at runtime via `capabilitiesFor`):
 
 - `transport: "acp"`
-  - `claude` — ✓ pushes commands shortly after `session/new`.
-  - `codex` / `opencode` — capability advertised; whether the pinned
-    front actually pushes the variant today is front-version-dependent
-    (a no-push front surfaces as `reason: "timeout"`).
+  - `claude` / `codex` / `opencode` — ✓ each front pushes commands
+    shortly after `session/new` (verified 2026-10-17 against
+    `claude-agent-acp` 0.92.0, `codex-acp` 2.2.2, `opencode` 1.16.2).
+    Whether a front pushes is front-version-dependent; a no-push front
+    surfaces as `reason: "timeout"`.
   - `cursor` — ✗ (ACP front not piloted; method left undefined).
 - `transport: "cli"` — ✗ for every runtime (rejects `no_fast_channel`).
 

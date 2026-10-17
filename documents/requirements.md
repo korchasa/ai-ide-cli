@@ -2602,7 +2602,8 @@ runs); OpenCode and Codex dispatch at completion time.
     `cli`; cursor leaves the method undefined. Test:
     `runtime/index_test.ts` (FR-L42 cases).
   - **Real-binary e2e** (claude hard, codex/opencode soft). Test:
-    `e2e/acp_commands_e2e_test.ts`. Evidence: `E2E=1 deno task e2e:acp`.
+    `e2e/acp_commands_e2e_test.ts`. Evidence: `E2E=1 deno test -A
+    --no-check e2e/acp_commands_e2e_test.ts` (`e2e:acp` omits this file).
 - **Tasks:** [acp-available-commands-discovery](tasks/2026/06/acp-available-commands-discovery.md)
 
 ### 3.41 FR-L43: Inbound-Method Routing & Front-Pin Currency

@@ -9,10 +9,10 @@
  *   `@agentclientprotocol/claude-agent-acp` front pushes the variant
  *   shortly after `session/new`.
  * - **Codex / OpenCode (soft)**: a `CommandsUnavailableError` with
- *   `reason === "timeout"` is logged and skipped (the front does not
- *   push the variant today); ANY other error fails the step so a real
- *   regression (RPC error, spawn failure, `front_not_piloted`) is not
- *   masked.
+ *   `reason === "timeout"` is logged and skipped (pushing the variant
+ *   is front-version-dependent; both fronts pushed it on 2026-10-17);
+ *   ANY other error fails the step so a real regression (RPC error,
+ *   spawn failure, `front_not_piloted`) is not masked.
  *
  * Gated by `E2E=1` + `e2eAcpEnabled(<runtime>)`. Complements the
  * stub-driven coverage in `runtime/acp/commands_test.ts`.

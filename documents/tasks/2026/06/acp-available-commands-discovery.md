@@ -1,6 +1,6 @@
 ---
 date: "2026-06-02"
-status: in progress
+status: done
 implements: [FR-L39, FR-L42]
 tags: [acp, discovery, commands, capability-inventory, fast-channel]
 related_tasks:
@@ -170,14 +170,16 @@ Existing related FRs:
   the DoD bullets below. (FR-L42. Test: `manual — korchasa` (doc
   review). Evidence: `git diff documents/requirements.md`.)
 
-- [ ] **Empirical NDJSON capture** — `scripts/smoke.ts` gains an
+- [x] **Empirical NDJSON capture** — `scripts/smoke.ts` gains an
   `acp-commands` scenario that drives `claude-agent-acp` through
   `initialize` → `session/new` → `session/prompt` with a trivial
   prompt and dumps every notification to `/tmp/acp-commands-*.ndjson`
   with a `update.sessionUpdate` histogram. Confirms the variant
   string and wrapper depth used by the pinned pilot. (FR-L42. Test:
   `manual — korchasa` (capture artifact reviewed). Evidence:
-  `deno run -A scripts/smoke.ts acp-commands`.)
+  `deno run -A scripts/smoke.ts acp-commands`. Run 2026-10-17: exit 0,
+  147 commands captured from `claude-agent-acp` 0.92.0, dump
+  `/tmp/acp-commands-1792268606227.json`.)
 
 - [x] **Neutral `Command` / `CommandsSnapshot` /
   `CommandsUnavailableError` surface** — `runtime/commands.ts`
@@ -263,7 +265,7 @@ Existing related FRs:
   throws CommandsUnavailableError(no_fast_channel) on cli transport`.
   Evidence: `deno test -A --no-check runtime/`.)
 
-- [ ] **Real-binary e2e (Claude pilot, hard)** —
+- [x] **Real-binary e2e (Claude pilot, hard)** —
   `e2e/acp_commands_e2e_test.ts` calls
   `fetchCommands("claude", { transport: "acp", timeoutMs: 15_000,
   ... })` against the pinned `@agentclientprotocol/claude-agent-acp`
@@ -273,9 +275,9 @@ Existing related FRs:
   `e2e/acp_commands_e2e_test.ts::fetchCommands returns non-empty
   command list against claude-agent-acp`. Evidence: `E2E=1
   E2E_RUNTIMES=claude deno test -A --no-check
-  e2e/acp_commands_e2e_test.ts`.)
+  e2e/acp_commands_e2e_test.ts`. Run 2026-10-17: ok, 821 ms.)
 
-- [ ] **Real-binary e2e (Codex + OpenCode pilots, soft)** — same
+- [x] **Real-binary e2e (Codex + OpenCode pilots, soft)** — same
   scenario for `codex` and `opencode` pilots; one `t.step` per pilot
   with **typed branching**: `CommandsUnavailableError` with
   `reason === "timeout"` → log skip and return (front does not push
@@ -284,7 +286,10 @@ Existing related FRs:
   matrix visibility on which pilots advertise commands today, with
   regressions surfaced not masked. (FR-L42. Test:
   `e2e/acp_commands_e2e_test.ts::fetchCommands soft-probe codex &
-  opencode pilots`. Evidence: `E2E=1 deno task e2e:acp`.)
+  opencode pilots`. Evidence: `E2E=1 deno test -A --no-check
+  e2e/acp_commands_e2e_test.ts` — `e2e:acp` lists only the three
+  `acp_*_smoke` files. Run 2026-10-17: both steps ok, no skip — codex
+  (`codex-acp` 2.2.2) pushed 172 commands, opencode (1.16.2) 116.)
 
 - [x] **FR-comment markers** — every new exported symbol carries a
   leading `// FR-L42` comment (per AGENTS.md "Requirement
@@ -632,10 +637,10 @@ e2e/acp_commands_e2e_test.ts` locally; observe `> 0` commands.
   consider adding `FetchCommandsOptions.autoPromptText?: string`
   that sends one throw-away prompt before waiting. Not added
   speculatively.
-- **OpenCode session.update push** — OpenCode 1.15.x does not push
-  `available_commands_update` (verified empirically). If a future
-  version adds it, the soft e2e step will start passing — no library
-  change needed.
+- **OpenCode session.update push** — OpenCode 1.15.x did not push
+  `available_commands_update`; 1.16.2 does (2026-10-17 soft e2e: 116
+  commands). Codex `codex-acp` 2.2.2 pushes too (172). Promoting both
+  soft steps to hard assertions is a separate decision.
 - **Mid-session refresh** — `available_commands_update` can be
   re-pushed on plugin / skill set mutation. The helper today returns
   only the first snapshot; consumers wanting refresh subscribe to
