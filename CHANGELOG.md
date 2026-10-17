@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.1.0](https://github.com/korchasa/ai-ide-cli/compare/v1.0.0...v1.1.0) (2026-10-17)
+
+
+### Features
+
+* **runtime:** ACP usage, outputSchema, processGroup, ephemeral runs ([41d0bc9](https://github.com/korchasa/ai-ide-cli/commit/41d0bc9601340635e491c5c6b21d88dedc5f5833))
+
+
+### Chores
+
+* **deps:** resolve the ACP fronts to the top of their ranges ([a739154](https://github.com/korchasa/ai-ide-cli/commit/a73915452878213c3fe3dc0a7028c28ebc444442))
+
+
+### Tests
+
+* **e2e:** pin the OpenCode ACP smoke to a model OpenAI still serves ([770e881](https://github.com/korchasa/ai-ide-cli/commit/770e881a7f767752bb343b8de4a3eadb81bcde2a))
+
 ## [1.0.0](https://github.com/korchasa/ai-ide-cli/compare/v0.10.2...v1.0.0) (2026-10-03)
 
 ### [0.10.2](https://github.com/korchasa/ai-ide-cli/compare/v0.10.1...v0.10.2) (2026-10-03)
