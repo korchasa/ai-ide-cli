@@ -1,6 +1,6 @@
 ---
 date: "2026-10-17"
-status: in progress
+status: done
 implements: [FR-L49, FR-L50, FR-L51, FR-L52]
 tags: [acp, usage, structured-output, process-group, ephemeral, consumer]
 related_tasks: [2026/09/acp-fronts-drop-npx.md]
@@ -148,7 +148,7 @@ Verified on 2026-10-17 against this repo at `770e881`, bridges
 
 ## Definition of Done
 
-- [ ] FR-L49: ACP invoke and ACP session report token usage.
+- [x] FR-L49: ACP invoke and ACP session report token usage.
   - Test: `runtime/acp/adapter_test.ts::FR-L49 maps PromptResponse usage to CliRunUsage`
   - Test: `runtime/acp/adapter_test.ts::FR-L49 absent usage stays undefined`
   - Test: `runtime/acp/session_contract_test.ts::FR-L49 turn-end event carries usage`
@@ -158,9 +158,10 @@ Verified on 2026-10-17 against this repo at `770e881`, bridges
   - Evidence: `deno task e2e:acp` prints non-zero usage for claude and
     codex on a two-turn session, and turn 2 ≥ turn 1 for a cumulative
     scope.
-  - Status 2026-10-17: unit tests green; codex e2e
-    (`e2e/run_options_e2e_test.ts`) passed, per-turn usage. Claude e2e not
-    run — the claude OAuth session expired and could not be refreshed.
+  - Status 2026-10-17: unit tests green; codex and claude e2e
+    (`e2e/run_options_e2e_test.ts`) passed, per-turn usage on both. Claude
+    (claude-agent-acp 0.92.0, claude 2.1.287): turn 1 output 133, turn 2
+    output 3 — turn 2 < turn 1, so not cumulative.
 - [x] FR-L49: `CliRunUsage` gains `cache_write_tokens`; the claude CLI and
   claude ACP paths fill it.
   - Test: `claude/stream_test.ts::FR-L49 cache_creation_input_tokens maps to cache_write_tokens`
@@ -175,14 +176,15 @@ Verified on 2026-10-17 against this repo at `770e881`, bridges
   - Test: `codex/session_test.ts::FR-L50 turn/start carries outputSchema`
   - Test: `runtime/acp/adapter_test.ts::FR-L50 outputSchema on ACP throws AcpUnsupportedOptionError`
   - Evidence: `deno test -A --filter FR-L50`
-- [ ] FR-L50: the result exposes the parsed object as
+- [x] FR-L50: the result exposes the parsed object as
   `CliRunOutput.structured_output`, read from claude's `structured_output`
   result field and from codex's final message; a reply that fails to
   parse sets `is_error` with a clear message.
   - Test: `claude/stream_test.ts::FR-L50 reads structured_output from the result event`
   - Evidence: `deno task e2e` structured-output smoke passes for claude and codex
-  - Status 2026-10-17: unit tests green; codex e2e passed
-    (`{answer: "ok", n: 7}`). Claude e2e not run — expired OAuth session.
+  - Status 2026-10-17: unit tests green; codex and claude e2e passed
+    (`{answer: "ok", n: 7}`). Claude (claude 2.1.287): `result` text is the
+    same JSON (`{"answer":"ok","n":7}`), not prose.
 - [x] FR-L51: `processGroup: true` spawns every runtime with
   `detached: true`, and every kill path (`ProcessRegistry.killAll`,
   session `abort()`, invoke timeout / abort) signals `-pgid`.

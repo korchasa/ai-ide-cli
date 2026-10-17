@@ -3059,6 +3059,12 @@ runs); OpenCode and Codex dispatch at completion time.
     `{input_tokens: 23804, output_tokens: 5, cached_tokens: 7168}`, turn 2
     `{input_tokens: 142, output_tokens: 5, cached_tokens: 30848}` — per
     turn, not cumulative.
+  - Real-binary evidence (2026-10-17, claude-agent-acp 0.92.0, claude
+    2.1.287): same test → turn 1 `{input_tokens: 2, output_tokens: 133,
+    cached_tokens: 10329, cache_write_tokens: 37236}`, turn 2
+    `{input_tokens: 2, output_tokens: 3, cached_tokens: 47565,
+    cache_write_tokens: 4123}` — per turn (turn 2 output < turn 1); turn 2
+    reads back turn 1's cache (10 329 + 37 236 = 47 565).
 
 ### 3.48 FR-L50: Schema-Constrained Replies (`outputSchema`)
 
