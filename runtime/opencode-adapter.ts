@@ -157,9 +157,11 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     }
     rejectUnsupportedSystemPromptFile("opencode", opts);
     // FR-L50 / FR-L52: no schema flag, no way to skip session files.
+    // FR-L28: `settingSources` names Claude config sources only.
     rejectUnsupportedRunOptions("opencode", opts, [
       "outputSchema",
       "ephemeral",
+      "settingSources",
     ]);
     validateToolFilter("opencode", opts);
     warnToolFilterOnce(opts);
@@ -203,9 +205,11 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       return openSessionViaAcp("opencode", opts, opencodeAuthEnv);
     }
     // FR-L50 / FR-L52
+    // FR-L28
     rejectUnsupportedRunOptions("opencode", opts, [
       "outputSchema",
       "ephemeral",
+      "settingSources",
     ]);
     validateToolFilter("opencode", opts);
     warnToolFilterOnce(opts);

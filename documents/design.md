@@ -1656,7 +1656,7 @@ three per-runtime renderers consumed by adapters.
   supported (Claude CLI accepts the union).
 - **OpenCode (`capabilities.mcpInjection: true`)** —
   `buildOpenCodeConfigContent(servers)` renders both transports
-  per upstream OpenCode SSE schema (FR-L27):
+  per upstream OpenCode config schema:
   - stdio: `{mcp: {<name>: {type:"local", command:[cmd, …args],
     environment?, enabled:true}}}`
   - http:  `{mcp: {<name>: {type:"remote", url, headers?,
@@ -2004,6 +2004,11 @@ throws; flag alone stays open — FR-L24 rule, so the new flags sit in
   app-server `thread/start {ephemeral: true}`, refused with
   `resumeSessionId`; Claude `--no-session-persistence`; OpenCode / Cursor
   throw; ACP tuple entry (`ephemeral: false` not counted).
+- **Setting sources (FR-L28).** Codex / OpenCode / Cursor adapters run
+  `rejectUnsupportedRunOptions(runtime, opts, [..., "settingSources"])`
+  on the CLI branch of `invoke` and `openSession`, after the ACP
+  dispatch: any array, `[]` included, throws before spawn. ACP keeps the
+  `collectDegradedOptions` report.
 
 ## 5. Constraints
 

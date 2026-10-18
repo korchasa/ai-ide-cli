@@ -602,8 +602,8 @@ stable — never renumber on move.
   subprocess env for the run, then removes the tmp dir in `finally`.
   `'user'` symlinks the host `settings.json` into the tmp dir if it
   exists; `'project'` / `'local'` are recognized but not yet isolated
-  (they still come from CWD). Other adapters ignore `settingSources`
-  silently.
+  (they still come from CWD). Claude only; other CLI runtimes throw
+  `RuntimeUnsupportedOptionError` (FR-L28).
 - **Motivation:** Reproducible cleanroom runs for benchmarks and
   experiments — pairs naturally with FR-L9 `env` isolation.
 - **Acceptance:**
@@ -1359,145 +1359,100 @@ stable — never renumber on move.
     exception. Evidence: `ai-ide-cli/codex/app-server_test.ts::
     "thread without rollout path"`.
 
-### 3.27 FR-L27: Typed OpenCode SSE Session Events
+### 3.27 FR-L27: Typed OpenCode SSE Events The Library Reads
 
-- **Description:** Library exposes a sharp discriminated union over the
-  OpenCode `/event` SSE stream consumed by `openOpenCodeSession`,
-  matching the `Event` and `Part` unions published by
-  `@opencode-ai/sdk`. The legacy `OpenCodeStreamEvent` (which currently
-  models the `opencode run --format json` schema, not the SSE schema)
-  is renamed to a more accurate name and kept as a deprecated alias for
-  one minor cycle to preserve JSR backward compatibility.
-- **Scenario:** Embedding application iterates
-  `OpenCodeSession.events` and wants to render `message.part.updated`
-  with typed `Part` payloads (`text`/`tool`/`reasoning`/`file`/
-  `step-start`/`step-finish`/`patch`/`agent`/`retry`/`compaction`/
-  `subtask`). Without typed events, every consumer rewrites
-  `(raw.properties.part as any).type` casts; with FR-L27,
-  `isOpenCodeEvent(note, "message.part.updated")` narrows the variant
-  and `event.properties.part` becomes `OpenCodePart` (a sharp
-  discriminated union over `part.type`).
+- **Description:** Internal (non-exported) types for the `/event` SSE
+  variants the library itself reads; the session dispatcher and the
+  content extractor narrow on them without `Record<string, unknown>`
+  casts. Scope = today's reads:
+  - `session.status` — `properties.sessionID`, `properties.status.type`
+    (`busy` / `idle`): `opencode/session.ts` dispatcher and
+    `waitForIdleAndTeardown`.
+  - `session.idle` — `properties.sessionID`.
+  - `message.part.updated` — `properties.part`: `sessionID`, `type`;
+    `text` part → `text`; `tool` part → `id` / `callID`, `tool`,
+    `state.status`, `state.input` (`opencode/content.ts`).
+  - `message.updated` — `properties.info.sessionID` only
+    (`extractOpenCodeSessionId`).
+  Every other variant stays the public untyped `OpenCodeSessionEvent`.
+  `OpenCodeStreamEvent` (`opencode run --format json`) keeps its name: a
+  rename is a MAJOR (FR-L48) with no behaviour gain.
+- **Shapes:** captured from the real `opencode` binary per AGENTS.md
+  "Adding Typed Stream Events" (smoke scenario, NDJSON dump, `type`
+  histogram), not copied from `@opencode-ai/sdk`. The capture settles
+  the terminal tool-state literal: `opencode/content.ts` tests
+  `completed` / `failed`; no capture, no variant.
+- **Motivation:** a server-side field rename breaks the busy/idle
+  tracking and content extraction silently today; typed reads plus
+  captured fixtures turn it into a type or test failure. Public export
+  is a separate decision — the neutral `extractSessionContent` (FR-L23)
+  stays the consumer path.
 - **Acceptance:**
-  - [ ] `opencode/events.ts` exposes the typed union `OpenCodeEvent`
-    covering at minimum the SSE variants the library and downstream
-    consumers narrow on: `server.connected`, `session.created`,
-    `session.updated`, `session.idle`, `session.status`,
-    `session.error`, `message.updated`, `message.part.updated`,
-    `message.part.removed`, `permission.updated`, `permission.replied`,
-    `file.edited`. Forward-compat fallback is the runtime shape
-    `OpenCodeUntypedEvent` (mirrors the FR-L26 split between sharp
-    `CodexNotification` and runtime `CodexUntypedNotification`).
-    Evidence: `ai-ide-cli/opencode/events.ts`.
-  - [ ] `OpenCodePart` discriminated union over `part.type` covers
-    `text`, `reasoning`, `file`, `tool`, `step-start`, `step-finish`,
-    `snapshot`, `patch`, `agent`, `retry`, `compaction`, `subtask`.
-    `OpenCodeToolState` further narrows `ToolPart.state.status` to
-    `pending` / `running` / `completed` / `error`. Evidence:
-    `ai-ide-cli/opencode/events.ts`.
-  - [ ] `isOpenCodeEvent(event, type)` is a working type guard:
-    after the check, `event.properties` narrows to the variant's typed
-    shape without explicit casts. Evidence:
-    `ai-ide-cli/opencode/events_test.ts` (≥ 6 tests covering the
-    common narrowing paths and the unknown-event fallback).
-  - [ ] The legacy `OpenCodeStreamEvent` (modelling `opencode run
-    --format json` events `step_start` / `text` / `tool_use` /
-    `step_finish` / `error`) is renamed to `OpenCodeRunStreamEvent`
-    and re-exported under the legacy name as a deprecated type
-    alias (`@deprecated` JSDoc, alias kept for one minor cycle).
-    Evidence: `ai-ide-cli/opencode/process.ts`,
-    `ai-ide-cli/CHANGELOG.md`.
-  - [ ] `opencode/session.ts` dispatcher consumes the typed
-    `OpenCodeEvent` union (no `Record<string, unknown>` casts in the
-    busy/idle / `message.part.updated` branches). Evidence:
-    `ai-ide-cli/opencode/session.ts`.
-  - [ ] `runtime/content.ts` OpenCode branch consumes
-    `OpenCodePart` / `OpenCodeToolState` types instead of stringly-typed
-    field access (no behaviour change; types-only). Evidence:
-    `ai-ide-cli/runtime/content.ts:extractOpenCodeContent`.
-  - [ ] Public types are barrel-exported from `mod.ts`. Evidence:
-    `ai-ide-cli/mod.ts`.
-  - [ ] `// FR-L27` traceability comments at narrowing sites in
-    `opencode/session.ts` and `runtime/content.ts`.
-  - [ ] `deno publish --dry-run` continues to pass — no JSR slow-types
-    regression. Evidence: green CI run / local `deno task check`.
+  - [ ] Types + a narrowing guard over the four variants; unknown types
+        fall back to `OpenCodeSessionEvent`. Tests replay captured
+        payloads.
+  - [ ] `opencode/session.ts` and `opencode/content.ts` read through the
+        types — no `Record<string, unknown>` casts on these paths;
+        existing session / content tests stay green.
+  - [ ] No new public symbol; `deno publish --dry-run` green.
+  - [ ] `// FR-L27` at the narrowing sites.
 
-### 3.28 FR-L28: `CODEX_HOME` Setting-Source Isolation
+### 3.28 FR-L28: Non-Claude Runtimes Reject `settingSources`
 
-- **Description:** Codex adapter honors `RuntimeInvokeOptions.settingSources` /
-  `RuntimeSessionOptions.settingSources` by populating a temp directory
-  with the listed sources and pointing the spawned `codex` subprocess at
-  it via the `CODEX_HOME` environment variable. Mirrors the Claude
-  adapter's FR-L18 behaviour for cleanroom / per-invocation config
-  isolation. `capabilities.settingSources` becomes runtime-aware (Claude
-  / Codex `true`; OpenCode / Cursor `false`).
-- **Scenario:** Pipeline runs three Codex turns with different effective
-  configs (different `~/.codex/config.toml`, different
-  `~/.codex/instructions.md`). Without isolation each run pollutes the
-  global home; with FR-L28 each run sees a fresh `CODEX_HOME` populated
-  from `settingSources`.
+- **Description:** `settingSources` on `RuntimeInvokeOptions` /
+  `RuntimeSessionOptions` names Claude config sources (`user` /
+  `project` / `local`, FR-L18). Codex, OpenCode and Cursor CLI
+  transports throw `RuntimeUnsupportedOptionError` synchronously, before
+  any spawn, when the field is set; `[]` counts as set
+  (`rejectUnsupportedRunOptions`, FR-L50 pattern). No warning path. ACP
+  transport keeps its FR-L39 degraded-option report — out of scope.
+- **Motivation:** today these adapters drop the field silently: a caller
+  asking for a cleanroom (`[]`) runs on the user's full config with no
+  signal (fail-fast rule). Earlier design — temp `CODEX_HOME` populated
+  from the sources — dropped: it stages a sandbox copy of user config
+  (forbidden by AGENTS.md core rules), and `CODEX_HOME` also holds the
+  Codex login, so a redirect breaks auth. Codex config layers
+  (`config.toml`, profiles, `.rules`) do not map onto `user` / `project`
+  / `local`.
+- **Later, not this FR:** `codex-cli 0.159.1` `codex exec` has native
+  isolation — `--ignore-user-config` (skips `$CODEX_HOME/config.toml`,
+  auth kept), `--ignore-rules` (skips execpolicy `.rules`),
+  `-p/--profile`. `codex app-server` has none of them (checked
+  2026-10-18), so a typed option would cover invoke only; reachable
+  today through `extraArgs`.
+- **Breaking:** a caller passing `settingSources` to Codex / OpenCode /
+  Cursor gets no error today → implementation ships as a `!` commit
+  (MAJOR, FR-L48). No known consumer passes it to a non-Claude runtime
+  (grep over `~/www`, 2026-10-18).
 - **Acceptance:**
-  - [ ] `runtime/setting-sources.ts` (or a new
-    `codex/setting-sources.ts`) exposes
-    `prepareCodexSettingSourcesDir(sources, opts)` that builds a temp
-    directory under `Deno.makeTempDir()` and returns the path. Evidence:
-    `ai-ide-cli/runtime/setting-sources.ts` /
-    `ai-ide-cli/codex/setting-sources.ts`.
-  - [ ] `codex/process.ts:invokeCodexCli` and
-    `codex/session.ts:openCodexSession` set `env.CODEX_HOME = <tempdir>`
-    on the spawned subprocess when `settingSources` is provided. Cleanup
-    runs in a `finally` block. Evidence:
-    `ai-ide-cli/codex/process.ts`, `ai-ide-cli/codex/session.ts`.
-  - [ ] New `RuntimeCapabilities.settingSources: boolean` capability
-    flag (Claude / Codex `true`; OpenCode / Cursor `false`). Existing
-    `settingSources` field stays on options (already there) — only the
-    capability metadata changes. Evidence:
-    `ai-ide-cli/runtime/types.ts:RuntimeCapabilities`,
-    `ai-ide-cli/runtime/{claude,codex,opencode,cursor}-adapter.ts`.
-  - [ ] Tests verify the populated `CODEX_HOME` directory contents
-    match the listed sources, env var lands on the subprocess, and
-    cleanup succeeds. Evidence:
-    `ai-ide-cli/codex/setting-sources_test.ts`,
-    `ai-ide-cli/codex/process_test.ts`,
-    `ai-ide-cli/codex/session_test.ts`.
-  - [ ] `// FR-L28` traceability comments at the env-emission sites.
-  - [ ] OpenCode / Cursor adapters with `capabilities.settingSources
-    === false` emit one `console.warn` on first set-value call per
-    process when `settingSources` is provided (mirrors the FR-L24 /
-    FR-L25 warn-once latch pattern). Evidence:
-    `ai-ide-cli/runtime/{cursor,opencode}-adapter.ts`.
+  - [x] Codex, OpenCode and Cursor invoke and session paths throw
+        `RuntimeUnsupportedOptionError` with `fields` holding
+        `settingSources` for any array, `[]` included; `undefined`
+        passes. Tests named `FR-L28 *`.
+  - [x] `settingSources` JSDoc in `runtime/adapter-types.ts` and
+        `runtime/session-types.ts`, and the FR-L18 Description, say
+        "Claude only; other CLI runtimes throw" instead of "ignore".
+        Evidence: `grep -n -F 'Claude only' runtime/adapter-types.ts
+        runtime/session-types.ts documents/requirements.md`.
+  - [x] `// FR-L28` at each rejection site.
 
-### 3.29 FR-L29: Codex Per-Turn Lifecycle Hook
+### 3.29 FR-L29: No Codex-Only Per-Turn Hook
 
-- **Description:** Codex session and one-shot invocation adapters fire a
-  per-turn lifecycle hook on the `turn/completed` JSON-RPC notification
-  (session) and the corresponding `turn.completed` NDJSON event
-  (one-shot). Surfaces a typed `CodexTurn` payload to consumers that
-  want a "one event per turn" handle without iterating the full event
-  stream. Mirrors the Claude `onAssistant` ergonomics on a per-turn
-  granularity instead of per-assistant-message — Codex emits multiple
-  agent-message items per turn so per-turn is the closer analogue.
-- **Scenario:** Embedding application wants to log turn cost / status /
-  error after each turn. Today consumers must filter
-  `RuntimeSessionEvent.type === "turn-end"` and read `raw.params.turn`.
-  With FR-L29 they pass `hooks.onCodexTurnCompleted: (turn: CodexTurn,
-  threadId: string) => void` and skip the filtering layer.
+- **Description:** The library ships no Codex-specific per-turn hook
+  (`onCodexTurnCompleted` or similar). A turn end is observed through
+  the runtime-neutral layer: the `turn-end` session event (FR-L21, `raw`
+  carries the native `turn/completed` payload), `extractSessionContent`
+  final content (FR-L23), and `onResult` for one-shot invoke (FR-L17).
+- **Motivation:** the hook would duplicate FR-L21 for one runtime and
+  make consumers branch on runtime name, against the project vision.
+  The existing `onAssistant` hooks (Claude, Cursor) fire per assistant
+  message, a granularity the neutral layer has no single event for; the
+  per-turn signal already has one. Consumer evidence:
+  `tg-ide-bridge/engine/ide_session.ts` finalizes turns on
+  `SYNTHETIC_TURN_END` + `extractSessionContent`.
 - **Acceptance:**
-  - [ ] `codex/session.ts` and `codex/process.ts` fire
-    `hooks.onCodexTurnCompleted?(turn, threadId)` on the
-    `turn/completed` notification path; `turn` is typed as
-    {@link CodexTurn} (FR-L26). Evidence:
-    `ai-ide-cli/codex/session.ts`, `ai-ide-cli/codex/process.ts`.
-  - [ ] New optional Codex-specific hook field on
-    `CodexSessionOptions` and `RuntimeInvokeOptions` (or a Codex-only
-    options interface, mirroring `ClaudeLifecycleHooks`); does NOT
-    appear on the cross-runtime `RuntimeLifecycleHooks` (which stays
-    `onInit` / `onResult` only). Evidence:
-    `ai-ide-cli/codex/session.ts`, `ai-ide-cli/codex/process.ts`.
-  - [ ] Tests cover hook firing exactly once per `turn/completed`,
-    not on `turn/started`, and pass-through of `turn.error` /
-    `turn.durationMs`. Evidence: `ai-ide-cli/codex/session_test.ts`,
-    `ai-ide-cli/codex/process_test.ts`.
-  - [ ] `// FR-L29` traceability comments at the hook-fire sites.
+  - [x] No Codex-only turn hook exists. Evidence:
+        `grep -rn onCodexTurnCompleted --include='*.ts' .` → no hits.
 
 ### 3.30 FR-L30: Typed Cursor Stream-JSON Event Union & Tool-Call Lifecycle
 
