@@ -396,10 +396,6 @@ captured.
   `--setting-sources` sits in `CLAUDE_INTENTIONALLY_OPEN_FLAGS`. The spawn
   env is not touched, so login lookup (keychain by `$USER`, FR-L53) and
   the session files stay in the host config root.
-- Deprecated, unused by the library, removal at the next MAJOR:
-  `prepareSettingSourcesDir` / `PrepareSettingSourcesResult` (temp
-  `CLAUDE_CONFIG_DIR` with a symlinked user `settings.json`) and
-  `defaultClaudeConfigDir` (its config-root lookup).
 
 **`runtime/content.ts` — Normalized Content Extraction (FR-L23):**
 
@@ -1206,9 +1202,7 @@ ACP internals (`invokeViaAcp`, `openSessionViaAcp`, `fetchAcpCommands`
 runtime adapter passes its matcher, absent (tests) → `NO_LOGIN_ENV`.
 `runtime/` never imports `<runtime>/auth-env.ts` outside the adapters.
 
-Callers of the lookups (optional `(env?, inheritEnv?)` params, additive;
-the deprecated `defaultClaudeConfigDir` in `runtime/setting-sources.ts`
-keeps the same shape plus the matcher, with no library caller left):
+Callers of the lookups (optional `(env?, inheritEnv?)` params, additive):
 `defaultCodexSessionsDir` (`codex/transcript.ts`,
 resolved once before the exec spawn and passed to both
 `findCodexSessionFile` calls), `resolveOpenCodeLogDir`

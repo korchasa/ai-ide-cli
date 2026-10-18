@@ -206,7 +206,8 @@ Runtime-scoped (check `capabilities` before using):
   loads no settings, `CLAUDE.md`, agents, skills or `.mcp.json` from
   `~/.claude` or the project and keeps the login. Needs Claude Code >=
   2.1.101 (older ones may purge history past 30 days on runs without
-  `user`). Other runtimes ignore the option; ACP reports it as degraded.
+  `user`). Other CLI runtimes throw `RuntimeUnsupportedOptionError`
+  (FR-L28); ACP reports it as degraded.
 
 Every Claude spawn sets
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for the child process

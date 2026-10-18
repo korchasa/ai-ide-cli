@@ -620,10 +620,11 @@ stable — never renumber on move.
 - **Legacy flag:** `claudeArgs["--setting-sources"]` stays valid while the
   typed field is unset (`CLAUDE_INTENTIONALLY_OPEN_FLAGS`); both at once
   throw.
-- **Deprecated:** `prepareSettingSourcesDir`, `PrepareSettingSourcesResult`,
-  `defaultClaudeConfigDir` (`./runtime/setting-sources`) — the retired
-  temp-`CLAUDE_CONFIG_DIR` implementation (isolated only `user`, dropped a
-  keychain login). Unused by the library; removal at the next MAJOR.
+- **Removed:** `prepareSettingSourcesDir`, `PrepareSettingSourcesResult`,
+  `defaultClaudeConfigDir` — the retired temp-`CLAUDE_CONFIG_DIR`
+  implementation (isolated only `user`, dropped a keychain login).
+  `./runtime/setting-sources` keeps `SettingSource`, `SETTING_SOURCES`,
+  `validateSettingSources`.
 - **Motivation:** Reproducible cleanroom runs for benchmarks and
   experiments — pairs naturally with FR-L9 `env` isolation.
 - **Acceptance:**

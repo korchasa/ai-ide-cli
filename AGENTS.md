@@ -90,9 +90,7 @@ a `!` commit, which is why leaving that series took one deliberate
     `disallowedTools` validation used by every adapter (FR-L24).
   - `runtime/setting-sources.ts` — `SettingSource` +
     `validateSettingSources`; the Claude adapter emits native
-    `--setting-sources` (FR-L18). Deprecated temp-dir helpers
-    (`prepareSettingSourcesDir`, `defaultClaudeConfigDir`) wait for the
-    next MAJOR.
+    `--setting-sources` (FR-L18); other CLI runtimes throw on it (FR-L28).
   - `runtime/reasoning-effort.ts` — abstract `reasoningEffort` enum +
     `validateReasoningEffort` mapped per-runtime (FR-L25).
   - `runtime/acp/inbound.ts` — `createInboundRequestHandler`, the single
