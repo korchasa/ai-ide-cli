@@ -120,10 +120,9 @@ scenario(
 
 scenario(
   "settings",
-  "settingSources=[] produces an empty CLAUDE_CONFIG_DIR for the run",
+  "settingSources=[] loads no setting source and stays logged in",
   async () => {
-    // End-to-end check: we just confirm the run completes without stalling
-    // or crashing when Claude is pointed at an empty config dir.
+    // End-to-end check: `--setting-sources ""` must not log Claude out.
     const res = await invokeClaudeCli({
       processRegistry: defaultRegistry,
       taskPrompt: "Reply with the single word: ok",

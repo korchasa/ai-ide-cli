@@ -6,6 +6,7 @@
 - [FR-L14](requirements.md#3-14-fr-l14-map-shaped-extraargs--runtime_args) — Map-shaped `extraArgs` / `runtime_args` — [x]
 - [FR-L16](requirements.md#3-16-fr-l16-observed-tool-use-hook) — `RuntimeInvokeOptions.onToolUseObserved(info)` (and the Claude-specific `ClaudeInvokeOptions.onToolUseObserved(info)`) fire for every tool invocation surfaced by the runtime's event stream — [x]
 - [FR-L17](requirements.md#3-17-fr-l17-typed-lifecycle-hooks) — Typed lifecycle hooks: Claude `ClaudeLifecycleHooks`; runtime-neutral `RuntimeLifecycleHooks` (`onInit`/`onResult`) honored by all four adapters — [x]
+- [FR-L18](requirements.md#3-18-fr-l18-setting-source-isolation-claude) — `settingSources` selects which Claude config sources (`user` / `project` / `local`) apply to a run — [x]
 - [FR-L19](requirements.md#3-19-fr-l19-streaming-input-session) — Streaming-input session: caller opens a session, pushes user messages, consumes normalized events, closes via `endInput` / `abort` — [x]
 - [FR-L20](requirements.md#3-20-fr-l20-capability-inventory-llm-probed) — LLM-probed capability inventory: enumerate skills and slash commands exposed by the runtime in a given `cwd` — [x]
 - [FR-L23](requirements.md#3-23-fr-l23-normalized-session-event-content) — Pure runtime-neutral helper `extractSessionContent(event)` returns `NormalizedContent[]` from a `RuntimeSessionEvent` — [x]

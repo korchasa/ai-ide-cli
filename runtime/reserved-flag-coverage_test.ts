@@ -112,6 +112,7 @@ Deno.test("reserved-flag coverage — Claude (one-shot + session)", () => {
     reasoningEffort: "high",
     outputSchema: { type: "object" },
     ephemeral: true,
+    settingSources: ["user"],
     timeoutSeconds: 60,
     maxRetries: 1,
     retryDelaySeconds: 1,
@@ -139,6 +140,7 @@ Deno.test("reserved-flag coverage — Claude (one-shot + session)", () => {
     reasoningEffort: "high",
     outputSchema: { type: "object" },
     ephemeral: true,
+    settingSources: ["user"],
     processRegistry: defaultRegistry,
   });
   const sessionResume = buildClaudeSessionArgs({

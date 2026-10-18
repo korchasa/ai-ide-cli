@@ -1,23 +1,18 @@
 /**
  * @module
- * Setting-sources isolation helper for Claude runs.
+ * Claude setting-source selection (FR-L18).
  *
- * Claude Code has no flag for selecting which configuration sources
- * (`user` / `project` / `local`) apply to a run — it discovers them from
- * `CLAUDE_CONFIG_DIR` (user) and the current working directory
- * (`<cwd>/.claude/settings.json`, `settings.local.json`). This helper
- * builds a temporary `CLAUDE_CONFIG_DIR` containing only the user-level
- * `settings.json` when `'user'` is in the selected sources, so callers
- * can run Claude against a reproducible, filtered configuration set.
+ * The Claude adapter maps `settingSources` to the native
+ * `--setting-sources <comma-list>` flag (`[]` → `""`). Claude Code then
+ * loads only the named sources — `user` (`~/.claude`), `project`
+ * (`<cwd>/.claude/settings.json`, `CLAUDE.md`, agents, skills,
+ * `.mcp.json`), `local` (`<cwd>/.claude/settings.local.json`). No config
+ * dir is redirected, so the login and the run's session files stay where
+ * the user keeps them. Other runtime adapters ignore the option.
  *
- * Notes:
- * - `'project'` and `'local'` are recognized but not yet isolated — they
- *   still come from CWD. Full isolation would require a tmp CWD with
- *   selective symlinks; tracked as a follow-up in
- *   [`documents/tasks/2026-04-19-evaluate-claude-agent-sdk.md`]
- *   ("Follow-ups").
- * - Currently Claude-specific; other runtime adapters ignore the
- *   `settingSources` option.
+ * `prepareSettingSourcesDir` / `defaultClaudeConfigDir` are the retired
+ * temp-`CLAUDE_CONFIG_DIR` implementation, kept deprecated until the next
+ * MAJOR.
  */
 
 import { join } from "@std/path";
@@ -31,7 +26,39 @@ import {
 /** Individual Claude settings source. */
 export type SettingSource = "user" | "project" | "local";
 
-/** Result handle returned by {@link prepareSettingSourcesDir}. */
+// FR-L18
+/** Every source Claude Code's `--setting-sources` accepts. */
+export const SETTING_SOURCES: readonly SettingSource[] = [
+  "user",
+  "project",
+  "local",
+];
+
+// FR-L18
+/**
+ * Throw on a member outside {@link SETTING_SOURCES}. Runs before spawn so
+ * a YAML-driven typo fails once with a clear message instead of every
+ * retry failing inside the CLI. `undefined` and `[]` pass.
+ *
+ * @param sources The caller's `settingSources`.
+ */
+export function validateSettingSources(sources?: SettingSource[]): void {
+  for (const source of sources ?? []) {
+    if (!SETTING_SOURCES.includes(source)) {
+      throw new Error(
+        `settingSources: unknown source "${source}"; valid: ${
+          SETTING_SOURCES.join(", ")
+        }`,
+      );
+    }
+  }
+}
+
+/**
+ * Result handle returned by {@link prepareSettingSourcesDir}.
+ *
+ * @deprecated No longer used by the library; removal at the next MAJOR.
+ */
 export interface PrepareSettingSourcesResult {
   /** Absolute path to the prepared temp config dir. */
   tmpDir: string;
@@ -57,6 +84,9 @@ export interface PrepareSettingSourcesResult {
  * @param realConfigDir  source `CLAUDE_CONFIG_DIR` to read from.
  * @param _realCwd  reserved for future project/local isolation; currently
  *                  unused but part of the signature so callers pass it.
+ * @deprecated The Claude adapter emits `--setting-sources` instead (FR-L18);
+ *   this temp dir drops a keychain login and isolates only `user`.
+ *   Removal at the next MAJOR.
  */
 export async function prepareSettingSourcesDir(
   sources: SettingSource[],
@@ -106,6 +136,8 @@ export async function prepareSettingSourcesDir(
  *   passed in because `runtime/` does not import runtime dirs. Library
  *   call sites always pass it; absent → only the OS-user vars count as
  *   carried, so an isolated parent `CLAUDE_CONFIG_DIR` is not seen.
+ * @deprecated Served only {@link prepareSettingSourcesDir}; removal at the
+ *   next MAJOR.
  */
 export function defaultClaudeConfigDir(
   env?: Record<string, string>,

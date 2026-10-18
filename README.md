@@ -97,7 +97,7 @@ adapter.capabilitiesFor?.("acp");
 | outputSchema (FR-L50) | yes (`--json-schema`) | throws | throws | yes (`--output-schema`; session `turn/start.outputSchema`) |
 | processGroup (FR-L51) | yes | yes | yes | yes |
 | ephemeral (FR-L52)   | yes (`--no-session-persistence`) | throws | throws | yes (`--ephemeral`; session `thread/start.ephemeral`) |
-| settingSources cleanroom | yes (`CLAUDE_CONFIG_DIR` redirect, FR-L18) | throws (FR-L28) | throws (FR-L28) | throws (FR-L28) |
+| settingSources cleanroom | yes (`--setting-sources`, FR-L18; Claude >= 2.1.101) | throws (FR-L28) | throws (FR-L28) | throws (FR-L28) |
 
 Universal across all four runtimes: NDJSON event streaming, `AbortSignal`
 + timeout, custom `cwd` / `env`, `extraArgs` / `runtime_args` passthrough,
@@ -202,8 +202,11 @@ Runtime-scoped (check `capabilities` before using):
   (`capabilities.toolUseObservation`). Cursor fires the callback on
   every `tool_call/started` event with the flattened tool name from
   `unwrapCursorToolCall`.
-- `settingSources` — Claude only (cleanroom `CLAUDE_CONFIG_DIR` setup).
-  Other runtimes have no equivalent; the option is ignored.
+- `settingSources` — Claude only: native `--setting-sources`, so `[]`
+  loads no settings, `CLAUDE.md`, agents, skills or `.mcp.json` from
+  `~/.claude` or the project and keeps the login. Needs Claude Code >=
+  2.1.101 (older ones may purge history past 30 days on runs without
+  `user`). Other runtimes ignore the option; ACP reports it as degraded.
 
 Every Claude spawn sets
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for the child process
@@ -226,7 +229,7 @@ await invokeClaudeCli({
   timeoutSeconds: 60,
   maxRetries: 1,
   retryDelaySeconds: 1,
-  env: { CLAUDE_CONFIG_DIR: "/tmp/cleanroom" },
+  env: { CLAUDE_CONFIG_DIR: "/path/to/claude-config" },
   onEvent: (event) => {
     if (event.type === "system") console.log("init:", event);
   },
@@ -234,7 +237,7 @@ await invokeClaudeCli({
     onInit: (info) => console.log("session", info.sessionId),
     onResult: (output) => console.log("cost", output.total_cost_usd),
   },
-  settingSources: ["user"], // symlink host ~/.claude/settings.json only
+  settingSources: ["user"], // --setting-sources user: skip project/local
 });
 ```
 
@@ -254,8 +257,8 @@ out. The agent's env is built from, later wins:
    `*_API_KEY` for OpenCode, `CURSOR_API_KEY` for Cursor (lists in
    `<runtime>/auth-env.ts`);
 3. your `env`;
-4. the library's own variables (`PWD`, the FR-L45 switch, the cleanroom
-   `CLAUDE_CONFIG_DIR`, the ACP front's env).
+4. the library's own variables (`PWD`, the FR-L45 switch, the ACP
+   front's env).
 
 Everything else in this process — `CLAUDECODE`, `CLAUDE_CODE_*` session
 vars, `OTEL_*`, proxies, another runtime's keys — stays out. It works on

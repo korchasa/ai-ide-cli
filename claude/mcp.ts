@@ -7,8 +7,7 @@
  * MCP servers to register. The library writes the rendered shape to a fresh
  * temporary directory under `Deno.makeTempDir({prefix:"claude-mcp-"})`, hands
  * the path to the runner, and reaps the directory in the runner's `finally`
- * chain (success / retry / abort / crash all converge there). Mirrors the
- * shape of `runtime/setting-sources.ts:prepareSettingSourcesDir`.
+ * chain (success / retry / abort / crash all converge there).
  */
 
 import { join } from "@std/path";

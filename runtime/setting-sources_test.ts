@@ -1,9 +1,25 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { join } from "@std/path";
 import {
   defaultClaudeConfigDir,
   prepareSettingSourcesDir,
+  type SettingSource,
+  validateSettingSources,
 } from "./setting-sources.ts";
+
+Deno.test("FR-L18 validateSettingSources accepts every known source, [] and undefined", () => {
+  validateSettingSources(["user", "project", "local"]);
+  validateSettingSources([]);
+  validateSettingSources(undefined);
+});
+
+Deno.test("FR-L18 validateSettingSources rejects an unknown source", () => {
+  assertThrows(
+    () => validateSettingSources(["user", "User" as SettingSource]),
+    Error,
+    'unknown source "User"; valid: user, project, local',
+  );
+});
 
 Deno.test("prepareSettingSourcesDir — ['user'] with existing settings.json symlinks it", async () => {
   const realConfigDir = await Deno.makeTempDir({ prefix: "claude-real-" });
@@ -117,7 +133,7 @@ Deno.test("prepareSettingSourcesDir — ['user'] with missing settings.json skip
   }
 });
 
-Deno.test("FR-L53 defaultClaudeConfigDir isolated sees what the child sees", () => {
+Deno.test("defaultClaudeConfigDir (deprecated) isolated sees what the child sees", () => {
   const login = (n: string) => n === "CLAUDE_CONFIG_DIR";
   const prev = Deno.env.get("CLAUDE_CONFIG_DIR");
   Deno.env.set("CLAUDE_CONFIG_DIR", "/parent-cfg");

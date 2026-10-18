@@ -258,8 +258,8 @@ stable — never renumber on move.
 
 - **Description:** `RuntimeInvokeOptions.env` and `ClaudeInvokeOptions.env`
   accept `Record<string, string>` merged into the subprocess environment.
-  Enables isolation scenarios (e.g. `CLAUDE_CONFIG_DIR=<cleanroom>` to avoid
-  global `~/.claude/CLAUDE.md` contamination). Claude merges with
+  Enables isolation scenarios (e.g. `CLAUDE_CONFIG_DIR=<dir>` for another
+  Claude config root; dropping `~/.claude/CLAUDE.md` is FR-L18). Claude merges with
   `{ CLAUDECODE: "", ...env }`, Cursor passes env directly, OpenCode merges
   with `OPENCODE_CONFIG_CONTENT` when present.
 - **Motivation:** Experiments and benchmarks require isolated agent configs
@@ -594,30 +594,59 @@ stable — never renumber on move.
 
 ### 3.18 FR-L18: Setting-Source Isolation (Claude)
 
-- **Description:** `ClaudeInvokeOptions.settingSources` (and the
-  runtime-neutral `RuntimeInvokeOptions.settingSources`) selects which
-  Claude configuration sources (`'user'` / `'project'` / `'local'`)
-  apply. When provided, the Claude adapter builds a temporary
-  `CLAUDE_CONFIG_DIR` via `prepareSettingSourcesDir()` and redirects the
-  subprocess env for the run, then removes the tmp dir in `finally`.
-  `'user'` symlinks the host `settings.json` into the tmp dir if it
-  exists; `'project'` / `'local'` are recognized but not yet isolated
-  (they still come from CWD). Claude only; other CLI runtimes throw
-  `RuntimeUnsupportedOptionError` (FR-L28).
+- **Description:** `ClaudeInvokeOptions.settingSources` /
+  `ClaudeSessionOptions.settingSources` (and the runtime-neutral
+  `RuntimeInvokeOptions` / `RuntimeSessionOptions` field) select which
+  Claude config sources (`'user'` / `'project'` / `'local'`) apply. The
+  Claude CLI adapter emits native `--setting-sources <comma-joined>` on
+  invoke and session argv, resume included; `[]` → `""` (nothing loaded);
+  unset → no flag, Claude loads all three. No config dir is redirected:
+  the login and the run's session files stay in the host config root,
+  and a caller `env.CLAUDE_CONFIG_DIR` passes through unchanged. Other CLI
+  runtimes throw `RuntimeUnsupportedOptionError` (FR-L28); the ACP
+  transport reports it as degraded.
+- **Tasks:** [claude-native-setting-sources](tasks/2026/10/claude-native-setting-sources.md)
+- **Per-source gating (claude 2.1.302, probed 2026-10-18):** `user` →
+  `~/.claude` settings (model, plugins, hooks), user `CLAUDE.md`, user
+  agents / skills; `project` → `<cwd>/.claude/settings.json`, project
+  `CLAUDE.md`, `.claude/agents`, `.claude/skills`, `.mcp.json`; `local` →
+  `<cwd>/.claude/settings.local.json`. `--settings` (via `claudeArgs`)
+  and managed settings still apply. A typed `agent` defined only in an
+  excluded source fails fast: `--agent '<name>' not found`.
+- **Version floor:** Claude Code >= 2.1.101. The flag exists by 2.0.24;
+  before 2.1.101 a run without `user` that lives > 10 min ran history
+  cleanup with the default 30-day `cleanupPeriodDays`, deleting older
+  transcripts of a user who raised it. No runtime version gate.
+- **Legacy flag:** `claudeArgs["--setting-sources"]` stays valid while the
+  typed field is unset (`CLAUDE_INTENTIONALLY_OPEN_FLAGS`); both at once
+  throw.
+- **Deprecated:** `prepareSettingSourcesDir`, `PrepareSettingSourcesResult`,
+  `defaultClaudeConfigDir` (`./runtime/setting-sources`) — the retired
+  temp-`CLAUDE_CONFIG_DIR` implementation (isolated only `user`, dropped a
+  keychain login). Unused by the library; removal at the next MAJOR.
 - **Motivation:** Reproducible cleanroom runs for benchmarks and
   experiments — pairs naturally with FR-L9 `env` isolation.
 - **Acceptance:**
-  - [x] `settingSources?: SettingSource[]` on `RuntimeInvokeOptions`
-        and `ClaudeInvokeOptions`. Evidence: `ai-ide-cli/runtime/types.ts`,
-        `ai-ide-cli/claude/process.ts`.
-  - [x] `['user']` with existing `settings.json` symlinks into tmp dir.
-        Evidence: `ai-ide-cli/runtime/setting-sources_test.ts`.
-  - [x] `['project']` / `[]` yield an empty tmp dir. Evidence:
-        `ai-ide-cli/runtime/setting-sources_test.ts`.
-  - [x] `undefined` leaves env untouched and skips tmp-dir setup.
-        Evidence: `ai-ide-cli/claude/process.ts`.
-  - [x] Cleanup runs on success and failure and is idempotent. Evidence:
-        `ai-ide-cli/runtime/setting-sources_test.ts`.
+  - [x] `settingSources?: SettingSource[]` on `RuntimeInvokeOptions`,
+        `RuntimeSessionOptions`, `ClaudeInvokeOptions`,
+        `ClaudeSessionOptions`.
+  - [x] Argv: comma-joined, `[]` → `""`, unset → absent, emitted on
+        resume, session builder too. Tests:
+        `claude/process_test.ts::FR-L18 *`,
+        `claude/session_test.ts::FR-L18 *`.
+  - [x] Unknown source throws before spawn; typed field + legacy flag
+        throws; legacy flag alone passes. Tests:
+        `runtime/setting-sources_test.ts::FR-L18 *`,
+        `claude/process_test.ts::FR-L18 *`.
+  - [x] `CLAUDE_CONFIG_DIR` from the caller reaches the child unchanged.
+        Test: `claude/process_test.ts::FR-L18 settingSources leaves
+        CLAUDE_CONFIG_DIR untouched`.
+  - [x] Real binary: `[]` stays logged in; `['local']` loads only local
+        settings. Tests: `e2e/claude_settings_e2e_test.ts` (manual,
+        `deno task e2e:claude`).
+  - [x] ACP reports `settingSources` as degraded, `[]` included. Test:
+        `runtime/acp/mapping_test.ts::collectDegradedOptions flags
+        settingSources [] too`.
 
 ### 3.19 FR-L19: Streaming-Input Session
 
@@ -3132,8 +3161,8 @@ runs); OpenCode and Codex dispatch at completion time.
   with `clearEnv: true`. Its env, later wins: this process's OS-user
   vars (`PATH`, `HOME`, `USER`, `LOGNAME`); this process's login vars of
   that runtime only (per-runtime list); the caller-passed `env`; the
-  library's own variables (`PWD` FR-L33, FR-L45 switch, FR-L18
-  `CLAUDE_CONFIG_DIR`, `CLAUDECODE=""`, ACP front `env`, FR-L47
+  library's own variables (`PWD` FR-L33, FR-L45 switch,
+  `CLAUDECODE=""`, ACP front `env`, FR-L47
   `CODEX_CONFIG`). Nothing else from this process. Default `true` keeps
   today's merge over the inherited env.
 - **Login survives isolation:** a CLI logged in under this process's env
@@ -3152,14 +3181,12 @@ runs); OpenCode and Codex dispatch at completion time.
   invoke, per-send, create-chat; every ACP front.
 - **Library lookups:** in isolated mode the paths the library computes
   for the child read what the child sees (caller `env`, else a carried
-  OS-user / login var), never the rest of this process: Claude config
-  dir (FR-L18 cleanroom source), Codex sessions dir (transcript), OpenCode log dir (upstream-error
+  OS-user / login var), never the rest of this process: Codex sessions dir (transcript), OpenCode log dir (upstream-error
   detector), ACP `CODEX_CONFIG`.
 - **Fail fast:** no `PATH` in `env` nor in this process → throw before
   the spawn (Deno would look the binary up through a `PATH` the child
   lacks). A lookup that needs `HOME` throws when neither `env` nor this
-  process has it and the lookup's own override (`CLAUDE_CONFIG_DIR`,
-  `CODEX_HOME`) is unset; the Codex sessions dir resolves before the
+  process has it and the lookup's own override (`CODEX_HOME`) is unset; the Codex sessions dir resolves before the
   spawn, so no tokens are spent first.
 - **Why OS-user vars are carried:** measured 2026-10-18 — `codex` with
   empty env exits 127 (`env: node: No such file or directory`), so npm
@@ -3181,7 +3208,6 @@ runs); OpenCode and Codex dispatch at completion time.
   - [x] Helper truth table, `PATH` / `HOME` fail-fast. Tests:
         `runtime/spawn-env_test.ts::FR-L53 *`.
   - [x] Library lookups read only the passed env. Tests:
-        `runtime/setting-sources_test.ts::FR-L53 *`,
         `codex/process_test.ts::FR-L53 *`,
         `opencode/upstream-error-detector_test.ts::FR-L53 *`.
   - [x] Real binaries reply isolated with no caller `env`. Test:

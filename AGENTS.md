@@ -88,8 +88,11 @@ a `!` commit, which is why leaving that series took one deliberate
     extraction (FR-L23).
   - `runtime/tool-filter.ts` — shared typed `allowedTools` /
     `disallowedTools` validation used by every adapter (FR-L24).
-  - `runtime/setting-sources.ts` — Claude `settingSources` cleanroom
-    isolation (FR-L18).
+  - `runtime/setting-sources.ts` — `SettingSource` +
+    `validateSettingSources`; the Claude adapter emits native
+    `--setting-sources` (FR-L18). Deprecated temp-dir helpers
+    (`prepareSettingSourcesDir`, `defaultClaudeConfigDir`) wait for the
+    next MAJOR.
   - `runtime/reasoning-effort.ts` — abstract `reasoningEffort` enum +
     `validateReasoningEffort` mapped per-runtime (FR-L25).
   - `runtime/acp/inbound.ts` — `createInboundRequestHandler`, the single
@@ -558,7 +561,9 @@ Run tests and safe real-IDE experiments proactively — do not ask permission fo
 - **Deno verification suite:** `deno task check`, `deno task test [path]`, `deno task fmt`, `deno lint .`, `deno doc --lint <entry>`, `deno check <file>`, `deno publish --dry-run`.
 - **Real-binary e2e tests** against installed CLIs (Claude, OpenCode, Cursor, Codex) via `deno task e2e` / `deno task e2e:<runtime>` (or `deno test -A --no-check e2e/` with `E2E=1`), provided the scenario is **safe**:
   - Short test prompts (e.g. "Reply with the word: ok") — token cost is negligible.
-  - `settingSources: []` cleanroom runs.
+  - `settingSources: []` cleanroom runs (native `--setting-sources ""`;
+    safe on Claude >= 2.1.101 — older ones purge history past 30 days on
+    runs > 10 min without `user`).
   - `permissionMode: "plan"` or unspecified (read-only/no-write).
   - `cwd` pointing to the repo worktree or a `Deno.makeTempDir()` scratch dir.
   - `AbortSignal` with a ceiling (e.g. 60s) so a misconfigured backend cannot hang.

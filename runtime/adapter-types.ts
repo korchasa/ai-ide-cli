@@ -144,7 +144,7 @@ export interface RuntimeInvokeOptions {
   /**
    * FR-L53: `false` starts the subprocess from an empty env — it gets
    * only `env` plus the library's own variables (`PWD`, FR-L45 switch,
-   * FR-L18 config dir, ACP front env), nothing from this process. Pass
+   * ACP front env), nothing from this process. Pass
    * `PATH` (required: binary lookup) and `HOME` (agent auth / config).
    * Default `true`: inherit this process's env, `env` merged on top.
    */
@@ -173,12 +173,12 @@ export interface RuntimeInvokeOptions {
   /**
    * Filter the set of Claude configuration sources that apply to the run.
    * When omitted, Claude uses its default discovery (all sources). When
-   * provided, the Claude adapter redirects `CLAUDE_CONFIG_DIR` to a
-   * temporary dir populated from the listed sources (see
-   * `prepareSettingSourcesDir`).
+   * provided, the Claude CLI adapter emits `--setting-sources
+   * <comma-joined>` (`[]` → `""`, nothing loaded); the ACP transport
+   * reports it as degraded (FR-L18). Requires Claude Code >= 2.1.101.
    *
    * Claude only; other CLI runtimes throw `RuntimeUnsupportedOptionError`
-   * before spawn, `[]` included (FR-L28). ACP reports it as degraded.
+   * before spawn, `[]` included (FR-L28).
    */
   settingSources?: SettingSource[];
   /**
