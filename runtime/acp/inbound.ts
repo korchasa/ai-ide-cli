@@ -4,9 +4,11 @@
  * one-shot invoke path and the long-lived session path.
  *
  * ACP fronts call back into the client for anything that needs a
- * client-side decision. This library answers exactly one such method —
- * `session/request_permission` (collapsed onto `onToolUseObserved`, see
- * `permissions.ts`) — because HITL is out of scope (ADR-0002). Fronts
+ * client-side decision. This library answers `session/request_permission`
+ * (collapsed onto `onToolUseObserved`, see `permissions.ts`) and, when the
+ * caller opts in with `acpClientFs`, `fs/read_text_file` and
+ * `fs/write_text_file` (FR-L56, `client-fs.ts`). HITL stays out of scope
+ * (ADR-0002). Fronts
  * keep growing new ones (`session/request_elicitation`, `fs/*`,
  * `terminal/*`), and a client that answers them with a wrong or opaque
  * error teaches the front the wrong lesson: JSON-RPC `-32000` reads as
@@ -27,6 +29,7 @@ import type {
   AcpPermissionRequest,
   AcpPermissionResponse,
 } from "./permissions.ts";
+import { CLIENT_FS_METHODS, serveClientFs } from "./client-fs.ts";
 
 /** JSON-RPC 2.0 reserved code for an unimplemented method. */
 export const JSON_RPC_METHOD_NOT_FOUND: number = -32601;
@@ -87,12 +90,20 @@ export function createInboundRequestHandler(opts: {
   ) => Promise<AcpPermissionResponse>;
   /** Optional sink notified when an inbound method is rejected. */
   onCallbackError?: OnCallbackError;
+  /**
+   * FR-L56: serve the client filesystem for this session. Absent → the
+   * `fs/*` methods are rejected like any other unimplemented method.
+   */
+  clientFs?: { cwd: string; writeRoot: string };
 }): AcpInboundRequestHandler {
   return async (req: AcpClientRequest) => {
     if (req.method === SUPPORTED_INBOUND_METHOD) {
       return await opts.permissionHandler(
         (req.params ?? { options: [] }) as unknown as AcpPermissionRequest,
       );
+    }
+    if (opts.clientFs && CLIENT_FS_METHODS.includes(req.method)) {
+      return await serveClientFs(req.method, req.params ?? {}, opts.clientFs);
     }
     const err = new AcpMethodNotFoundError(opts.runtime, req.method);
     if (opts.onCallbackError) {

@@ -205,7 +205,7 @@ cat > /dev/null
       onRequest: (req) => {
         observed = true;
         assertEquals(req.method, "session/request_permission");
-        return { outcome: { type: "selected", optionId: "reject_once" } };
+        return { outcome: { outcome: "selected", optionId: "reject_once" } };
       },
     });
     try {

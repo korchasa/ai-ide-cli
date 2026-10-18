@@ -51,10 +51,16 @@ export interface AcpPermissionRequest {
   options: AcpPermissionOption[];
 }
 
-/** Response shape returned to the agent. */
+/**
+ * Response shape returned to the agent.
+ *
+ * FR-L54: ACP `RequestPermissionOutcome` discriminates on `outcome`
+ * (`{ outcome: { outcome: "selected", optionId } }`); a `type` key is not
+ * part of the schema and the agent rejects the whole answer.
+ */
 export type AcpPermissionResponse =
-  | { outcome: { type: "selected"; optionId: string } }
-  | { outcome: { type: "cancelled" } };
+  | { outcome: { outcome: "selected"; optionId: string } }
+  | { outcome: { outcome: "cancelled" } };
 
 const ALLOW_KINDS = new Set(["allow_once", "allow_always"]);
 const REJECT_KINDS = new Set(["reject_once", "reject_always"]);
@@ -83,10 +89,10 @@ export function createPermissionHandler(opts: {
     if (!opts.onToolUseObserved) {
       if (rejectOption) {
         return {
-          outcome: { type: "selected", optionId: rejectOption.optionId },
+          outcome: { outcome: "selected", optionId: rejectOption.optionId },
         };
       }
-      return { outcome: { type: "cancelled" } };
+      return { outcome: { outcome: "cancelled" } };
     }
 
     const info: RuntimeToolUseInfo = {
@@ -107,13 +113,15 @@ export function createPermissionHandler(opts: {
     if (decision === "allow") {
       const chosen = allowOption ?? req.options[0];
       if (chosen) {
-        return { outcome: { type: "selected", optionId: chosen.optionId } };
+        return { outcome: { outcome: "selected", optionId: chosen.optionId } };
       }
-      return { outcome: { type: "cancelled" } };
+      return { outcome: { outcome: "cancelled" } };
     }
     if (rejectOption) {
-      return { outcome: { type: "selected", optionId: rejectOption.optionId } };
+      return {
+        outcome: { outcome: "selected", optionId: rejectOption.optionId },
+      };
     }
-    return { outcome: { type: "cancelled" } };
+    return { outcome: { outcome: "cancelled" } };
   };
 }

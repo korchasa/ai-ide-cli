@@ -40,7 +40,13 @@ import { AcpRpcError } from "./client.ts";
 import type { AcpStdioClient } from "./client.ts";
 import { extractAcpContent } from "./content.ts";
 import { AcpUnsupportedOptionError } from "./errors.ts";
-import { handshake, spawnClient } from "./handshake.ts";
+import {
+  handshake,
+  initializeClient,
+  openSessionOnClient,
+  spawnClient,
+} from "./handshake.ts";
+import type { AcpClientFsOptions } from "./client-fs.ts";
 import { createInboundRequestHandler } from "./inbound.ts";
 import {
   type AcpDegradedOption,
@@ -52,6 +58,19 @@ import {
 } from "./mapping.ts";
 import { createPermissionHandler } from "./permissions.ts";
 import type { AuthEnvMatcher } from "../spawn-env.ts";
+import { claudeAuthEnv } from "../../claude/auth-env.ts";
+import { codexAuthEnv } from "../../codex/auth-env.ts";
+import { cursorAuthEnv } from "../../cursor/auth-env.ts";
+import { opencodeAuthEnv } from "../../opencode/auth-env.ts";
+
+/** Each runtime's login-variable matcher (FR-L53), for public entries that
+ * are not reached through a per-runtime adapter. */
+const AUTH_ENV: Record<RuntimeId, AuthEnvMatcher> = {
+  claude: claudeAuthEnv,
+  codex: codexAuthEnv,
+  cursor: cursorAuthEnv,
+  opencode: opencodeAuthEnv,
+};
 
 interface PromptResult extends Record<string, unknown> {
   stopReason?: string;
@@ -552,38 +571,74 @@ async function attemptInvocation(
   }
 }
 
-class AcpRuntimeSession implements RuntimeSession {
-  readonly runtime: RuntimeId;
-  readonly events: AsyncIterableIterator<RuntimeSessionEvent>;
-  readonly done: Promise<RuntimeSessionStatus>;
-  #sessionId: string;
-  #client: AcpStdioClient;
-  #queue: SessionEventQueue<RuntimeSessionEvent>;
-  #inputClosed = false;
-  #aborted = false;
-  #activePrompt: Promise<unknown> | undefined;
+/**
+ * Counts notifications the drain loop has finished with (delivered, held
+ * or dropped) and lets a session wait until a given count is reached.
+ *
+ * A prompt response resolves `send()` while the drain loop may still hold
+ * chunks the front wrote before that response; pushing turn-end right
+ * away put it ahead of them, and a consumer that stops reading at
+ * turn-end lost the end of the reply.
+ */
+class DeliveryTracker {
+  #done = 0;
+  #ended = false;
+  #waiters: Array<{ mark: number; resolve: () => void }> = [];
 
-  /**
-   * Construct a wrapper around an already-handshaked ACP client.
-   *
-   * @param runtime Runtime id (also stored on emitted events).
-   * @param client Connected ACP stdio client.
-   * @param sessionId Server-assigned session id.
-   * @param drainPromise Background notification drain.
-   */
-  constructor(
-    runtime: RuntimeId,
-    client: AcpStdioClient,
-    sessionId: string,
-    queue: SessionEventQueue<RuntimeSessionEvent>,
-    drainPromise: Promise<void>,
-  ) {
-    this.runtime = runtime;
-    this.#client = client;
-    this.#sessionId = sessionId;
-    this.#queue = queue;
-    this.events = queue;
-    this.done = (async () => {
+  /** One more notification handled. */
+  advance(): void {
+    this.#done += 1;
+    this.#release();
+  }
+
+  /** The drain loop ended: nothing more will be handled. */
+  end(): void {
+    this.#ended = true;
+    this.#release();
+  }
+
+  /** Resolve once `mark` notifications are handled (or the loop ended). */
+  wait(mark: number): Promise<void> {
+    if (this.#ended || this.#done >= mark) return Promise.resolve();
+    return new Promise((resolve) => this.#waiters.push({ mark, resolve }));
+  }
+
+  #release(): void {
+    this.#waiters = this.#waiters.filter((w) => {
+      if (!this.#ended && this.#done < w.mark) return true;
+      w.resolve();
+      return false;
+    });
+  }
+}
+
+/**
+ * What a session does when the caller ends it. A session that owns its
+ * front disposes the process; a session on a shared front (FR-L58) only
+ * leaves the connection, so the process keeps serving the others.
+ */
+interface AcpSessionLifecycle {
+  /** Called once by `endInput()`. */
+  release(): void;
+  /** Called once by `abort()`, after `session/cancel` is sent. */
+  abort(): void;
+  /** Resolves when the session is over. */
+  done: Promise<RuntimeSessionStatus>;
+  /** Notifications handled by the drain loop feeding this session. */
+  delivery: DeliveryTracker;
+}
+
+/** Lifecycle of a session that owns its front process. */
+function ownedLifecycle(
+  client: AcpStdioClient,
+  drainPromise: Promise<void>,
+  delivery: DeliveryTracker,
+): AcpSessionLifecycle {
+  return {
+    delivery,
+    release: () => void client.dispose(),
+    abort: () => void client.dispose(),
+    done: (async () => {
       await drainPromise.catch(() => {});
       const status = await client.done.catch(() => ({
         code: -1,
@@ -595,7 +650,45 @@ class AcpRuntimeSession implements RuntimeSession {
         signal: status.signal ?? null,
         stderr: client.stderr,
       };
-    })();
+    })(),
+  };
+}
+
+class AcpRuntimeSession implements RuntimeSession {
+  readonly runtime: RuntimeId;
+  readonly events: AsyncIterableIterator<RuntimeSessionEvent>;
+  readonly done: Promise<RuntimeSessionStatus>;
+  #sessionId: string;
+  #client: AcpStdioClient;
+  #queue: SessionEventQueue<RuntimeSessionEvent>;
+  #lifecycle: AcpSessionLifecycle;
+  #inputClosed = false;
+  #aborted = false;
+  #activePrompt: Promise<unknown> | undefined;
+
+  /**
+   * Construct a wrapper around an already-handshaked ACP session.
+   *
+   * @param runtime Runtime id (also stored on emitted events).
+   * @param client Connected ACP stdio client.
+   * @param sessionId Server-assigned session id.
+   * @param queue The session's event queue.
+   * @param lifecycle What ending the session does (see above).
+   */
+  constructor(
+    runtime: RuntimeId,
+    client: AcpStdioClient,
+    sessionId: string,
+    queue: SessionEventQueue<RuntimeSessionEvent>,
+    lifecycle: AcpSessionLifecycle,
+  ) {
+    this.runtime = runtime;
+    this.#client = client;
+    this.#sessionId = sessionId;
+    this.#queue = queue;
+    this.#lifecycle = lifecycle;
+    this.events = queue;
+    this.done = lifecycle.done;
   }
 
   get sessionId(): string {
@@ -615,6 +708,11 @@ class AcpRuntimeSession implements RuntimeSession {
     // SessionDeliveryError; the response itself feeds turn-end below.
     try {
       const res = (await this.#activePrompt) as PromptResult;
+      // Everything the front wrote before this response is counted now;
+      // turn-end queues only after the drain loop has handled all of it.
+      await this.#lifecycle.delivery.wait(
+        this.#client.receivedNotificationCount,
+      );
       this.#queue.push(
         buildTurnEndEvent(
           this.runtime,
@@ -641,16 +739,21 @@ class AcpRuntimeSession implements RuntimeSession {
     // lives on `await session.done`. Best-effort fire-and-forget the
     // dispose in the background so the subprocess does not linger,
     // mirroring opencode's "schedule SIGTERM after idle" pattern.
+    if (this.#inputClosed) return Promise.resolve();
     this.#inputClosed = true;
-    void this.#client.dispose();
+    this.#lifecycle.release();
     return Promise.resolve();
   }
 
   abort(_reason?: string): void {
     if (this.#aborted) return;
     this.#aborted = true;
-    void this.#client.notify("session/cancel", { sessionId: this.#sessionId });
-    void this.#client.dispose();
+    // FR-L60: the front may already be gone (it crashed mid-turn), and the
+    // write then fails with a broken pipe. There is nothing left to cancel,
+    // so that rejection is dropped here instead of escaping unhandled.
+    this.#client.notify("session/cancel", { sessionId: this.#sessionId })
+      .catch(() => {});
+    this.#lifecycle.abort();
   }
 }
 
@@ -681,6 +784,8 @@ export async function openSessionViaAcp(
   const turnCounter = { value: 0 };
   const permissionHandler = createPermissionHandler({
     runtime,
+    // FR-L55
+    onToolUseObserved: opts.onToolUseObserved,
     getTurn: () => turnCounter.value,
   });
   const client = spawnClient({
@@ -701,6 +806,15 @@ export async function openSessionViaAcp(
       permissionHandler,
       ...(opts.onCallbackError
         ? { onCallbackError: opts.onCallbackError }
+        : {}),
+      // FR-L56
+      ...(opts.acpClientFs
+        ? {
+          clientFs: {
+            cwd: opts.cwd ?? Deno.cwd(),
+            writeRoot: opts.acpClientFs.writeRoot,
+          },
+        }
         : {}),
     }),
   });
@@ -723,6 +837,7 @@ export async function openSessionViaAcp(
   );
 
   const queue = new SessionEventQueue<RuntimeSessionEvent>("AcpRuntimeSession");
+  const delivery = new DeliveryTracker();
   const drain = (async () => {
     for await (const note of client.notifications()) {
       const event = mapSessionUpdate(runtime, note.method, note.params);
@@ -741,9 +856,311 @@ export async function openSessionViaAcp(
           turnCounter.value += 1;
         }
       }
+      delivery.advance();
     }
     queue.close();
-  })();
+  })().finally(() => delivery.end());
 
-  return new AcpRuntimeSession(runtime, client, sessionId, queue, drain);
+  return new AcpRuntimeSession(
+    runtime,
+    client,
+    sessionId,
+    queue,
+    ownedLifecycle(client, drain, delivery),
+  );
+}
+
+/** Options of the shared front process behind an {@link AcpConnection}. */
+export interface AcpConnectionOptions {
+  /** Process tracker scope, as for `openSession`. Required. */
+  processRegistry: RuntimeSessionOptions["processRegistry"];
+  /** Working directory of the front process. */
+  cwd?: string;
+  /** Extra env merged into the front's env. */
+  env?: Record<string, string>;
+  /** FR-L53: `false` starts the front from an empty env. */
+  inheritEnv?: boolean;
+  /** Launcher override, as for `openSession`. */
+  acpFront?: RuntimeSessionOptions["acpFront"];
+  /** FR-L47: model the Codex front opens its threads on. */
+  model?: string;
+  /** FR-L51: spawn the front as the leader of its own process group. */
+  processGroup?: boolean;
+  /** Decoded stderr chunks of the front. */
+  onStderr?: (line: string) => void;
+  /** Error sink for callbacks and protocol anomalies (FR-L32). */
+  onCallbackError?: RuntimeSessionOptions["onCallbackError"];
+  /**
+   * FR-L56: declares the client filesystem for every session on this
+   * front; each session's writes are confined to this `writeRoot` and its
+   * relative paths anchored to that session's own `cwd`.
+   */
+  acpClientFs?: AcpClientFsOptions;
+}
+
+/** Per-session options of {@link AcpConnection.openSession}. */
+export type AcpConnectionSessionOptions = Pick<
+  RuntimeSessionOptions,
+  | "cwd"
+  | "mcpServers"
+  | "permissionMode"
+  | "model"
+  | "reasoningEffort"
+  | "resumeSessionId"
+  | "onEvent"
+  | "onToolUseObserved"
+  | "acpSessionMeta"
+>;
+
+/**
+ * One ACP front process serving many sessions (FR-L58). ACP multiplexes
+ * sessions over one connection by `sessionId`, so a caller that opens
+ * short sessions in a loop pays for the spawn and `initialize` once
+ * instead of per session.
+ */
+export interface AcpConnection {
+  /** Runtime whose front runs behind this connection. */
+  readonly runtime: RuntimeId;
+  /** Pid of the front process (its pgid under `processGroup`). */
+  readonly pid: number;
+  /**
+   * Open a session on the shared front. `endInput()` / `abort()` leave
+   * the connection and keep the process alive; the session's `done`
+   * resolves with `exitCode: null` unless the process itself ended.
+   */
+  openSession(opts?: AcpConnectionSessionOptions): Promise<RuntimeSession>;
+  /** End the front process and every session still open on it. */
+  close(): Promise<void>;
+  /** Resolves with the front process's terminal status. */
+  readonly done: Promise<Deno.CommandStatus>;
+}
+
+interface ConnectionSessionEntry {
+  queue: SessionEventQueue<RuntimeSessionEvent>;
+  onEvent?: RuntimeSessionOptions["onEvent"];
+  inbound: ReturnType<typeof createInboundRequestHandler>;
+  turnCounter: { value: number };
+  closed: Deferred;
+}
+
+interface Deferred {
+  promise: Promise<void>;
+  resolve: () => void;
+}
+
+function deferred(): Deferred {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+/**
+ * Spawn one ACP front and run `initialize` once; sessions are opened on
+ * it with {@link AcpConnection.openSession} (FR-L58).
+ *
+ * Routing is by the `sessionId` every session-scoped message carries:
+ * `session/update` notifications go to that session's event queue (ones
+ * that arrive before `openSession` returns are held and delivered on
+ * registration), and inbound requests (permission, fs) go to that
+ * session's own handlers. A request for an unknown session is answered
+ * with an error and reported through `onCallbackError`; a notification
+ * without a `sessionId` is reported the same way and dropped.
+ *
+ * The runtime's own login variables (FR-L53) are carried into an
+ * isolated front env (`inheritEnv: false`), as on every adapter path.
+ *
+ * @param runtime Runtime whose front to spawn.
+ * @param opts Front-process options.
+ */
+// FR-L58
+export async function openAcpConnection(
+  runtime: RuntimeId,
+  opts: AcpConnectionOptions,
+): Promise<AcpConnection> {
+  const authEnv = AUTH_ENV[runtime];
+  const sessions = new Map<string, ConnectionSessionEntry>();
+  const early = new Map<
+    string,
+    Array<{ method: string; params?: Record<string, unknown> }>
+  >();
+  const report = (message: string) => {
+    if (!opts.onCallbackError) return;
+    try {
+      opts.onCallbackError(new Error(`acp(${runtime}): ${message}`), "onEvent");
+    } catch {
+      // FR-L32: the error sink must never break the streaming loop.
+    }
+  };
+  const client = spawnClient({
+    runtime,
+    cwd: opts.cwd,
+    env: opts.env,
+    inheritEnv: opts.inheritEnv,
+    authEnv,
+    processRegistry: opts.processRegistry,
+    onStderr: opts.onStderr,
+    acpFront: opts.acpFront,
+    model: opts.model,
+    processGroup: opts.processGroup,
+    onRequest: async (req) => {
+      const sid = req.params?.["sessionId"];
+      const entry = typeof sid === "string" ? sessions.get(sid) : undefined;
+      if (!entry) {
+        const msg = `inbound ${req.method} for unknown session ${String(sid)}`;
+        report(msg);
+        throw new Error(msg);
+      }
+      return await entry.inbound(req);
+    },
+  });
+
+  const deliver = async (
+    entry: ConnectionSessionEntry,
+    note: { method: string; params?: Record<string, unknown> },
+  ) => {
+    const event = mapSessionUpdate(runtime, note.method, note.params);
+    if (entry.onEvent) {
+      await safeAwaitCallback(
+        entry.onEvent,
+        [event],
+        "onEvent",
+        opts.onCallbackError,
+      );
+    }
+    entry.queue.push(event);
+    const update = note.params?.["update"] as
+      | Record<string, unknown>
+      | undefined;
+    if (update?.["sessionUpdate"] === "current_mode_update") {
+      entry.turnCounter.value += 1;
+    }
+  };
+
+  const delivery = new DeliveryTracker();
+  const drain = (async () => {
+    for await (const note of client.notifications()) {
+      const sid = note.params?.["sessionId"];
+      if (typeof sid !== "string") {
+        report(`notification ${note.method} without a sessionId dropped`);
+        delivery.advance();
+        continue;
+      }
+      const entry = sessions.get(sid);
+      if (entry) {
+        await deliver(entry, note);
+      } else {
+        const held = early.get(sid) ?? [];
+        held.push(note);
+        early.set(sid, held);
+      }
+      delivery.advance();
+    }
+    for (const entry of sessions.values()) {
+      entry.queue.close();
+      entry.closed.resolve();
+    }
+    sessions.clear();
+  })().finally(() => delivery.end());
+
+  let initRes;
+  try {
+    initRes = await initializeClient(client, {
+      clientFs: opts.acpClientFs !== undefined,
+    });
+  } catch (err) {
+    await client.dispose();
+    throw err;
+  }
+
+  const canClose =
+    initRes.agentCapabilities?.sessionCapabilities?.close !== undefined;
+
+  const processStatus = async (): Promise<RuntimeSessionStatus> => {
+    const status = await client.done.catch(() => ({
+      code: -1,
+      signal: null,
+      success: false,
+    }));
+    return {
+      exitCode: typeof status.code === "number" ? status.code : null,
+      signal: status.signal ?? null,
+      stderr: client.stderr,
+    };
+  };
+
+  return {
+    runtime,
+    pid: client.pid,
+    done: client.done,
+    async openSession(sOpts: AcpConnectionSessionOptions = {}) {
+      const cwd = sOpts.cwd ?? opts.cwd ?? Deno.cwd();
+      const turnCounter = { value: 0 };
+      const entry: ConnectionSessionEntry = {
+        queue: new SessionEventQueue<RuntimeSessionEvent>("AcpRuntimeSession"),
+        onEvent: sOpts.onEvent,
+        turnCounter,
+        closed: deferred(),
+        inbound: createInboundRequestHandler({
+          runtime,
+          permissionHandler: createPermissionHandler({
+            runtime,
+            onToolUseObserved: sOpts.onToolUseObserved,
+            getTurn: () => turnCounter.value,
+          }),
+          ...(opts.onCallbackError
+            ? { onCallbackError: opts.onCallbackError }
+            : {}),
+          ...(opts.acpClientFs
+            ? { clientFs: { cwd, writeRoot: opts.acpClientFs.writeRoot } }
+            : {}),
+        }),
+      };
+      const { sessionId } = await openSessionOnClient(
+        client,
+        runtime,
+        { ...sOpts, cwd },
+        initRes,
+      );
+      sessions.set(sessionId, entry);
+      for (const note of early.get(sessionId) ?? []) await deliver(entry, note);
+      early.delete(sessionId);
+      // FR-L58: the front keeps a session (on the Claude front, a whole
+      // Claude Code query) until told otherwise, so ending one sends
+      // `session/close` when the front implements it.
+      let left: Promise<void> | undefined;
+      const leave = () => {
+        left ??= (async () => {
+          if (sessions.get(sessionId) === entry) sessions.delete(sessionId);
+          entry.queue.close();
+          if (canClose) {
+            await client.request("session/close", { sessionId }).catch((e) =>
+              report(
+                `session/close ${sessionId} failed: ${
+                  e instanceof Error ? e.message : String(e)
+                }`,
+              )
+            );
+          }
+          entry.closed.resolve();
+        })();
+      };
+      return new AcpRuntimeSession(runtime, client, sessionId, entry.queue, {
+        release: leave,
+        abort: leave,
+        delivery,
+        done: Promise.race([
+          entry.closed.promise.then(() => ({
+            exitCode: null,
+            signal: null,
+            stderr: client.stderr,
+          })),
+          drain.then(processStatus),
+        ]),
+      });
+    },
+    async close() {
+      await client.dispose();
+      await drain.catch(() => {});
+    },
+  };
 }

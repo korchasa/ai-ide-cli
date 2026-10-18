@@ -11,7 +11,7 @@ function permissionStub(seen: AcpPermissionRequest[]) {
   return (req: AcpPermissionRequest) => {
     seen.push(req);
     return Promise.resolve(
-      { outcome: { type: "selected" as const, optionId: "allow_once" } },
+      { outcome: { outcome: "selected" as const, optionId: "allow_once" } },
     );
   };
 }
@@ -29,7 +29,9 @@ Deno.test("FR-L43 inbound handler delegates session/request_permission", async (
     params: { options: [{ optionId: "allow_once", kind: "allow_once" }] },
   });
 
-  assertEquals(res, { outcome: { type: "selected", optionId: "allow_once" } });
+  assertEquals(res, {
+    outcome: { outcome: "selected", optionId: "allow_once" },
+  });
   assertEquals(seen.length, 1);
   assertEquals(seen[0].options[0].optionId, "allow_once");
 });
@@ -97,6 +99,8 @@ Deno.test("FR-L43 inbound handler keeps working after an unknown method", async 
     params: { options: [{ optionId: "allow_once", kind: "allow_once" }] },
   });
 
-  assertEquals(res, { outcome: { type: "selected", optionId: "allow_once" } });
+  assertEquals(res, {
+    outcome: { outcome: "selected", optionId: "allow_once" },
+  });
   assertEquals(seen.length, 1);
 });

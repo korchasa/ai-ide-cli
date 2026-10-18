@@ -1,5 +1,9 @@
 import { invokeCodexCli } from "../codex/process.ts";
-import { rejectProcessGroupOnWindows } from "./run-options.ts";
+import {
+  ACP_ONLY_SESSION_OPTIONS,
+  rejectProcessGroupOnWindows,
+  rejectUnsupportedRunOptions,
+} from "./run-options.ts";
 import { openCodexSession } from "../codex/session.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
 import { fetchAcpCommands } from "./acp/commands.ts";
@@ -151,6 +155,8 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     if (opts.transport === "acp") {
       return openSessionViaAcp("codex", opts, codexAuthEnv);
     }
+    // FR-L55..FR-L57: ACP-only session options.
+    rejectUnsupportedRunOptions("codex", opts, ACP_ONLY_SESSION_OPTIONS);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);

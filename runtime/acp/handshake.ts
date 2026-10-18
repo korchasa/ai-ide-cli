@@ -164,23 +164,83 @@ export function missingFrontExecutableError(
 export async function handshake(
   client: AcpStdioClient,
   runtime: RuntimeId,
-  opts: Pick<
-    RuntimeInvokeOptions,
-    | "cwd"
-    | "mcpServers"
-    | "extraArgs"
-    | "env"
-    | "permissionMode"
-    | "model"
-    | "reasoningEffort"
-    | "resumeSessionId"
-  >,
+  opts:
+    & Pick<
+      RuntimeInvokeOptions,
+      | "cwd"
+      | "mcpServers"
+      | "extraArgs"
+      | "env"
+      | "permissionMode"
+      | "model"
+      | "reasoningEffort"
+      | "resumeSessionId"
+    >
+    & SessionExtensionOptions,
   hsOpts?: { skipModeAndConfig?: boolean },
 ): Promise<{ sessionId: string }> {
-  const initRes = await client.request<AcpInitializeResult>("initialize", {
-    ...buildInitializeParams(),
-  } as unknown as Record<string, unknown>);
+  const initRes = await initializeClient(client, {
+    clientFs: opts.acpClientFs !== undefined,
+  });
+  return await openSessionOnClient(client, runtime, opts, initRes, hsOpts);
+}
 
+/**
+ * Session-level ACP extensions (FR-L56 / FR-L57) the handshake reads on
+ * top of the neutral options.
+ */
+export interface SessionExtensionOptions {
+  /** FR-L56: declares the client filesystem in `initialize`. */
+  acpClientFs?: unknown;
+  /** FR-L57: sent as `_meta` on `session/new` / `session/load`. */
+  acpSessionMeta?: Record<string, unknown>;
+}
+
+/**
+ * Send `initialize` once per front process.
+ *
+ * @param client Connected ACP stdio client.
+ * @param opts `clientFs: true` declares the client filesystem (FR-L56).
+ */
+export async function initializeClient(
+  client: AcpStdioClient,
+  opts?: { clientFs?: boolean },
+): Promise<AcpInitializeResult> {
+  return await client.request<AcpInitializeResult>("initialize", {
+    ...buildInitializeParams(opts),
+  } as unknown as Record<string, unknown>);
+}
+
+/**
+ * Open one session on an initialised front: `session/new` (or
+ * `session/load`), then mode and config options. FR-L58 calls it once
+ * per session on a shared front; {@link handshake} calls it once.
+ *
+ * @param client Connected, initialised ACP stdio client.
+ * @param runtime Runtime id (drives the per-front option mappers).
+ * @param opts Session options the handshake reads.
+ * @param initRes The front's `initialize` answer (capability gate).
+ * @param hsOpts Handshake tuning, as in {@link handshake}.
+ */
+export async function openSessionOnClient(
+  client: AcpStdioClient,
+  runtime: RuntimeId,
+  opts:
+    & Pick<
+      RuntimeInvokeOptions,
+      | "cwd"
+      | "mcpServers"
+      | "extraArgs"
+      | "env"
+      | "permissionMode"
+      | "model"
+      | "reasoningEffort"
+      | "resumeSessionId"
+    >
+    & SessionExtensionOptions,
+  initRes: AcpInitializeResult,
+  hsOpts?: { skipModeAndConfig?: boolean },
+): Promise<{ sessionId: string }> {
   let sessionRes: SessionNewResult;
   let sessionId: string;
   if (opts.resumeSessionId) {
@@ -194,7 +254,7 @@ export async function handshake(
     // FR-L19: `session/load` mirrors `session/new` params and only adds
     // `sessionId` — reuse the one mapper, no duplicate.
     const loadParams = {
-      ...buildSessionNewParams(runtime, opts),
+      ...buildSessionNewParams(runtime, opts, opts.acpSessionMeta),
       sessionId: opts.resumeSessionId,
     };
     sessionRes = await client.request<SessionNewResult>(
@@ -203,7 +263,11 @@ export async function handshake(
     );
     sessionId = opts.resumeSessionId;
   } else {
-    const sessionParams = buildSessionNewParams(runtime, opts);
+    const sessionParams = buildSessionNewParams(
+      runtime,
+      opts,
+      opts.acpSessionMeta,
+    );
     sessionRes = await client.request<SessionNewResult>(
       "session/new",
       sessionParams as unknown as Record<string, unknown>,

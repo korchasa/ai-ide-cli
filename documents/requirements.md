@@ -3236,3 +3236,132 @@ runs); OpenCode and Codex dispatch at completion time.
         under full and isolated env, no tokens. Test:
         `e2e/isolated_auth_e2e_test.ts` — claude, codex, opencode, cursor
         pass (2026-10-18).
+
+### 3.52 FR-L54: ACP Permission Answer In The Protocol Shape
+
+- **Description:** the answer to `session/request_permission` is
+  `{ outcome: { outcome: "selected", optionId } }` or
+  `{ outcome: { outcome: "cancelled" } }` — ACP `RequestPermissionOutcome`
+  discriminates on `outcome`. The library used to key it on `type`, which
+  no front accepts, so no tool call was ever allowed over ACP.
+- **Tasks:** [acp-session-extensions](tasks/2026/10/acp-session-extensions.md)
+- **Acceptance criteria:**
+  - [x] Every answer carries `outcome`, never `type`. Tests:
+        `runtime/acp/permissions_test.ts::FR-L54 answers in the protocol's outcome shape`,
+        `runtime/acp/inbound_test.ts`.
+
+### 3.53 FR-L55: Permission Callback For Sessions (`onToolUseObserved`)
+
+- **Description:** `RuntimeSessionOptions.onToolUseObserved` answers the
+  agent's permission requests in an ACP session, with the same
+  allow / abort mapping as `invoke` (FR-L39). Without it every request is
+  rejected, as before. Non-ACP session transports have no permission
+  channel and throw `RuntimeUnsupportedOptionError` instead of ignoring it.
+- **Tasks:** [acp-session-extensions](tasks/2026/10/acp-session-extensions.md)
+- **Acceptance criteria:**
+  - [x] A session request reaches the callback; no callback rejects. Tests:
+        `runtime/acp/session_options_test.ts::FR-L55 *`.
+  - [x] Claude, Codex, OpenCode and Cursor CLI sessions refuse
+        `onToolUseObserved`, `acpClientFs` and `acpSessionMeta`. Test:
+        `runtime/acp/session_options_test.ts::FR-L55 non-ACP session transports refuse the ACP-only options`.
+
+### 3.54 FR-L56: ACP Client Filesystem (`acpClientFs`)
+
+- **Description:** `acpClientFs: { writeRoot }` on session options (and on
+  `openAcpConnection`) declares `fs.readTextFile` / `fs.writeTextFile` in
+  `initialize` and serves `fs/read_text_file` (1-based `line`, `limit`)
+  and `fs/write_text_file` (creates parent dirs). A relative path resolves
+  against the session `cwd`, never this process's cwd. A write that does
+  not resolve inside `writeRoot` is refused with an error. Unset → the
+  capability is declined and `fs/*` answer `-32601`, as before.
+- **Why:** fronts delegate edits to a client that declares the capability;
+  a sandboxing caller must decide where writes may land, and resolving a
+  relative path against the caller's cwd writes into the caller's tree.
+  ADR-0002 removes HITL and does not rule on fs.
+- **Tasks:** [acp-session-extensions](tasks/2026/10/acp-session-extensions.md)
+- **Acceptance criteria:**
+  - [x] Declined by default; served when set; relative paths anchored;
+        writes outside `writeRoot` refused. Tests:
+        `runtime/acp/session_options_test.ts::FR-L56 *`,
+        `runtime/acp/client-fs_test.ts::FR-L56 *`.
+
+### 3.55 FR-L57: Session `_meta` (`acpSessionMeta`)
+
+- **Description:** `acpSessionMeta` is sent verbatim as `_meta` on
+  `session/new` and `session/load`, the protocol's extension point. The
+  Claude front reads `_meta.claudeCode.options` there (tools, setting
+  sources, system prompt, effort), which the neutral options cannot carry
+  over ACP.
+- **Tasks:** [acp-session-extensions](tasks/2026/10/acp-session-extensions.md)
+- **Acceptance criteria:**
+  - [x] The front sees exactly the object passed. Test:
+        `runtime/acp/session_options_test.ts::FR-L57 session/new carries acpSessionMeta as _meta`.
+
+### 3.56 FR-L58: One ACP Front, Many Sessions (`openAcpConnection`)
+
+- **Description:** `openAcpConnection(runtime, opts)` spawns one front and
+  runs `initialize` once; `connection.openSession(sessionOpts)` opens a
+  session on it. Updates and inbound requests are routed by `sessionId`,
+  so each session sees only its own stream and answers with its own
+  permission callback and `_meta`. Ending a session leaves the process
+  running and sends `session/close` when the front advertises
+  `sessionCapabilities.close` — the Claude front otherwise keeps every
+  finished session alive; `close()` ends the process and every open
+  session. The runtime's own login variables (FR-L53) are carried into an
+  isolated front env, as on every adapter path; the caller passes no
+  matcher.
+- **Why:** each `openSession` spawns a front, 0.36–1.23 s for the Claude
+  front. A caller that opens many short sessions (an LLM judge) pays that
+  per call; ACP already multiplexes sessions over one connection.
+- **Tasks:** [acp-session-extensions](tasks/2026/10/acp-session-extensions.md)
+- **Acceptance criteria:**
+  - [x] Two sessions share one pid and see only their own updates;
+        ending one keeps the other and closes it on the front; `close()`
+        ends all; a login variable survives `inheritEnv: false`. Tests:
+        `runtime/acp/connection_test.ts::FR-L58 *`.
+
+### 3.57 FR-L59: ACP Turn-End After The Turn's Last Update
+
+- **Description:** in an ACP session the synthetic turn-end is queued only
+  after every notification the front wrote before its `session/prompt`
+  response has been handled. The response used to resolve `send()` while
+  the drain loop still held trailing chunks, so turn-end overtook them and
+  a consumer that stops reading at turn-end lost the end of the reply.
+  The session reads the client's received-notification count when the
+  response lands and waits for the drain loop to reach it.
+- **Tasks:** [acp-session-extensions](tasks/2026/10/acp-session-extensions.md)
+- **Acceptance criteria:**
+  - [x] A 300-chunk turn arrives whole before turn-end, five runs in a
+        row. Test:
+        `runtime/acp/session_options_test.ts::FR-L59 turn-end never overtakes the turn's last chunks`.
+
+### 3.58 FR-L60: ACP Session Abort After The Front Died
+
+- **Description:** `abort()` on an ACP session whose front has already
+  exited (it crashed mid-turn) raises nothing. The `session/cancel` it
+  sends then fails with a broken pipe; there is nothing left to cancel,
+  so that rejection is dropped instead of escaping as an unhandled one,
+  which fails the consumer's whole test module or process.
+- **Tasks:** [acp-session-extensions](tasks/2026/10/acp-session-extensions.md)
+- **Acceptance criteria:**
+  - [x] A front that exits mid-turn: `send()` rejects, `abort()` and
+        `done` settle, nothing surfaces uncaught. Test:
+        `runtime/acp/session_options_test.ts::FR-L60 abort after the front died raises nothing uncaught`.
+
+### 3.59 FR-L61: The ACP Front's Own Token Total
+
+- **Description:** the ACP usage mapping (FR-L49) also copies
+  `totalTokens` into `CliRunUsage.total_tokens`. The total is the
+  provider's own count; recomputing it from the parts would report the
+  consumer's arithmetic, and what each part nests differs per front.
+  Other runtimes leave `total_tokens` `undefined`.
+- **Why:** a consumer that reports cost (flowai's acceptance judge)
+  quotes the source's total and never sums it; without the field it
+  read `0`.
+- **Tasks:** [acp-session-extensions](tasks/2026/10/acp-session-extensions.md)
+- **Acceptance criteria:**
+  - [x] `totalTokens` reaches `total_tokens` on the invoke result and on
+        the session's turn-end. Tests:
+        `runtime/acp/mapping_test.ts::FR-L61 usageFromPromptResponse maps every ACP usage field, the total included`,
+        `runtime/acp/adapter_test.ts::FR-L49 maps PromptResponse usage to CliRunUsage`,
+        `runtime/acp/session_contract_test.ts::FR-L49 turn-end event carries usage`.

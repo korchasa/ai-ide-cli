@@ -394,7 +394,7 @@ Deno.test("codexThreadStartEnv refuses a CODEX_CONFIG that is not a JSON object"
   }
 });
 
-Deno.test("FR-L49 usageFromPromptResponse maps every ACP usage field", () => {
+Deno.test("FR-L61 usageFromPromptResponse maps every ACP usage field, the total included", () => {
   assertEquals(
     usageFromPromptResponse({
       stopReason: "end_turn",
@@ -413,6 +413,7 @@ Deno.test("FR-L49 usageFromPromptResponse maps every ACP usage field", () => {
       cached_tokens: 123776,
       cache_write_tokens: 5,
       reasoning_tokens: 7,
+      total_tokens: 124898,
     },
   );
 });

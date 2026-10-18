@@ -186,6 +186,7 @@ export class AcpStdioClient {
     | ((v: IteratorResult<AcpClientNotification>) => void)
     | undefined;
   #notificationClosed = false;
+  #notificationsReceived = 0;
   #stderrBuf = "";
   #stdoutDone: Promise<void>;
   #stderrDone: Promise<void>;
@@ -312,6 +313,20 @@ export class AcpStdioClient {
       return: close,
     };
     return iter;
+  }
+
+  /**
+   * Notifications parsed off the wire so far, consumed or not. A session
+   * reads it when a prompt response lands: every notification the front
+   * wrote before that response is already counted.
+   */
+  get receivedNotificationCount(): number {
+    return this.#notificationsReceived;
+  }
+
+  /** FR-L58: pid of the front process (its pgid under `processGroup`). */
+  get pid(): number {
+    return this.#proc.pid;
   }
 
   /** Resolves with the subprocess's terminal status. */
@@ -490,6 +505,7 @@ export class AcpStdioClient {
         method: msg["method"],
         params: msg["params"] as Record<string, unknown> | undefined,
       };
+      this.#notificationsReceived += 1;
       if (this.#notificationWaiter) {
         const waiter = this.#notificationWaiter;
         this.#notificationWaiter = undefined;

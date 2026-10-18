@@ -463,6 +463,14 @@ What's preserved across the ACP wire:
 - `cwd`, `env`, `permissionMode`, `reasoningEffort`, `model`, MCP
   injection (`mcpServers`), tool-use observation, and streaming-input
   sessions (`openSession`) all round-trip natively.
+- ACP-only session options: `onToolUseObserved` answers the agent's
+  permission requests (FR-L55); `acpClientFs: { writeRoot }` serves the
+  client filesystem with writes confined to `writeRoot` (FR-L56);
+  `acpSessionMeta` is sent as `_meta` on `session/new` (FR-L57). A
+  non-ACP `openSession` throws on all three.
+- `openAcpConnection(runtime, opts)` keeps one front process for many
+  sessions — `connection.openSession(...)`, `connection.close()` —
+  so short sessions do not pay a spawn each (FR-L58).
 - Synthetic `SYNTHETIC_TURN_END` is emitted after each
   `session/prompt` completes (same cross-runtime invariant as the CLI
   path).

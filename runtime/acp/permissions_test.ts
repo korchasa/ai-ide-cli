@@ -12,7 +12,7 @@ Deno.test("request_permission denies by default when no callback supplied", asyn
       { optionId: "reject", kind: "reject_once" },
     ],
   });
-  assertEquals(res, { outcome: { type: "selected", optionId: "reject" } });
+  assertEquals(res, { outcome: { outcome: "selected", optionId: "reject" } });
 });
 
 Deno.test("request_permission falls back to cancelled when no reject option offered", async () => {
@@ -23,7 +23,7 @@ Deno.test("request_permission falls back to cancelled when no reject option offe
   const res = await handler({
     options: [{ optionId: "allow", kind: "allow_once" }],
   });
-  assertEquals(res, { outcome: { type: "cancelled" } });
+  assertEquals(res, { outcome: { outcome: "cancelled" } });
 });
 
 Deno.test("request_permission routes 'allow' decision through callback", async () => {
@@ -38,7 +38,7 @@ Deno.test("request_permission routes 'allow' decision through callback", async (
       { optionId: "reject", kind: "reject_once" },
     ],
   });
-  assertEquals(res, { outcome: { type: "selected", optionId: "allow" } });
+  assertEquals(res, { outcome: { outcome: "selected", optionId: "allow" } });
 });
 
 Deno.test("request_permission routes 'abort' decision through callback", async () => {
@@ -53,7 +53,7 @@ Deno.test("request_permission routes 'abort' decision through callback", async (
       { optionId: "reject", kind: "reject_once" },
     ],
   });
-  assertEquals(res, { outcome: { type: "selected", optionId: "reject" } });
+  assertEquals(res, { outcome: { outcome: "selected", optionId: "reject" } });
 });
 
 Deno.test("request_permission forwards toolCall metadata into info object", async () => {
@@ -71,4 +71,21 @@ Deno.test("request_permission forwards toolCall metadata into info object", asyn
     options: [{ optionId: "allow", kind: "allow_once" }],
   });
   assertEquals(captured, { name: "Read", id: "tc_1", turn: 7 });
+});
+
+Deno.test("FR-L54 answers in the protocol's outcome shape", async () => {
+  // ACP `RequestPermissionOutcome` discriminates on `outcome`, not `type`:
+  // `{ outcome: { outcome: "selected", optionId } }`. An answer keyed on
+  // `type` is rejected by the agent's schema, so no tool is ever allowed.
+  const handler = createPermissionHandler({
+    runtime: "codex",
+    onToolUseObserved: () => "allow",
+    getTurn: () => 1,
+  });
+  const res = await handler({
+    options: [{ optionId: "allow", kind: "allow_once" }],
+  });
+  const outcome = res.outcome as Record<string, unknown>;
+  assertEquals(outcome["outcome"], "selected");
+  assertEquals("type" in outcome, false);
 });

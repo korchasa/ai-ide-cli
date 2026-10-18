@@ -4,8 +4,13 @@ import type { OnCallbackError } from "./callback-safety.ts";
 import type { SettingSource } from "./setting-sources.ts";
 import type { ReasoningEffort } from "./reasoning-effort.ts";
 import type { McpServers } from "./mcp-injection.ts";
-import type { ExtraArgsMap, TransportOption } from "./adapter-types.ts";
+import type {
+  ExtraArgsMap,
+  OnRuntimeToolUseObservedCallback,
+  TransportOption,
+} from "./adapter-types.ts";
 import type { AcpFrontLauncher } from "./acp/fronts.ts";
+import type { AcpClientFsOptions } from "./acp/client-fs.ts";
 
 /**
  * Options for opening a runtime-neutral streaming session via
@@ -123,6 +128,28 @@ export interface RuntimeSessionOptions {
    * Same contract as {@link RuntimeInvokeOptions.acpFront}.
    */
   acpFront?: AcpFrontLauncher;
+  /**
+   * FR-L55: answer the agent's permission requests during the session.
+   * Called once per `session/request_permission`; `"allow"` picks the
+   * agent's first allow option, `"abort"` its first reject option.
+   * Without it every request is rejected. ACP transport only — the other
+   * session transports have no permission channel and throw
+   * `RuntimeUnsupportedOptionError`.
+   */
+  onToolUseObserved?: OnRuntimeToolUseObservedCallback;
+  /**
+   * FR-L56: declare the ACP client filesystem and serve
+   * `fs/read_text_file` / `fs/write_text_file`. A relative path resolves
+   * against `cwd`; a write outside `writeRoot` is refused. Unset → the
+   * capability is declined. ACP transport only, as above.
+   */
+  acpClientFs?: AcpClientFsOptions;
+  /**
+   * FR-L57: sent verbatim as `_meta` on `session/new` / `session/load`.
+   * The protocol's extension point: a front reads its own key there
+   * (the Claude front: `claudeCode.options`). ACP transport only.
+   */
+  acpSessionMeta?: Record<string, unknown>;
   /**
    * JSON Schema every turn's final reply must match (FR-L50). Claude →
    * `--json-schema`; Codex app-server → `outputSchema` on each

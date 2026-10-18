@@ -396,6 +396,15 @@ export { parseSkill } from "./skill/parser.ts";
 // `RuntimeInvokeOptions.acpFront` / `RuntimeSessionOptions.acpFront`
 // reference `AcpFrontLauncher`.
 export type { AcpFrontLauncher } from "./runtime/acp/fronts.ts";
+// FR-L58: one ACP front process serving many sessions.
+export {
+  type AcpConnection,
+  type AcpConnectionOptions,
+  type AcpConnectionSessionOptions,
+  openAcpConnection,
+} from "./runtime/acp/adapter.ts";
+// FR-L56
+export type { AcpClientFsOptions } from "./runtime/acp/client-fs.ts";
 
 // FR-L39: `transport: "acp"` throws this synchronously on unsupported
 // options — reachable from `RuntimeAdapter.invoke` / `openSession`, so JSR

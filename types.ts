@@ -74,6 +74,14 @@ export interface CliRunUsage {
    * `undefined` as "not reported", not as `0`.
    */
   reasoning_tokens?: number;
+  /**
+   * The runtime's own token total, copied rather than summed from the
+   * fields above: what each field nests differs per runtime, and the
+   * provider's count is the one a cost report should quote. ACP fronts
+   * fill it from `totalTokens` (FR-L61); the other runtimes leave it
+   * `undefined`.
+   */
+  total_tokens?: number;
   /** Total cost in USD if the runtime reports it. */
   cost_usd?: number;
 }

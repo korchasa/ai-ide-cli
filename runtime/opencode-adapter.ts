@@ -30,6 +30,7 @@ import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { validateMcpServers } from "./mcp-injection.ts";
 import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
 import {
+  ACP_ONLY_SESSION_OPTIONS,
   rejectProcessGroupOnWindows,
   rejectUnsupportedRunOptions,
 } from "./run-options.ts";
@@ -202,6 +203,8 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     if (opts.transport === "acp") {
       return openSessionViaAcp("opencode", opts, opencodeAuthEnv);
     }
+    // FR-L55..FR-L57: ACP-only session options.
+    rejectUnsupportedRunOptions("opencode", opts, ACP_ONLY_SESSION_OPTIONS);
     // FR-L50 / FR-L52
     rejectUnsupportedRunOptions("opencode", opts, [
       "outputSchema",

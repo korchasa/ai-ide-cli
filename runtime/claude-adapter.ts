@@ -9,7 +9,11 @@
  * https://github.com/anthropics/claude-agent-sdk-typescript
  */
 
-import { rejectProcessGroupOnWindows } from "./run-options.ts";
+import {
+  ACP_ONLY_SESSION_OPTIONS,
+  rejectProcessGroupOnWindows,
+  rejectUnsupportedRunOptions,
+} from "./run-options.ts";
 import { invokeClaudeCli } from "../claude/process.ts";
 import { openClaudeSession } from "../claude/session.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
@@ -195,6 +199,8 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     if (opts.transport === "acp") {
       return openSessionViaAcp("claude", opts, claudeAuthEnv);
     }
+    // FR-L55..FR-L57: ACP-only session options.
+    rejectUnsupportedRunOptions("claude", opts, ACP_ONLY_SESSION_OPTIONS);
     const inner = await openClaudeSession({
       agent: opts.agent,
       systemPrompt: opts.systemPrompt,

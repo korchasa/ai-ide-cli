@@ -25,6 +25,7 @@ import { validateMcpServers } from "./mcp-injection.ts";
 import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
 import { cursorAuthEnv } from "../cursor/auth-env.ts";
 import {
+  ACP_ONLY_SESSION_OPTIONS,
   rejectProcessGroupOnWindows,
   rejectUnsupportedRunOptions,
 } from "./run-options.ts";
@@ -197,6 +198,8 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     if (opts.transport === "acp") {
       return openSessionViaAcp("cursor", opts, cursorAuthEnv);
     }
+    // FR-L55..FR-L57: ACP-only session options.
+    rejectUnsupportedRunOptions("cursor", opts, ACP_ONLY_SESSION_OPTIONS);
     // FR-L50 / FR-L52
     rejectUnsupportedRunOptions("cursor", opts, ["outputSchema", "ephemeral"]);
     validateToolFilter("cursor", opts);

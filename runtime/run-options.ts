@@ -44,6 +44,17 @@ export class RuntimeUnsupportedOptionError extends Error {
 }
 
 /**
+ * Session options only the ACP transport honours (FR-L55..FR-L57). Every
+ * non-ACP `openSession` passes them to {@link rejectUnsupportedRunOptions}
+ * so a caller is told instead of silently ignored.
+ */
+export const ACP_ONLY_SESSION_OPTIONS: readonly string[] = [
+  "onToolUseObserved",
+  "acpClientFs",
+  "acpSessionMeta",
+];
+
+/**
  * Throw {@link RuntimeUnsupportedOptionError} when any of `fields` is set
  * on `opts`. `undefined`, `null` and `false` count as unset — the three
  * boolean options are opt-in, so `false` asks for today's behaviour.

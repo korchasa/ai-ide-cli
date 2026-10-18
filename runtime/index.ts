@@ -99,6 +99,15 @@ export type { SkillDef, SkillFrontmatter } from "../skill/types.ts";
 // FR-L39: reachable from sub-path entry because `RuntimeInvokeOptions.acpFront`
 // references `AcpFrontLauncher`.
 export type { AcpFrontLauncher } from "./acp/fronts.ts";
+// FR-L58: one ACP front process serving many sessions.
+export {
+  type AcpConnection,
+  type AcpConnectionOptions,
+  type AcpConnectionSessionOptions,
+  openAcpConnection,
+} from "./acp/adapter.ts";
+// FR-L56
+export type { AcpClientFsOptions } from "./acp/client-fs.ts";
 
 const ADAPTERS: Record<RuntimeId, RuntimeAdapter> = {
   claude: claudeRuntimeAdapter,

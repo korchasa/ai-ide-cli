@@ -67,6 +67,7 @@
     ],
     "exclude": [
       "**/*_test.ts",
+      "**/testdata/**",
       "scripts/**",
       "documents/**",
       ".github/**",

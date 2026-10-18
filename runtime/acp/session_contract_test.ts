@@ -294,6 +294,7 @@ for (const runtime of RUNTIMES) {
             input_tokens: 11,
             output_tokens: 7,
             cached_tokens: 3,
+            total_tokens: 21,
           });
         } finally {
           session.abort();

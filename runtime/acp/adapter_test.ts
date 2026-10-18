@@ -112,6 +112,7 @@ Deno.test("FR-L49 maps PromptResponse usage to CliRunUsage", async () => {
       cached_tokens: 0,
       cache_write_tokens: 0,
       reasoning_tokens: 13,
+      total_tokens: 30995,
     });
   });
 });

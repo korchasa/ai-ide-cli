@@ -193,8 +193,8 @@ engine or any external workflow package.
 `transcript_path`, `transcript_error`, `usage`, `structured_output` +
 `structured_output_error` (FR-L50). All runtime extractors produce this
 shape. `CliRunUsage`: `input_tokens`, `output_tokens`, `cached_tokens`,
-`cache_write_tokens` (FR-L49), `reasoning_tokens`, `cost_usd` — absent =
-not reported.
+`cache_write_tokens` (FR-L49), `reasoning_tokens`, `total_tokens` (FR-L61,
+ACP only), `cost_usd` — absent = not reported.
 
 ### 3.2 `process-registry.ts` — Process Tracker
 
@@ -1747,7 +1747,32 @@ subprocess wrapper. One implementation
   it once through `OnCallbackError` (`source: "onEvent"`). Rejection is
   per-request — the turn keeps streaming, so a front that grows a new
   client-side call (elicitation, refusal consent, logout) degrades
-  instead of failing the run.
+  instead of failing the run. With `clientFs` set it also serves
+  `fs/read_text_file` / `fs/write_text_file` through
+  `runtime/acp/client-fs.ts` (FR-L56): relative paths anchored to the
+  session cwd, writes confined to `writeRoot`.
+- Permission answers use the protocol's `outcome` discriminator
+  (FR-L54). Sessions pass `onToolUseObserved` to the permission handler
+  (FR-L55); `acpSessionMeta` rides as `_meta` on `session/new` /
+  `session/load` (FR-L57). The three are ACP-only: every non-ACP
+  `openSession` rejects them through `ACP_ONLY_SESSION_OPTIONS`
+  (`runtime/run-options.ts`).
+- `openAcpConnection` (`runtime/acp/adapter.ts`, FR-L58) — one front,
+  many sessions. `handshake` is split into `initializeClient` (once per
+  process) and `openSessionOnClient` (once per session). Notifications
+  and inbound requests are routed by `params.sessionId`; updates that
+  arrive before `openSession` registers the id are held and delivered on
+  registration; a message for an unknown session is reported through
+  `onCallbackError`. `AcpRuntimeSession` takes a lifecycle: an owned
+  session disposes its front on `endInput` / `abort`, a connection
+  session leaves the routing table and sends `session/close` when
+  `initialize` advertised `sessionCapabilities.close`; its `done`
+  resolves after that answer.
+- Turn-end ordering (FR-L59): `AcpStdioClient.receivedNotificationCount`
+  counts notifications parsed off the wire; a `DeliveryTracker` counts
+  those the drain loop has handled. `send()` reads the first when the
+  prompt response lands and waits for the second to reach it before it
+  queues turn-end.
 - `runtime/acp/fronts.ts` — frozen `Record<RuntimeId, AcpFrontLauncher>`
   registry. Claude / Codex piloted via `<deno> run -A` on a bundled
   entry module, where `<deno>` is `resolveDenoCli(Deno.execPath())`:

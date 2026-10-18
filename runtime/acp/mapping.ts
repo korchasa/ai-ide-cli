@@ -62,6 +62,11 @@ export interface AcpInitializeResult {
   agentCapabilities?: {
     /** Whether the front implements `session/load` (resume). */
     loadSession?: boolean;
+    /**
+     * FR-L58: `close` present → the front implements `session/close`, and
+     * a connection session tells it when the caller ends the session.
+     */
+    sessionCapabilities?: { close?: unknown };
   };
 }
 
@@ -92,6 +97,8 @@ export interface AcpSessionNewParams {
   cwd: string;
   /** MCP servers to register for the session. */
   mcpServers: AcpMcpServer[];
+  /** FR-L57: protocol extension point, sent as the caller gave it. */
+  _meta?: Record<string, unknown>;
 }
 
 /** Declared mode entry returned in `session/new` response. */
@@ -144,15 +151,23 @@ export const ACP_CLIENT_NAME = "ai-ide-cli";
  */
 export const ACP_CLIENT_VERSION = "0.0.1-poc";
 
-/** Build the `initialize` request payload. */
-export function buildInitializeParams(): AcpInitializeParams {
+/**
+ * Build the `initialize` request payload.
+ *
+ * @param opts `clientFs: true` declares the client filesystem (FR-L56).
+ */
+export function buildInitializeParams(
+  opts?: { clientFs?: boolean },
+): AcpInitializeParams {
+  const fs = opts?.clientFs === true;
   return {
     protocolVersion: 1,
     clientCapabilities: {
-      // FR-L39: deliberately decline filesystem access — ADR-0002 keeps
-      // HITL / FS bridges out of scope. Documented degradation: agents
-      // that depend on `fs/*` may surface reduced features.
-      fs: { readTextFile: false, writeTextFile: false },
+      // FR-L39 / FR-L56: declined unless the caller sets `acpClientFs`,
+      // because serving it means confining the agent's writes, and only
+      // the caller knows the root. Declined, agents that depend on `fs/*`
+      // fall back to their own tools.
+      fs: { readTextFile: fs, writeTextFile: fs },
       terminal: false,
     },
     clientInfo: {
@@ -168,6 +183,7 @@ export function buildInitializeParams(): AcpInitializeParams {
  *
  * @param runtime Runtime id (used in {@link validateMcpServers} errors).
  * @param opts Options carrying `cwd` and `mcpServers`.
+ * @param meta FR-L57: `acpSessionMeta`, sent as `_meta` when set.
  */
 export function buildSessionNewParams(
   runtime: RuntimeId,
@@ -175,6 +191,7 @@ export function buildSessionNewParams(
     RuntimeInvokeOptions | RuntimeSessionOptions,
     "cwd" | "mcpServers" | "extraArgs" | "env"
   >,
+  meta?: Record<string, unknown>,
 ): AcpSessionNewParams {
   validateMcpServers(runtime, {
     mcpServers: opts.mcpServers,
@@ -184,6 +201,7 @@ export function buildSessionNewParams(
   return {
     cwd: opts.cwd ?? Deno.cwd(),
     mcpServers: renderMcpServers(opts.mcpServers),
+    ...(meta ? { _meta: meta } : {}),
   };
 }
 
@@ -552,6 +570,8 @@ const ACP_USAGE_FIELDS: ReadonlyArray<
   ["cachedReadTokens", "cached_tokens"],
   ["cachedWriteTokens", "cache_write_tokens"],
   ["thoughtTokens", "reasoning_tokens"],
+  // FR-L61
+  ["totalTokens", "total_tokens"],
 ];
 
 // FR-L49

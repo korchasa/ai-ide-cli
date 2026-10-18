@@ -94,7 +94,8 @@ a `!` commit, which is why leaving that series took one deliberate
     `validateReasoningEffort` mapped per-runtime (FR-L25).
   - `runtime/acp/inbound.ts` — `createInboundRequestHandler`, the single
     inbound-request router for both ACP paths (FR-L43). Serves
-    `session/request_permission`; answers every other method with
+    `session/request_permission`, and `fs/*` when the caller set
+    `acpClientFs` (FR-L56, `client-fs.ts`); answers every other method with
     `AcpMethodNotFoundError` (JSON-RPC `-32601`) and one
     `onCallbackError` report, per-request and non-fatal. **Front pins in
     `runtime/acp/fronts.ts` are part of this library's upkeep** — check
