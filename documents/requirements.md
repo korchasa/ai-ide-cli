@@ -3013,11 +3013,12 @@ runs); OpenCode and Codex dispatch at completion time.
   range cannot admit a feature release. Leaving `0.y` is what opens it.
 - **Dep:** FR-L46 (front ranges).
 - **Acceptance criteria:**
-  - [ ] `deno.json` declares version 1.0.0 or above, and the `exports`
+  - [x] `deno.json` declares version 1.0.0 or above, and the `exports`
         map is the stated stable surface. The version itself is written by
         the release, not by this change: `standard-version` bumps
         `deno.json` when the `release_as: major` dispatch runs on `main`.
-        Evidence after that run: `deno.json`.
+        Evidence: `deno.json` (`"version": "2.0.0"`; 1.0.0 cut by
+        `9b33a98 chore(release): 1.0.0`, tag `v1.0.0`).
   - [x] CI can cut a bump the commit types cannot ask for.
         `standard-version` keeps a `0.y` package inside `0.y` even for a
         `!` commit, so 1.0.0 needs `--release-as major` named by hand:
