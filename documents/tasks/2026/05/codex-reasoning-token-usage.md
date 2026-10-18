@@ -1,9 +1,9 @@
 ---
 date: "2026-05-17"
-status: to do
+status: done
 implements: [FR-L13, FR-L26]
 tags: [codex, usage, reasoning-tokens, app-server, 0.128, 0.130]
-related_tasks: [codex-ban-full-auto-flag, codex-flag-placement-audit]
+related_tasks: [2026/05/codex-ban-full-auto-flag.md, 2026/05/codex-flag-placement-audit.md]
 ---
 
 # Codex: Surface reasoning-token usage (0.128) and response.processed (0.130)
@@ -91,6 +91,29 @@ machine cannot exercise `response.processed` end-to-end (introduced in
 - TDD baseline: `NO_COLOR=1 deno task check` MUST be green before
   the first edit.
 
+### Re-validation (2026-10-18, codex-cli 0.159.1)
+
+Steps 0–8 of the Solution shipped in `c22b9bd` (2026-05-17); the DoD
+was never ticked. Re-checked against the current binary:
+
+- `codex exec --json` now sends `reasoning_output_tokens` on EVERY
+  turn, `0` on a turn without reasoning (captured:
+  `{"input_tokens":29094,"cached_input_tokens":7168,"cache_write_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0}`).
+  `extractCodexUsage` set `reasoning_tokens` only when `> 0`, so a
+  reported `0` became `undefined` — breaking the `CliRunUsage`
+  "0 is a real value" contract. The e2e failed on it:
+  `expected reasoning_tokens on usage, got {"input_tokens":37293,"output_tokens":5,"cached_tokens":0}`.
+- `response.processed` is NOT an app-server notification. Upstream
+  #21642 ("Send response.processed after remote compaction v2",
+  files `core/src/compact_remote_v2.rs`, `core/tests/suite/client_websockets.rs`)
+  makes Codex SEND it to the model provider over the Responses
+  websocket. `codex app-server generate-ts --experimental` on 0.159.1
+  lists 85 distinct server-notification methods, none of them
+  `response.processed`; the native binary holds 0 occurrences of the
+  string (control strings `response.completed`: 11,
+  `thread/compacted`: 1). The 2026-05 variant was typed on a wrong
+  reading of the release note and can never fire.
+
 ### Empirical Capture Required (RED prerequisite)
 
 The exact wire-key for reasoning tokens inside
@@ -106,27 +129,27 @@ absent but the schema source-of-truth is generatable).
 
 ## Definition of Done
 
-- [ ] FR-L13: `codex/exec-events.ts:CodexExecUsage` types the
+- [x] FR-L13: `codex/exec-events.ts:CodexExecUsage` types the
       0.128 reasoning-token wire-field (exact name pinned via RED
       smoke; current best guess `cached_output_tokens` /
       `reasoning_output_tokens` — TBD by capture). Tuple:
       (FR-L13, `codex/exec-events_test.ts::"reasoning-token field
       parsed on turn.completed.usage"`,
       `NO_COLOR=1 deno task test codex/exec-events_test.ts`).
-- [ ] FR-L13: `codex/run-state.ts` accumulates the new bucket and
+- [x] FR-L13: `codex/run-state.ts` accumulates the new bucket and
       `extractCodexUsage` projects it onto a new optional
       `CliRunUsage.reasoning_tokens`. Tuple:
       (FR-L13, `codex/run-state_test.ts::"reasoning tokens
       accumulate and surface on extractCodexUsage"`,
       `NO_COLOR=1 deno task test codex/run-state_test.ts`).
-- [ ] FR-L13: `types.ts:CliRunUsage` gains optional
+- [x] FR-L13: `types.ts:CliRunUsage` gains optional
       `reasoning_tokens?: number` with JSDoc documenting the
       runtime support matrix (Codex 0.128+; other runtimes leave
       it `undefined`). Tuple:
       (FR-L13, `codex/run-state_test.ts::"extractCodexOutput
       surfaces reasoning_tokens on CliRunOutput.usage"`,
       `NO_COLOR=1 deno task test codex/run-state_test.ts`).
-- [ ] FR-L26: `codex/events.ts` adds
+- [x] FR-L26: `codex/events.ts` adds
       `CodexResponseProcessedNotification`
       (method `response.processed`) to the typed `CodexNotification`
       union, with params hand-mirrored from the upstream
@@ -134,31 +157,42 @@ absent but the schema source-of-truth is generatable).
       (FR-L26, `codex/events_test.ts::"response.processed narrows
       via isCodexNotification"`,
       `NO_COLOR=1 deno task test codex/events_test.ts`).
-- [ ] FR-L13: Real-binary smoke against installed `codex` 0.128
+- [x] FR-L13: A reported `reasoning_output_tokens: 0` surfaces as
+      `CliRunUsage.reasoning_tokens === 0`, not `undefined`
+      (re-validation fix, codex-cli 0.159.1). Tuple:
+      (FR-L13, `codex/run-state_test.ts::"extractCodexUsage keeps a
+      reported reasoning_tokens of 0"`,
+      `NO_COLOR=1 deno task test codex/run-state_test.ts`).
+- [x] FR-L26: `CodexResponseProcessedNotification` /
+      `CodexResponseProcessedParams` carry `@deprecated` JSDoc saying
+      the method never reaches app-server clients; SRS/SDS FR-L26 text
+      says the same. Removal waits for the next major release.
+      Evidence: `grep -n "@deprecated Never emitted" codex/events.ts`.
+- [x] FR-L13: Real-binary smoke against installed `codex` 0.128
       asserts `usage.reasoning_tokens` is a positive integer on a
       reasoning-capable single-word-reply turn. Tuple:
       (FR-L13,
       `e2e/codex_reasoning_usage_e2e_test.ts::"codex reasoning_tokens > 0"`
       (new file, invoke-path), `E2E=1 E2E_RUNTIMES=codex
       NO_COLOR=1 deno task e2e:codex`).
-- [ ] SRS `### 3.13 FR-L13` Acceptance includes a bullet
+- [x] SRS `### 3.13 FR-L13` Acceptance includes a bullet
       describing the reasoning-token fold. SRS `### 3.26 FR-L26`
       Acceptance lists `response.processed` as a typed variant.
       Evidence: `grep -n "reasoning_tokens\|response.processed"
       documents/requirements.md`.
-- [ ] SDS sections for `codex/exec-events.ts`,
+- [x] SDS sections for `codex/exec-events.ts`,
       `codex/run-state.ts`, and `codex/events.ts` reflect the
       new fields. Evidence: `grep -n "reasoning_tokens\|response\\.processed"
       documents/design.md`.
-- [ ] `documents/index.md` `## FR` rows: FR-L13 summary updated to
+- [x] `documents/index.md` `## FR` rows: FR-L13 summary updated to
       mention reasoning-token telemetry; FR-L26 row added
       (alphabetical). Evidence: `grep -n "FR-L13\|FR-L26"
       documents/index.md`.
-- [ ] `mod.ts` barrel re-exports
+- [x] `mod.ts` barrel re-exports
       `CodexResponseProcessedNotification` so consumers can narrow
       it without sub-path imports. Evidence: `grep -n
       "CodexResponseProcessedNotification" mod.ts`.
-- [ ] Final check: `NO_COLOR=1 deno task check` exits 0.
+- [x] Final check: `NO_COLOR=1 deno task check` exits 0.
 
 ## Solution
 
@@ -599,6 +633,28 @@ SRS-inline back-pointer step 5c).
 - Add new FR-L26 row, alphabetically:
   `- [FR-L26](requirements.md#3-26-fr-l26-typed-codex-app-server-notifications) — Typed Codex app-server notifications (incl. response.processed) — [x]`.
 
+### Step 8a — Re-validation fixes (2026-10-18)
+
+- `codex/run-state.ts`: optional `CodexRunState.reasoningOutputReported`
+  (optional keeps consumer-built literals compiling — `CodexRunState`
+  is exported from `mod.ts`); set when a turn's `usage` carries a
+  numeric `reasoning_output_tokens`; `extractCodexUsage` sets
+  `reasoning_tokens` on that flag instead of `> 0`.
+- `codex/run-state_test.ts`: RED test with the captured 0.159.1 usage
+  shape (field `0`) plus a turn without the field → `0`.
+- `codex/events.ts`: `@deprecated` on both `response.processed` types
+  with the evidence above. Removing them is a breaking change
+  (FR-L48: MAJOR); the session brief required a MINOR, so removal is a
+  Follow-up.
+- `types.ts`: `reasoning_tokens` JSDoc names both sources (Codex
+  `reasoning_output_tokens`, ACP `thoughtTokens` per FR-L49) and the
+  0.159.1 every-turn behaviour.
+- SRS FR-L13/FR-L26, SDS `codex/exec-events.ts` / `codex/run-state.ts`
+  / `codex/events.ts`, index FR-L26 row — text matches the above.
+- Verify: `E2E=1 E2E_RUNTIMES=codex NO_COLOR=1 deno test -A --no-check
+  e2e/codex_reasoning_usage_e2e_test.ts` (red before, green after) and
+  `NO_COLOR=1 deno task check`.
+
 ### Step 9 — Final check
 
 ```sh
@@ -612,9 +668,17 @@ per AGENTS.md.
 
 ## Follow-ups
 
-- (Deferred) Real-binary e2e for `response.processed` once the
-  local Codex binary is bumped to ≥ 0.130. Today the notification
-  cannot fire — the variant stays unit-only.
+- ~~(Deferred) Real-binary e2e for `response.processed`~~ — dropped:
+  the method never reaches app-server clients (see Re-validation).
+- (Deferred, next MAJOR) Remove `CodexResponseProcessedNotification` /
+  `CodexResponseProcessedParams` from `codex/events.ts`, the
+  `CodexNotification` union, `mod.ts` and `codex/events_test.ts`.
+- (Deferred) codex-cli 0.159.1 `turn.completed.usage` also carries
+  `cache_write_input_tokens`; not mapped onto
+  `CliRunUsage.cache_write_tokens` (FR-L49 says only Claude fills it).
+- (Deferred) The app-server session path reports no usage at all;
+  0.159.1 has `thread/tokenUsage/updated` with
+  `TokenUsageBreakdown.reasoningOutputTokens`.
 - (Deferred) Cross-runtime reasoning-token surfacing for Claude /
   Cursor / OpenCode. Each runtime has its own wire-name; out of
   scope for #9, which is Codex-only.

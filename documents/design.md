@@ -910,7 +910,8 @@ camelCase JSON-RPC `CodexNotification` union in `codex/events.ts`):
 - `CodexExecTurnCompletedEvent` (`type: "turn.completed"`) — `usage`
   (`CodexExecUsage`: `input_tokens`, `cached_input_tokens`,
   `output_tokens`, `reasoning_output_tokens` — the last field added
-  in Codex `rust-v0.128.0` (#19308); older binaries omit it).
+  in Codex `rust-v0.128.0` (#19308); older binaries omit it, 0.159.1
+  sends it on every turn).
 - `CodexExecTurnFailedEvent` (`type: "turn.failed"`) — `error`
   (`CodexExecErrorPayload`: `message`).
 - `CodexExecErrorEvent` (`type: "error"`) — top-level transport
@@ -960,10 +961,12 @@ piping, NDJSON parsing, denial synthesis). Pure helpers moved out:
   `applyCodexEvent` (snake_case event aggregator),
   `extractCodexOutput`, `codexItemToToolUseInfo`,
   `formatCodexEventForOutput`. `CodexRunState.reasoningOutputTokens`
-  accumulates the 0.128+ wire-field and `extractCodexUsage` projects
-  it onto `CliRunUsage.reasoning_tokens` only when non-zero —
-  preserves the `undefined`-vs-`0` "not reported" contract for older
-  binaries.
+  accumulates the 0.128+ wire-field; `reasoningOutputReported`
+  (optional, set once any turn carried the field) lets
+  `extractCodexUsage` project it onto `CliRunUsage.reasoning_tokens`
+  whenever reported, `0` included (or when the sum is `> 0`, for a
+  consumer-built state without the flag), and leave it `undefined` for
+  older binaries that never send it.
 - `codex/transcript.ts` — `defaultCodexSessionsDir`,
   `findCodexSessionFile` (walks
   `<sessionsDir>/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`).
@@ -1026,10 +1029,12 @@ for await (const note of client.notifications) {
 `item/completed`, `item/agentMessage/delta`, `item/reasoning/textDelta`,
 `item/reasoning/summaryTextDelta`,
 `item/commandExecution/outputDelta`, `response.processed`, `error`.
-`response.processed` was introduced in Codex `rust-v0.130.0` (#21642
-— remote-compaction marker on v2 streams); its `params` shape is
-typed best-effort (`{ threadId, turnId, [key: string]: unknown }`)
-until a local 0.130 binary is available to regenerate the schema.
+`response.processed` is `@deprecated` and never fires: upstream #21642
+makes Codex send it to the model provider over the Responses
+websocket, not to app-server clients, and the codex-cli 0.159.1
+schema and binary hold no such method. Its guessed `params`
+(`{ threadId, turnId, [key: string]: unknown }`) stay exported until
+the next major release.
 The `CodexThreadItem` sub-union covers `userMessage`, `agentMessage`,
 `reasoning`, `plan`, `commandExecution`, `fileChange`, `mcpToolCall`,
 `dynamicToolCall`, `webSearch`, `contextCompaction`. Both unions

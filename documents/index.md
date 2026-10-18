@@ -10,7 +10,7 @@
 - [FR-L20](requirements.md#3-20-fr-l20-capability-inventory-llm-probed) — LLM-probed capability inventory: enumerate skills and slash commands exposed by the runtime in a given `cwd` — [x]
 - [FR-L23](requirements.md#3-23-fr-l23-normalized-session-event-content) — Pure runtime-neutral helper `extractSessionContent(event)` returns `NormalizedContent[]` from a `RuntimeSessionEvent` — [x]
 - [FR-L25](requirements.md#3-25-fr-l25-abstract-reasoning-effort-on-runtime-options) — Abstract reasoning-effort enum on runtime options, with v2.1.133 hook-event typing — [x]
-- [FR-L26](requirements.md#3-26-fr-l26-typed-codex-app-server-notifications) — Typed Codex app-server notifications (incl. `response.processed`) — [x]
+- [FR-L26](requirements.md#3-26-fr-l26-typed-codex-app-server-notifications) — Typed Codex app-server notifications — [x]
 - [FR-L35](requirements.md#3-34-fr-l35-generic-per-invocation-mcp-server-registration) — Generic per-invocation MCP-server registration across runtimes — [x]
 - [FR-L37](requirements.md#3-36-fr-l37-runtime-error-analysis) — Pure runtime-neutral analyzer for captured runtime failure signals — [x]
 - [FR-L39](requirements.md#3-37-fr-l39-acp-transport-claude--codex--opencode-pilots) — Opt-in Agent Client Protocol transport (Claude + Codex + OpenCode pilots) under `transport: "acp"` — [x]

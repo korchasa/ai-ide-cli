@@ -422,10 +422,12 @@ stable — never renumber on move.
   - [x] `turn.completed.usage.reasoning_output_tokens` (Codex
         `rust-v0.128.0`+) is typed on `CodexExecUsage`, summed across
         turns in `CodexRunState`, and projected onto
-        `CliRunUsage.reasoning_tokens` by `extractCodexUsage`. Older
-        binaries omit the field — downstream `reasoning_tokens` stays
-        `undefined` (NOT `0`) to preserve the
-        `not-reported`-vs-`real-zero` contract on `CliRunUsage`.
+        `CliRunUsage.reasoning_tokens` by `extractCodexUsage`. A
+        reported `0` stays `0` (codex-cli 0.159.1 sends the field on
+        every turn, `0` on a turn without reasoning); older binaries
+        omit the field and downstream `reasoning_tokens` stays
+        `undefined` — the `not-reported`-vs-`real-zero` contract on
+        `CliRunUsage`.
         Evidence: `ai-ide-cli/codex/exec-events_test.ts`,
         `ai-ide-cli/codex/run-state_test.ts`,
         `ai-ide-cli/e2e/codex_reasoning_usage_e2e_test.ts`.
@@ -1279,12 +1281,13 @@ stable — never renumber on move.
     `item/started`, `item/completed`, `item/agentMessage/delta`,
     `item/reasoning/textDelta`, `item/reasoning/summaryTextDelta`,
     `item/commandExecution/outputDelta`, `response.processed`,
-    `error`. `response.processed` was added in Codex
-    `rust-v0.130.0` (#21642) and is typed on a best-effort schema
-    pending local 0.130 binary availability; consumers narrow via
-    `isCodexNotification` as usual. Evidence:
-    `ai-ide-cli/codex/events.ts`,
-    `ai-ide-cli/codex/events_test.ts` (`response.processed` narrow).
+    `error`. `response.processed` is `@deprecated`: upstream #21642
+    makes Codex send it to the model provider over the Responses
+    websocket, so it never reaches app-server clients (absent from
+    the codex-cli 0.159.1 `ServerNotification.ts` schema and binary).
+    The variant stays exported until the next major release.
+    Evidence: `ai-ide-cli/codex/events.ts`,
+    `ai-ide-cli/codex/events_test.ts`.
   - [x] `CodexThreadItem` discriminated union over `item.type` covers
     `userMessage`, `agentMessage`, `reasoning`, `plan`,
     `commandExecution`, `fileChange`, `mcpToolCall`, `dynamicToolCall`,
