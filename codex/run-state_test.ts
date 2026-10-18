@@ -60,6 +60,30 @@ Deno.test("extractCodexUsage omits reasoning_tokens when wire field absent", () 
 });
 
 // FR-L13
+Deno.test("extractCodexUsage keeps a reported reasoning_tokens of 0", () => {
+  // Shape captured from codex-cli 0.159.1 on a turn that did no
+  // reasoning: the wire field is present and carries a real `0`.
+  const s = createCodexRunState();
+  applyCodexEvent({
+    type: "turn.completed",
+    usage: {
+      input_tokens: 29094,
+      cached_input_tokens: 7168,
+      cache_write_input_tokens: 0,
+      output_tokens: 5,
+      reasoning_output_tokens: 0,
+    },
+  }, s);
+  applyCodexEvent({
+    type: "turn.completed",
+    usage: { input_tokens: 10, output_tokens: 2 },
+  }, s);
+  const usage = extractCodexUsage(s);
+  assertEquals(usage?.reasoning_tokens, 0);
+  assertEquals(usage?.input_tokens, 29104);
+});
+
+// FR-L13
 Deno.test("extractCodexUsage returns undefined when every counter is zero", () => {
   const s = createCodexRunState();
   assertEquals(extractCodexUsage(s), undefined);

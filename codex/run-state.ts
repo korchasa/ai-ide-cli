@@ -54,6 +54,13 @@ export interface CodexRunState {
    * Stays `0` on older Codex binaries that never emit the wire field.
    */
   reasoningOutputTokens: number;
+  /**
+   * `true` once any `turn.completed` carried `reasoning_output_tokens`.
+   * Tells a reported `0` (current Codex emits the field on every turn)
+   * apart from a binary that never reports it. Optional so object
+   * literals built by consumers keep compiling; absent reads as `false`.
+   */
+  reasoningOutputReported?: boolean;
   /** Number of `turn.completed` events observed during the run. */
   turnCount: number;
   /** Error message captured from `turn.failed` or top-level `error` events. */
@@ -84,6 +91,7 @@ export function createCodexRunState(): CodexRunState {
     cachedInputTokens: 0,
     outputTokens: 0,
     reasoningOutputTokens: 0,
+    reasoningOutputReported: false,
     turnCount: 0,
     startMs: Date.now(),
   };
@@ -112,9 +120,10 @@ export function applyCodexEvent(
         state.cachedInputTokens += Number(usage.cached_input_tokens ?? 0);
         state.outputTokens += Number(usage.output_tokens ?? 0);
         // FR-L13: Codex rust-v0.128.0+ reasoning-token bucket.
-        state.reasoningOutputTokens += Number(
-          usage.reasoning_output_tokens ?? 0,
-        );
+        if (typeof usage.reasoning_output_tokens === "number") {
+          state.reasoningOutputTokens += usage.reasoning_output_tokens;
+          state.reasoningOutputReported = true;
+        }
       }
       return;
     }
@@ -228,10 +237,11 @@ export function extractCodexUsage(
     output_tokens: state.outputTokens,
     cached_tokens: state.cachedInputTokens,
   };
-  // Keep `reasoning_tokens` absent (not `0`) when the binary never
-  // surfaced it — preserves the `undefined`-vs-`0` contract documented
-  // in {@link CliRunUsage}.
-  if (state.reasoningOutputTokens > 0) {
+  // Set `reasoning_tokens` whenever the binary reported the field, `0`
+  // included, and leave it absent otherwise — the `undefined`-vs-`0`
+  // contract documented in {@link CliRunUsage}. The `> 0` arm keeps a
+  // consumer-built state that predates the flag reporting as before.
+  if (state.reasoningOutputReported || state.reasoningOutputTokens > 0) {
     usage.reasoning_tokens = state.reasoningOutputTokens;
   }
   return usage;

@@ -46,7 +46,7 @@ export interface PermissionDenial {
  * - OpenCode: cost (no token counts on the event stream).
  * - Cursor: input/output/cached tokens (no cost).
  * - Codex: input/output/cached/reasoning tokens (no cost; reasoning_tokens
- *   requires Codex `rust-v0.128.0`+ on a reasoning-capable model).
+ *   requires Codex `rust-v0.128.0`+).
  *
  * Consumers aggregating telemetry should branch on field presence rather
  * than treat `0` as "no data" — `0` is a real value (free turn). Absence
@@ -67,10 +67,11 @@ export interface CliRunUsage {
   cache_write_tokens?: number;
   /**
    * Reasoning tokens emitted by reasoning-capable models, summed across
-   * turns. Currently surfaced only by Codex (`rust-v0.128.0`+, wire-key
-   * `reasoning_output_tokens`); other runtimes leave this `undefined`.
-   * Older Codex binaries also leave it `undefined`. Treat `undefined`
-   * as "not reported", not as `0`.
+   * turns. Codex fills it from `reasoning_output_tokens` (`rust-v0.128.0`+;
+   * 0.159.1 sends the field on every turn, so a turn without reasoning
+   * gives a real `0`), ACP fronts from `thoughtTokens` (FR-L49). Older
+   * Codex binaries and the other runtimes leave it `undefined`. Treat
+   * `undefined` as "not reported", not as `0`.
    */
   reasoning_tokens?: number;
   /** Total cost in USD if the runtime reports it. */

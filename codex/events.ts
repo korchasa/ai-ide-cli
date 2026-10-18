@@ -408,17 +408,16 @@ export interface CodexErrorParams {
 }
 
 /**
- * Params for `response.processed` — remote-compaction marker emitted on
- * v2 streams (Codex `rust-v0.130.0`+).
+ * Params for the `response.processed` variant — a shape guessed in
+ * 2026-05 (`threadId` / `turnId` plus passthrough) for a notification
+ * that does not exist.
  *
- * **Experimental — schema best-effort.** The local Codex generator
- * (`codex app-server generate-ts --experimental`) on 0.128.x does NOT
- * yet emit `ResponseProcessedNotification.ts`; this shape mirrors the
- * conservative minimum stable across sibling notifications
- * (`threadId` / `turnId`) and keeps a forward-compat passthrough for
- * fields the 0.130 schema may add. Once a 0.130 binary is locally
- * available, re-run the generator and tighten the shape — see the
- * matching follow-up bullet on FR-L26.
+ * @deprecated Never emitted on the app-server stream. Upstream #21642
+ * makes Codex SEND `response.processed` to the model provider over the
+ * Responses websocket; it is not a notification to app-server clients.
+ * `codex-cli` 0.159.1 lists no such method in `ServerNotification.ts`
+ * and its binary holds no `response.processed` string. Kept only so the
+ * export stays until the next major release; do not wire on it.
  */
 export interface CodexResponseProcessedParams {
   /** Thread the response belongs to. */
@@ -512,10 +511,15 @@ export interface CodexErrorNotification {
 }
 
 /**
- * `response.processed` notification — remote-compaction completion
- * marker for v2 streams. Introduced in Codex `rust-v0.130.0` (#21642);
- * older binaries never emit it. Consumers wiring on the v2 stream
- * narrow via {@link isCodexNotification} as usual.
+ * `response.processed` variant, typed in 2026-05 from the
+ * `rust-v0.130.0` release note as a remote-compaction marker.
+ *
+ * @deprecated Never emitted on the app-server stream. Upstream #21642
+ * makes Codex SEND `response.processed` to the model provider over the
+ * Responses websocket; it is not a notification to app-server clients.
+ * `codex-cli` 0.159.1 lists no such method in `ServerNotification.ts`
+ * and its binary holds no `response.processed` string. Kept only so the
+ * export stays until the next major release; do not wire on it.
  */
 export interface CodexResponseProcessedNotification {
   /** Discriminator. */
