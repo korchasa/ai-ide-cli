@@ -1,9 +1,9 @@
 ---
 date: "2026-05-17"
-status: to do
+status: done
 implements: [FR-L13]
 tags: [codex, argv, permission-mode, deprecation]
-related_tasks: []
+related_tasks: [2026/05/codex-flag-placement-audit.md]
 ---
 
 # Codex: Ban Deprecated --full-auto Flag
@@ -61,25 +61,27 @@ deprecated CLI flags within 1–2 minors. Upstream:
 
 ## Definition of Done
 
-- [ ] FR-L13: `codex/argv.ts:buildCodexArgs` never emits `--full-auto`
+- [x] FR-L13: `codex/argv.ts:buildCodexArgs` never emits `--full-auto`
       for any recognized `permissionMode` value (the full enumeration
       from `decidePermissionMode`'s docblock, plus `undefined` and a
       garbage value). Test path:
       `codex/argv_test.ts::"never emits deprecated --full-auto"`.
       Evidence: `NO_COLOR=1 deno task test codex/argv_test.ts`.
-- [ ] FR-L13: SRS `### 3.13 FR-L13` Acceptance lists an explicit ban:
+- [x] FR-L13: SRS `### 3.13 FR-L13` Acceptance lists an explicit ban:
       "`buildCodexArgs()` never emits `--full-auto`". Evidence:
       `grep -n "full-auto" documents/requirements.md` returns exactly
-      one line, inside FR-L13 Acceptance, phrased as a ban.
-- [ ] SDS `### 3.10` (or sub-section covering `codex/argv.ts`) notes
+      one line, inside FR-L13 Acceptance, phrased as a ban. (A second
+      hit is the FR-L13 `**Tasks:**` link to this file's slug — not a
+      statement.)
+- [x] SDS `### 3.10` (or sub-section covering `codex/argv.ts`) notes
       that `--full-auto` is intentionally never emitted post-0.128
       deprecation. Evidence:
       `grep -n "full-auto" documents/design.md` returns exactly one
       line in the codex section.
-- [ ] `documents/index.md` `## FR` row for FR-L13 is present (add if
+- [x] `documents/index.md` `## FR` row for FR-L13 is present (add if
       missing, leave intact if present). Evidence:
       `grep -n "FR-L13" documents/index.md`.
-- [ ] Final check: `NO_COLOR=1 deno task check` exits 0.
+- [x] Final check: `NO_COLOR=1 deno task check` exits 0.
 
 ## Solution
 
@@ -133,6 +135,20 @@ deprecated CLI flags within 1–2 minors. Upstream:
 
 7. **Final check.**
    - Run `NO_COLOR=1 deno task check`. Must exit 0.
+
+## Re-validation (2026-10-18)
+
+- Implemented in `dee834c` (2026-05-17); this file's checklist was
+  never ticked. Re-checked against `codex-cli 0.159.1`.
+- `--full-auto` is gone, not just deprecated: `codex exec --full-auto
+  --help` → `error: unexpected argument '--full-auto' found`, exit 2.
+  The ban now guards a hard failure. SRS / SDS / test JSDoc reworded
+  from "deprecated" to "deprecated, then rejected by 0.159.1".
+- Mutation probe: injecting `--full-auto` into `buildCodexArgs` turns
+  `"never emits deprecated --full-auto"` red with the expected
+  assertion message; restored from a copy.
+- SDS location fixed: `permissionModeToCodexArgs` lives in
+  `codex/argv.ts` (re-exported from `codex/process.ts`).
 
 ## Follow-ups
 

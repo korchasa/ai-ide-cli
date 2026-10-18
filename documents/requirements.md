@@ -409,9 +409,10 @@ stable — never renumber on move.
         `executeCodexProcess`.
   - [x] Sub-path export `@korchasa/ai-ide-cli/codex/process`. Evidence:
         `ai-ide-cli/deno.json` exports.
-  - [x] `buildCodexArgs()` never emits the deprecated `--full-auto` flag
-        (Codex `rust-v0.128.0` deprecation; explicit permission profiles
-        are the supported replacement). Evidence:
+  - [x] `buildCodexArgs()` never emits the `--full-auto` flag (deprecated
+        in Codex `rust-v0.128.0`; `codex-cli 0.159.1` rejects it with
+        `unexpected argument`, exit 2; explicit permission profiles are
+        the supported replacement). Evidence:
         `ai-ide-cli/codex/argv_test.ts`.
   - [x] `buildCodexArgs()` enforces canonical no-duplicate placement —
         every flag emits at subcommand position only (Codex

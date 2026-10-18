@@ -848,11 +848,12 @@ Single source of truth for the runtime-neutral `permissionMode` →
 
 Consumers are thin serializers:
 
-- `permissionModeToCodexArgs(mode)` in `codex/process.ts` →
-  `--sandbox <mode>` + `--config approval_policy="<mode>"` argv
-  (one-shot exec transport). The deprecated `--full-auto` flag (Codex
-  `rust-v0.128.0`) is intentionally never emitted — permission profiles
-  are the supported replacement.
+- `permissionModeToCodexArgs(mode)` in `codex/argv.ts` (re-exported from
+  `codex/process.ts`) → `--sandbox <mode>` +
+  `--config approval_policy="<mode>"` argv (one-shot exec transport).
+  `--full-auto` (deprecated in Codex `rust-v0.128.0`, rejected by
+  `codex-cli 0.159.1`) is intentionally never emitted — permission
+  profiles are the supported replacement.
 - `permissionModeToThreadStartFields(mode)` in `codex/session.ts` →
   `{approvalPolicy?, sandbox?}` fields for `thread/start` /
   `thread/resume` (app-server transport).

@@ -3,9 +3,10 @@
  * Negative-invariant regression tests for {@link buildCodexArgs}.
  *
  * Codex `rust-v0.128.0` deprecated `--full-auto` in favor of explicit
- * permission profiles. This file pins the contract that the adapter
- * never emits `--full-auto` — so a future refactor that reaches for
- * the deprecated flag fails this test before consumers fail at
+ * permission profiles, and `codex-cli 0.159.1` rejects it outright
+ * (`unexpected argument`, exit 2). This file pins the contract that the
+ * adapter never emits `--full-auto` — so a future refactor that reaches
+ * for the removed flag fails this test before consumers fail at
  * runtime on a modern Codex binary.
  */
 
