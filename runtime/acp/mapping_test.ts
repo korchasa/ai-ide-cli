@@ -332,6 +332,11 @@ Deno.test("collectDegradedOptions flags ACP-lossy fields", () => {
   ]);
 });
 
+Deno.test("collectDegradedOptions flags settingSources [] too", () => {
+  const degraded = collectDegradedOptions({ settingSources: [] });
+  assertEquals(degraded.map((d) => d.field), ["settingSources"]);
+});
+
 Deno.test("mapSessionUpdate carries method and params into the neutral envelope", () => {
   const ev = mapSessionUpdate("claude", "session/update", {
     sessionUpdate: "agent_message_chunk",

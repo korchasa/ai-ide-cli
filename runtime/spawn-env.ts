@@ -13,8 +13,8 @@
  * 2. this process's vars the runtime's login matcher accepts (API keys,
  *    config-dir switches) — isolation must not log the agent out;
  * 3. the caller's `env`;
- * 4. the library's own variables (`PWD` FR-L33, FR-L45 switch, FR-L18
- *    config dir, ACP front env), added by the spawn site.
+ * 4. the library's own variables (`PWD` FR-L33, FR-L45 switch, ACP
+ *    front env), added by the spawn site.
  *
  * Isolation also covers the library's own lookups of paths the child uses
  * (config, skills, transcripts, logs): {@link hostEnv} answers with what

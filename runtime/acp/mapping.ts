@@ -406,11 +406,12 @@ export function collectDegradedOptions(
         "ACP has no standard tool deny-list; the front controls tool exposure on its own.",
     });
   }
-  if (opts.settingSources && opts.settingSources.length > 0) {
+  // FR-L18: `[]` is the strictest request, so it is reported too.
+  if (opts.settingSources !== undefined) {
     out.push({
       field: "settingSources",
       reason:
-        "ACP fronts read their own config sources; no client-side cleanroom equivalent.",
+        "ACP fronts read their own config sources; the library does not pass setting sources to the front.",
     });
   }
   if (opts.systemPrompt && opts.systemPrompt.trim().length > 0) {

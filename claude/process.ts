@@ -4,7 +4,7 @@
  * subprocess with stream-json output, processes NDJSON events in real-time,
  * and returns normalized {@link CliRunOutput}. Includes retry logic with
  * exponential backoff, AbortSignal cancellation, observed-tool-use hook,
- * typed lifecycle hooks, and setting-sources isolation.
+ * typed lifecycle hooks, and setting-source selection.
  *
  * Upstream reference — consult this when extending flag coverage or when
  * the `stream-json` event shape changes:
@@ -38,9 +38,8 @@ import {
 } from "../runtime/mcp-injection.ts";
 import { prepareMcpConfigFile } from "./mcp.ts";
 import {
-  defaultClaudeConfigDir,
-  prepareSettingSourcesDir,
   type SettingSource,
+  validateSettingSources,
 } from "../runtime/setting-sources.ts";
 import { validateClaudePermissionMode } from "./permission-mode.ts";
 import { type ProcessRegistry, signalChild } from "../process-registry.ts";
@@ -109,6 +108,10 @@ export const CLAUDE_INTENTIONALLY_OPEN_FLAGS: readonly string[] = [
   "--json-schema",
   // FR-L52: same back-compat reasoning for typed `ephemeral`.
   "--no-session-persistence",
+  // FR-L18: typed `settingSources` is preferred; legacy
+  // `claudeArgs: { "--setting-sources": "local" }` stays valid when it is
+  // unset. Collision is checked by `rejectTypedFlagCollision`.
+  "--setting-sources",
   // File-based system prompt delivery is preferred through
   // `systemPromptFile`, but the legacy extraArgs path remains valid when
   // the typed field is unset. Collision is checked by
@@ -187,10 +190,9 @@ export interface ClaudeInvokeOptions {
    */
   onToolUseObserved?: OnToolUseObservedCallback;
   /**
-   * Filter the set of Claude configuration sources that apply to the run.
-   * When provided, the runner redirects `CLAUDE_CONFIG_DIR` to a temporary
-   * dir populated from the listed sources (see
-   * {@link import("../runtime/setting-sources").prepareSettingSourcesDir}).
+   * Claude configuration sources that apply to the run — emitted as
+   * `--setting-sources <comma-joined>` (`[]` → `""`, nothing loaded).
+   * Unset → Claude's default (all three). See FR-L18.
    */
   settingSources?: SettingSource[];
   /**
@@ -233,22 +235,32 @@ export interface ClaudeInvokeOptions {
   ephemeral?: boolean;
 }
 
+// FR-L18
 // FR-L50
 // FR-L52
 /**
  * Argv for the typed per-run options shared by the one-shot and session
  * builders: `outputSchema` → `--json-schema <JSON>`, `ephemeral` →
- * `--no-session-persistence`. Throws on a non-object schema or when the
- * same flag is also in `claudeArgs`.
+ * `--no-session-persistence`, `settingSources` → `--setting-sources
+ * <comma-joined>`. Throws on a non-object schema, an unknown setting
+ * source, or when the same flag is also in `claudeArgs`.
  *
  * @param opts The typed fields plus the caller's `claudeArgs`.
  */
 export function buildClaudeRunOptionArgs(opts: {
   outputSchema?: Record<string, unknown>;
   ephemeral?: boolean;
+  settingSources?: SettingSource[];
   claudeArgs?: ExtraArgsMap;
 }): string[] {
   validateOutputSchema(opts.outputSchema);
+  validateSettingSources(opts.settingSources);
+  rejectTypedFlagCollision(
+    "settingSources",
+    opts.settingSources,
+    ["--setting-sources"],
+    opts.claudeArgs,
+  );
   rejectTypedFlagCollision(
     "outputSchema",
     opts.outputSchema,
@@ -266,6 +278,10 @@ export function buildClaudeRunOptionArgs(opts: {
     args.push("--json-schema", JSON.stringify(opts.outputSchema));
   }
   if (opts.ephemeral) args.push("--no-session-persistence");
+  // Emitted on resume too: setting sources are per process, not per session.
+  if (opts.settingSources) {
+    args.push("--setting-sources", opts.settingSources.join(","));
+  }
   return args;
 }
 
@@ -474,25 +490,12 @@ async function executeClaudeProcess(
   args: string[],
   opts: ClaudeInvokeOptions,
 ): Promise<CliRunOutput> {
-  // Optional setting-sources isolation — build a filtered tmp config dir
-  // and redirect CLAUDE_CONFIG_DIR for this run only.
-  let settingCleanup: (() => Promise<void>) | undefined;
   // FR-L45: strip auto-update / telemetry / model-discovery traffic from
   // the spawn env unless the caller pinned the switch themselves.
-  let env: Record<string, string> = withNonessentialTrafficDisabled({
+  const env: Record<string, string> = withNonessentialTrafficDisabled({
     CLAUDECODE: "",
     ...(opts.env ?? {}),
   });
-  if (opts.settingSources) {
-    const prepared = await prepareSettingSourcesDir(
-      opts.settingSources,
-      env.CLAUDE_CONFIG_DIR ??
-        defaultClaudeConfigDir(opts.env, opts.inheritEnv, claudeAuthEnv),
-      opts.cwd ?? Deno.cwd(),
-    );
-    settingCleanup = prepared.cleanup;
-    env = { ...env, CLAUDE_CONFIG_DIR: prepared.tmpDir };
-  }
 
   // FR-L35: per-attempt mcp-config tmp file. Written here (not in the
   // pure builder) because the path is allocated per attempt and reaped
@@ -684,9 +687,6 @@ async function executeClaudeProcess(
     );
   } finally {
     registry.unregister(process);
-    if (settingCleanup) {
-      await settingCleanup();
-    }
     // FR-L35: reap the per-attempt mcp-config tmp file regardless of
     // exit path (success / retry / abort / crash all converge here).
     if (mcpCleanup) {

@@ -142,6 +142,9 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
       return invokeViaAcp("codex", opts, codexAuthEnv);
     }
     rejectUnsupportedSystemPromptFile("codex", opts);
+    // FR-L28: `settingSources` names Claude config sources; Codex config
+    // layers do not map onto them.
+    rejectUnsupportedRunOptions("codex", opts, ["settingSources"]);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);
@@ -157,6 +160,8 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     }
     // FR-L55..FR-L57: ACP-only session options.
     rejectUnsupportedRunOptions("codex", opts, ACP_ONLY_SESSION_OPTIONS);
+    // FR-L28
+    rejectUnsupportedRunOptions("codex", opts, ["settingSources"]);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);

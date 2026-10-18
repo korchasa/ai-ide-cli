@@ -7,10 +7,9 @@
  * Hooks are loaded per run through `claudeArgs["--settings"]` — no
  * `~/.claude` mutation, no project-hook approval prompt. Non-`SessionStart`
  * hook events reach stream-json only with `--include-hook-events`
- * (verified on claude v2.1.302). `--setting-sources local` keeps the
+ * (verified on claude v2.1.302). `settingSources: ["local"]` keeps the
  * user's global hooks out: `local` resolves to an absent
- * `<tmp>/.claude/settings.local.json`. The typed `settingSources: []` is
- * not used — its empty `CLAUDE_CONFIG_DIR` drops a keychain login.
+ * `<tmp>/.claude/settings.local.json` (FR-L18).
  */
 
 import { assert, assertEquals } from "@std/assert";
@@ -67,9 +66,9 @@ Deno.test({
         cwd: tmp,
         permissionMode: "plan",
         reasoningEffort: "low",
+        settingSources: ["local"],
         claudeArgs: {
           "--settings": settingsPath,
-          "--setting-sources": "local",
           "--include-hook-events": "",
         },
         hooks: {

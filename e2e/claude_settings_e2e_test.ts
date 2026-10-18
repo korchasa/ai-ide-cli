@@ -1,11 +1,11 @@
 /**
  * @module
- * Claude-only `settingSources: []` cleanroom scenario (FR-L18). End-to-end
- * check that `invokeClaudeCli` completes cleanly against an empty
- * `CLAUDE_CONFIG_DIR`. Ported from `scripts/smoke.ts`.
+ * Claude-only `settingSources` scenarios (FR-L18) against the real binary.
+ * `settingSources` maps to `--setting-sources`, so a cleanroom run keeps
+ * the host login, and each source is gated on its own.
  */
 
-import { assert } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import { defaultRegistry } from "../process-registry.ts";
 import { invokeClaudeCli } from "../claude/process.ts";
 import { e2eEnabled, ONE_WORD_OK } from "./_helpers.ts";
@@ -13,30 +13,71 @@ import { e2eEnabled, ONE_WORD_OK } from "./_helpers.ts";
 const claudeEnabled = await e2eEnabled("claude");
 
 Deno.test({
-  name:
-    "e2e settings/claude/settingSources=[] produces empty CLAUDE_CONFIG_DIR",
+  name: "e2e settings/claude/settingSources=[] stays logged in",
   ignore: !claudeEnabled,
   fn: async () => {
-    // FR-L18 invariant: the CLI must RETURN (not stall) when pointed at an
-    // empty CLAUDE_CONFIG_DIR. Whether it succeeds or fails with an auth
-    // error is host-dependent — an API-key host yields `output`, a
-    // login-based host yields `error: "Not logged in"`. Both are acceptable;
-    // a hang (timeout) is not.
-    const start = Date.now();
     const res = await invokeClaudeCli({
       processRegistry: defaultRegistry,
       taskPrompt: ONE_WORD_OK,
-      timeoutSeconds: 30,
+      timeoutSeconds: 60,
       maxRetries: 1,
       retryDelaySeconds: 1,
+      permissionMode: "plan",
       settingSources: [],
       verbosity: "quiet",
     });
-    const elapsed = Date.now() - start;
-    assert(
-      res.output !== undefined || res.error !== undefined,
-      "CLI returned neither output nor error",
-    );
-    assert(elapsed < 25_000, `CLI stalled: ${elapsed}ms`);
+    assert(!res.error, `claude run failed: ${res.error ?? ""}`);
+    assert(res.output !== undefined, "no output from claude");
+  },
+});
+
+Deno.test({
+  name: "e2e settings/claude/settingSources=[local] loads only local settings",
+  ignore: !claudeEnabled,
+  fn: async () => {
+    const tmp = await Deno.makeTempDir({
+      prefix: "ai-ide-cli-e2e-claude-settings-",
+    });
+    try {
+      await Deno.mkdir(`${tmp}/.claude`);
+      const touchHook = (marker: string) =>
+        JSON.stringify({
+          hooks: {
+            SessionStart: [{
+              hooks: [{
+                type: "command",
+                command: `touch "$CLAUDE_PROJECT_DIR/${marker}"`,
+              }],
+            }],
+          },
+        });
+      await Deno.writeTextFile(
+        `${tmp}/.claude/settings.json`,
+        touchHook("marker-project"),
+      );
+      await Deno.writeTextFile(
+        `${tmp}/.claude/settings.local.json`,
+        touchHook("marker-local"),
+      );
+      const res = await invokeClaudeCli({
+        processRegistry: defaultRegistry,
+        taskPrompt: ONE_WORD_OK,
+        timeoutSeconds: 60,
+        maxRetries: 1,
+        retryDelaySeconds: 1,
+        cwd: tmp,
+        permissionMode: "plan",
+        settingSources: ["local"],
+        verbosity: "quiet",
+      });
+      assert(!res.error, `claude run failed: ${res.error ?? ""}`);
+      const markers: string[] = [];
+      for await (const e of Deno.readDir(tmp)) {
+        if (e.name.startsWith("marker-")) markers.push(e.name);
+      }
+      assertEquals(markers, ["marker-local"]);
+    } finally {
+      await Deno.remove(tmp, { recursive: true });
+    }
   },
 });

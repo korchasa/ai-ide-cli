@@ -449,3 +449,97 @@ Deno.test("invokeClaudeCli — caller-supplied traffic switch is not overwritten
     await Deno.remove(probe).catch(() => {});
   }
 });
+
+// --- FR-L18: settingSources → native --setting-sources ---
+
+Deno.test("FR-L18 settingSources emits --setting-sources with comma-joined sources", () => {
+  const args = buildClaudeArgs(makeOpts({ settingSources: ["user", "local"] }));
+  const i = args.indexOf("--setting-sources");
+  assert(i >= 0, `--setting-sources missing: ${args.join(" ")}`);
+  assertEquals(args[i + 1], "user,local");
+});
+
+Deno.test("FR-L18 settingSources [] emits an empty --setting-sources value", () => {
+  const args = buildClaudeArgs(makeOpts({ settingSources: [] }));
+  const i = args.indexOf("--setting-sources");
+  assert(i >= 0, `--setting-sources missing: ${args.join(" ")}`);
+  assertEquals(args[i + 1], "");
+});
+
+Deno.test("FR-L18 settingSources undefined emits no --setting-sources", () => {
+  assertEquals(
+    buildClaudeArgs(makeOpts()).includes("--setting-sources"),
+    false,
+  );
+});
+
+Deno.test("FR-L18 settingSources is emitted on resume too", () => {
+  const args = buildClaudeArgs(
+    makeOpts({ resumeSessionId: "sess-1", settingSources: ["project"] }),
+  );
+  assertEquals(args[args.indexOf("--setting-sources") + 1], "project");
+});
+
+Deno.test("FR-L18 settingSources rejects an unknown source", () => {
+  const settingSources = ["user", "bogus"] as unknown as ClaudeInvokeOptions[
+    "settingSources"
+  ];
+  assertThrows(
+    () => buildClaudeArgs(makeOpts({ settingSources })),
+    Error,
+    'unknown source "bogus"',
+  );
+});
+
+Deno.test("FR-L18 settingSources collides with claudeArgs --setting-sources", () => {
+  assertThrows(
+    () =>
+      buildClaudeArgs(
+        makeOpts({
+          settingSources: [],
+          claudeArgs: { "--setting-sources": "local" },
+        }),
+      ),
+    Error,
+    "collides with typed settingSources",
+  );
+});
+
+Deno.test("FR-L18 legacy claudeArgs --setting-sources passes through when the typed field is unset", () => {
+  const args = buildClaudeArgs(
+    makeOpts({ claudeArgs: { "--setting-sources": "local" } }),
+  );
+  const i = args.indexOf("--setting-sources");
+  assertEquals(args[i + 1], "local");
+  assertEquals(args.lastIndexOf("--setting-sources"), i);
+});
+
+Deno.test("FR-L18 settingSources leaves CLAUDE_CONFIG_DIR untouched", async () => {
+  const dir = await Deno.makeTempDir({ prefix: "claude-settings-stub-" });
+  const probe = `${dir}/probe.txt`;
+  await Deno.writeTextFile(
+    `${dir}/claude`,
+    `#!/usr/bin/env bash
+{ printf '%s\\n' "\${CLAUDE_CONFIG_DIR-<unset>}"; printf '%s\\n' "$@"; } > ${probe}
+cat <<'EOF'
+{"type":"result","subtype":"success","result":"ok","session_id":"stub-1","total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"num_turns":0,"is_error":false}
+EOF
+`,
+  );
+  await Deno.chmod(`${dir}/claude`, 0o755);
+  const prevPath = Deno.env.get("PATH") ?? "";
+  Deno.env.set("PATH", `${dir}:${prevPath}`);
+  try {
+    await invokeClaudeCli(
+      makeOpts({ settingSources: [], env: { CLAUDE_CONFIG_DIR: "/cfg" } }),
+    );
+    const [configDir, ...argv] = (await Deno.readTextFile(probe)).split("\n");
+    assertEquals(configDir, "/cfg");
+    const i = argv.indexOf("--setting-sources");
+    assert(i >= 0, `--setting-sources missing: ${argv.join(" ")}`);
+    assertEquals(argv[i + 1], "");
+  } finally {
+    Deno.env.set("PATH", prevPath);
+    await Deno.remove(dir, { recursive: true }).catch(() => {});
+  }
+});

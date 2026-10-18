@@ -1,4 +1,9 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import {
+  assertEquals,
+  assertFalse,
+  assertRejects,
+  assertThrows,
+} from "@std/assert";
 import {
   parseStructuredReply,
   rejectProcessGroupOnWindows,
@@ -9,6 +14,9 @@ import {
   validateOutputSchema,
 } from "./run-options.ts";
 import type { CliRunOutput } from "../types.ts";
+import { defaultRegistry } from "../process-registry.ts";
+import { getRuntimeAdapter } from "./index.ts";
+import type { SettingSource } from "./setting-sources.ts";
 
 const OK: CliRunOutput = {
   result: '{"answer":"ok"}',
@@ -104,4 +112,62 @@ Deno.test("FR-L51 rejectProcessGroupOnWindows refuses only Windows", () => {
   assertEquals(err.fields, ["processGroup"]);
   rejectProcessGroupOnWindows("codex", { processGroup: true }, "darwin");
   rejectProcessGroupOnWindows("codex", { processGroup: false }, "windows");
+});
+
+const NON_CLAUDE_CLI = ["codex", "opencode", "cursor"] as const;
+const BASE_INVOKE = {
+  processRegistry: defaultRegistry,
+  taskPrompt: "ignored",
+  timeoutSeconds: 1,
+  maxRetries: 0,
+  retryDelaySeconds: 0,
+};
+
+Deno.test("FR-L28 non-Claude CLI runtimes reject settingSources, [] included", async () => {
+  for (const runtime of NON_CLAUDE_CLI) {
+    const adapter = getRuntimeAdapter(runtime);
+    for (const settingSources of [[], ["user"]] as SettingSource[][]) {
+      const invokeErr = assertThrows(
+        () => adapter.invoke({ ...BASE_INVOKE, settingSources }),
+        RuntimeUnsupportedOptionError,
+      );
+      assertEquals(invokeErr.runtime, runtime);
+      assertEquals(invokeErr.fields, ["settingSources"]);
+      // async wrapper: Codex openSession throws, OpenCode / Cursor reject.
+      const sessionErr = await assertRejects(
+        async () =>
+          await adapter.openSession!({
+            processRegistry: defaultRegistry,
+            settingSources,
+          }),
+        RuntimeUnsupportedOptionError,
+      );
+      assertEquals(sessionErr.fields, ["settingSources"]);
+    }
+  }
+});
+
+Deno.test("FR-L28 undefined settingSources passes the rejection", async () => {
+  // A bad reasoningEffort is validated after the FR-L28 check, so reaching
+  // its error proves settingSources: undefined was not refused.
+  const reasoningEffort = "bogus" as unknown as "low";
+  for (const runtime of NON_CLAUDE_CLI) {
+    const adapter = getRuntimeAdapter(runtime);
+    const invokeErr = assertThrows(() =>
+      adapter.invoke({
+        ...BASE_INVOKE,
+        settingSources: undefined,
+        reasoningEffort,
+      })
+    );
+    assertFalse(invokeErr instanceof RuntimeUnsupportedOptionError);
+    const sessionErr = await assertRejects(async () =>
+      await adapter.openSession!({
+        processRegistry: defaultRegistry,
+        settingSources: undefined,
+        reasoningEffort,
+      })
+    );
+    assertFalse(sessionErr instanceof RuntimeUnsupportedOptionError);
+  }
 });

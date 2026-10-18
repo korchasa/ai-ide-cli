@@ -17,7 +17,9 @@ import type { AcpClientFsOptions } from "./acp/client-fs.ts";
  * `RuntimeAdapter.openSession`. Mirrors `RuntimeInvokeOptions` but omits
  * one-shot fields (`taskPrompt`, retries, timeouts, hooks) that do not
  * apply to a long-lived session. Adapters that do not recognize a field
- * ignore it (e.g. non-Claude runtimes ignore `settingSources`).
+ * ignore it; fields a runtime cannot honour throw
+ * `RuntimeUnsupportedOptionError` (e.g. `settingSources` on non-Claude
+ * CLI runtimes, FR-L28).
  *
  * **Out of scope (by design):**
  *
@@ -70,12 +72,16 @@ export interface RuntimeSessionOptions {
   /**
    * FR-L53: `false` starts the subprocess from an empty env — it gets
    * only `env` plus the library's own variables (`PWD`, FR-L45 switch,
-   * FR-L18 config dir, ACP front env), nothing from this process. Pass
+   * ACP front env), nothing from this process. Pass
    * `PATH` (required: binary lookup) and `HOME` (agent auth / config).
    * Default `true`: inherit this process's env, `env` merged on top.
    */
   inheritEnv?: boolean;
-  /** Claude-specific configuration-source filter. Ignored by other runtimes. */
+  /**
+   * Claude configuration-source filter → `--setting-sources` (FR-L18).
+   * Claude only; other CLI runtimes throw `RuntimeUnsupportedOptionError`,
+   * `[]` included (FR-L28).
+   */
   settingSources?: SettingSource[];
   /**
    * Tool-name allow-list. Same contract as

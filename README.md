@@ -90,14 +90,14 @@ adapter.capabilitiesFor?.("acp");
 | session resume by id | `--resume`     | `--session`    | `--resume`        | `resume <id>`  |
 | toolFilter (FR-L24)  | yes (`--allowedTools` / `--disallowedTools`) | warn-only | warn-only | warn-only |
 | reasoningEffort (FR-L25) | yes (`--effort`, `minimal` warn-mapped to `low`) | yes (`--variant` / `body.variant`, provider-specific warn) | warn-only | yes (`--config model_reasoning_effort`) |
-| typed event union    | yes (`ClaudeStreamEvent` over stream-json) | partial (`OpenCodeStreamEvent` for `run --format json` only; SSE session events are untyped — FR-L27 pending) | yes (`CursorStreamEvent` over stream-json: system / user / thinking / assistant / tool_call / result, FR-L30) | yes (`CodexNotification` + `isCodexNotification` type guard, FR-L26) |
-| typed assistant content blocks | yes (`ClaudeAssistantBlock`: `text` / `tool_use` / `thinking` discriminator) | partial (`OpenCodeToolUseEvent` from `run --format json`; `Part` union from `@opencode-ai/sdk` not re-exported yet — FR-L27 pending) | partial (`CursorAssistantBlock`: text-only — Cursor does NOT inline tool blocks; tool calls are sibling `tool_call/{started,completed}` events with a `tool_call.<name>ToolCall.{args\|result}` wrapper unflattened by `unwrapCursorToolCall`, FR-L30) | yes (`CodexThreadItem` 10-variant union: `agentMessage` / `reasoning` / `plan` / `commandExecution` / `fileChange` / `mcpToolCall` / `dynamicToolCall` / `webSearch` / …, FR-L26) |
+| typed event union    | yes (`ClaudeStreamEvent` over stream-json) | partial (`OpenCodeStreamEvent` for `run --format json` only; SSE session events are untyped) | yes (`CursorStreamEvent` over stream-json: system / user / thinking / assistant / tool_call / result, FR-L30) | yes (`CodexNotification` + `isCodexNotification` type guard, FR-L26) |
+| typed assistant content blocks | yes (`ClaudeAssistantBlock`: `text` / `tool_use` / `thinking` discriminator) | partial (`OpenCodeToolUseEvent` from `run --format json`; `Part` union from `@opencode-ai/sdk` not re-exported) | partial (`CursorAssistantBlock`: text-only — Cursor does NOT inline tool blocks; tool calls are sibling `tool_call/{started,completed}` events with a `tool_call.<name>ToolCall.{args\|result}` wrapper unflattened by `unwrapCursorToolCall`, FR-L30) | yes (`CodexThreadItem` 10-variant union: `agentMessage` / `reasoning` / `plan` / `commandExecution` / `fileChange` / `mcpToolCall` / `dynamicToolCall` / `webSearch` / …, FR-L26) |
 | structured init w/ capabilities | yes (`ClaudeSystemEvent` carries `tools[]` / `skills[]` / `agents[]` / `mcp_servers[]` / `slash_commands[]` / `plugins[]`) | no in event stream (capability inventory available out-of-band via the `/agent` and `/config` server endpoints) | no (init only carries `model` / `cwd` / `permissionMode` / `apiKeySource`) | no in event stream (`thread/start` response carries `instructionSources[]` only — no tool enum) |
-| per-assistant-turn lifecycle hook | yes (`ClaudeLifecycleHooks.onAssistant` fires once per assistant turn with the typed `ClaudeAssistantEvent`) | no (cross-runtime `RuntimeLifecycleHooks.onInit` / `onResult` only) | yes (`CursorLifecycleHooks.onAssistant` fires once per assistant turn with the typed `CursorAssistantEvent`, FR-L30) | no (cross-runtime hooks only — FR-L29 pending: `onCodexTurnCompleted` bound to `turn/completed`) |
+| per-assistant-turn lifecycle hook | yes (`ClaudeLifecycleHooks.onAssistant` fires once per assistant turn with the typed `ClaudeAssistantEvent`) | no (cross-runtime `RuntimeLifecycleHooks.onInit` / `onResult` only) | yes (`CursorLifecycleHooks.onAssistant` fires once per assistant turn with the typed `CursorAssistantEvent`, FR-L30) | no (cross-runtime hooks only; turn end via the `turn-end` session event, FR-L21 / FR-L29) |
 | outputSchema (FR-L50) | yes (`--json-schema`) | throws | throws | yes (`--output-schema`; session `turn/start.outputSchema`) |
 | processGroup (FR-L51) | yes | yes | yes | yes |
 | ephemeral (FR-L52)   | yes (`--no-session-persistence`) | throws | throws | yes (`--ephemeral`; session `thread/start.ephemeral`) |
-| settingSources cleanroom | yes (`CLAUDE_CONFIG_DIR` redirect, FR-L18) | silent ignore | silent ignore | silent ignore (FR-L28 pending — `CODEX_HOME` redirect) |
+| settingSources cleanroom | yes (`--setting-sources`, FR-L18; Claude >= 2.1.101) | throws (FR-L28) | throws (FR-L28) | throws (FR-L28) |
 
 Universal across all four runtimes: NDJSON event streaming, `AbortSignal`
 + timeout, custom `cwd` / `env`, `extraArgs` / `runtime_args` passthrough,
@@ -202,8 +202,12 @@ Runtime-scoped (check `capabilities` before using):
   (`capabilities.toolUseObservation`). Cursor fires the callback on
   every `tool_call/started` event with the flattened tool name from
   `unwrapCursorToolCall`.
-- `settingSources` — Claude only (cleanroom `CLAUDE_CONFIG_DIR` setup).
-  Other runtimes have no equivalent; the option is ignored.
+- `settingSources` — Claude only: native `--setting-sources`, so `[]`
+  loads no settings, `CLAUDE.md`, agents, skills or `.mcp.json` from
+  `~/.claude` or the project and keeps the login. Needs Claude Code >=
+  2.1.101 (older ones may purge history past 30 days on runs without
+  `user`). Other CLI runtimes throw `RuntimeUnsupportedOptionError`
+  (FR-L28); ACP reports it as degraded.
 
 Every Claude spawn sets
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for the child process
@@ -226,7 +230,7 @@ await invokeClaudeCli({
   timeoutSeconds: 60,
   maxRetries: 1,
   retryDelaySeconds: 1,
-  env: { CLAUDE_CONFIG_DIR: "/tmp/cleanroom" },
+  env: { CLAUDE_CONFIG_DIR: "/path/to/claude-config" },
   onEvent: (event) => {
     if (event.type === "system") console.log("init:", event);
   },
@@ -234,7 +238,7 @@ await invokeClaudeCli({
     onInit: (info) => console.log("session", info.sessionId),
     onResult: (output) => console.log("cost", output.total_cost_usd),
   },
-  settingSources: ["user"], // symlink host ~/.claude/settings.json only
+  settingSources: ["user"], // --setting-sources user: skip project/local
 });
 ```
 
@@ -254,8 +258,8 @@ out. The agent's env is built from, later wins:
    `*_API_KEY` for OpenCode, `CURSOR_API_KEY` for Cursor (lists in
    `<runtime>/auth-env.ts`);
 3. your `env`;
-4. the library's own variables (`PWD`, the FR-L45 switch, the cleanroom
-   `CLAUDE_CONFIG_DIR`, the ACP front's env).
+4. the library's own variables (`PWD`, the FR-L45 switch, the ACP
+   front's env).
 
 Everything else in this process — `CLAUDECODE`, `CLAUDE_CODE_*` session
 vars, `OTEL_*`, proxies, another runtime's keys — stays out. It works on

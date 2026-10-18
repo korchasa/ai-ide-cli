@@ -164,7 +164,8 @@ ai-ide-cli/
                           (FR-L17) onInit + onResult check
     reasoning_effort_e2e_test.ts — Claude / Codex argv-propagation smoke
                           for typed reasoningEffort (FR-L25)
-    claude_settings_e2e_test.ts — Claude settingSources: [] cleanroom
+    claude_settings_e2e_test.ts — Claude settingSources (FR-L18): [] stays
+                          logged in, ["local"] loads only local settings
     claude_hook_events_e2e_test.ts — Claude typed hook events + tool-hook
                           effort.level round trip via --settings (FR-L25)
     cursor_typed_stream_e2e_test.ts — Cursor --yolo + Read tool, asserts
@@ -383,23 +384,18 @@ so consumers short-circuit continuation; transient/unknown Codex payloads and
 Claude plain error-strings stay deferred until runtime-specific evidence is
 captured.
 
-**`runtime/setting-sources.ts`:**
+**`runtime/setting-sources.ts` (FR-L18):**
 
-- `SettingSource` = `'user' | 'project' | 'local'`.
-- `prepareSettingSourcesDir(sources, realConfigDir, realCwd)` — builds a
-  temp `CLAUDE_CONFIG_DIR` symlinking the user-level `settings.json` when
-  `'user'` is selected. `'project'`/`'local'` are recognized but not yet
-  isolated — they still come from CWD.
-- **Host-auth caveat.** Only `settings.json` is symlinked; Claude CLI's
-  `.credentials.json` (where `/login`-authenticated hosts store their
-  session token) is **not** carried into the cleanroom. Hosts with
-  `ANTHROPIC_API_KEY` in the environment survive `settingSources: []`;
-  login-based hosts fail with
-  `"Claude CLI returned error: Not logged in · Please run /login"`
-  until they set an API key. Tests and benchmarks that depend on auth
-  must either assume an API-key host or assert only that the CLI
-  returned within the timeout (see `e2e/claude_settings_e2e_test.ts`
-  for the portable shape).
+- `SettingSource` = `'user' | 'project' | 'local'`; `SETTING_SOURCES`
+  lists them; `validateSettingSources(sources?)` throws on any other
+  member.
+- Consumed by `buildClaudeRunOptionArgs` (`claude/process.ts`, shared by
+  `buildClaudeArgs` and `buildClaudeSessionArgs`): validate → reject a
+  `claudeArgs["--setting-sources"]` collision → push
+  `--setting-sources <join(",")>` when the field is set (resume too).
+  `--setting-sources` sits in `CLAUDE_INTENTIONALLY_OPEN_FLAGS`. The spawn
+  env is not touched, so login lookup (keychain by `$USER`, FR-L53) and
+  the session files stay in the host config root.
 
 **`runtime/content.ts` — Normalized Content Extraction (FR-L23):**
 
@@ -571,9 +567,9 @@ Resume skips `--agent`, `--append-system-prompt`, `--model`. `--input-format`
 is reserved (added to `CLAUDE_RESERVED_FLAGS`).
 
 `openClaudeSession(opts)`: spawns `Deno.Command("claude")` with
-`stdin: "piped"`, `stdout: "piped"`, `stderr: "piped"`. Applies optional
-`settingSources` isolation (shared with one-shot path via
-`prepareSettingSourcesDir`). Returns `ClaudeSession`:
+`stdin: "piped"`, `stdout: "piped"`, `stderr: "piped"`. `settingSources`
+reaches argv through the shared `buildClaudeRunOptionArgs` (FR-L18).
+Returns `ClaudeSession`:
 
 - `sessionId` — getter returning the latest `session_id` observed in
   stream events (`""` until the first `system/init`; then populated for
@@ -1206,9 +1202,7 @@ ACP internals (`invokeViaAcp`, `openSessionViaAcp`, `fetchAcpCommands`
 runtime adapter passes its matcher, absent (tests) → `NO_LOGIN_ENV`.
 `runtime/` never imports `<runtime>/auth-env.ts` outside the adapters.
 
-Callers of the lookups (optional `(env?, inheritEnv?)` params, additive;
-`defaultClaudeConfigDir` also takes the matcher):
-`defaultClaudeConfigDir` (`runtime/setting-sources.ts`),
+Callers of the lookups (optional `(env?, inheritEnv?)` params, additive):
 `defaultCodexSessionsDir` (`codex/transcript.ts`,
 resolved once before the exec spawn and passed to both
 `findCodexSessionFile` calls), `resolveOpenCodeLogDir`
@@ -1363,13 +1357,15 @@ of disallowed tools depends on `--permission-mode` and Claude's
 internal policy and is deliberately NOT asserted — that is a
 Claude-CLI concern, not an adapter concern.
 
-**`e2e/claude_settings_e2e_test.ts`:** Claude-only `settingSources: []`
-cleanroom scenario.
+**`e2e/claude_settings_e2e_test.ts`:** Claude-only FR-L18. `[]` in plan
+mode must return output (login kept); `["local"]` in a temp cwd whose
+`.claude/settings.json` and `settings.local.json` each carry a
+`SessionStart` hook touching a marker → only the local marker exists.
 
 **`e2e/claude_hook_events_e2e_test.ts`:** Claude-only FR-L25 hook
 events. Temp cwd, hooks from `claudeArgs["--settings"]` (failing
 `SessionStart`, `PreToolUse:Read` echoing stdin), `--include-hook-events`,
-`--setting-sources local`, plan mode, `reasoningEffort: "low"`. Asserts
+`settingSources: ["local"]`, plan mode, `reasoningEffort: "low"`. Asserts
 every `hook_response` has a `hook_started` peer, the failing hook gives
 `outcome:"error"` + `exit_code: 3`, and the tool hook's stdin carries
 `effort.level === "low"`.
@@ -1601,7 +1597,7 @@ headless `-p` mode today, but listed here for completeness). Strict
 round-trip recipe (pinned by `e2e/claude_hook_events_e2e_test.ts`):
 `claudeArgs` `--settings <file>` with a tool hook that echoes its
 stdin, plus `--include-hook-events` (tool-hook events are hidden by
-default), plus `--setting-sources local` to keep user hooks out; read
+default), plus `settingSources: ["local"]` to keep user hooks out; read
 `effort.level` from `ClaudeHookResponseEvent.stdout` — the library
 stays out of the round-trip check itself.
 
@@ -1656,7 +1652,7 @@ three per-runtime renderers consumed by adapters.
   supported (Claude CLI accepts the union).
 - **OpenCode (`capabilities.mcpInjection: true`)** —
   `buildOpenCodeConfigContent(servers)` renders both transports
-  per upstream OpenCode SSE schema (FR-L27):
+  per upstream OpenCode config schema:
   - stdio: `{mcp: {<name>: {type:"local", command:[cmd, …args],
     environment?, enabled:true}}}`
   - http:  `{mcp: {<name>: {type:"remote", url, headers?,
@@ -2029,6 +2025,11 @@ throws; flag alone stays open — FR-L24 rule, so the new flags sit in
   app-server `thread/start {ephemeral: true}`, refused with
   `resumeSessionId`; Claude `--no-session-persistence`; OpenCode / Cursor
   throw; ACP tuple entry (`ephemeral: false` not counted).
+- **Setting sources (FR-L28).** Codex / OpenCode / Cursor adapters run
+  `rejectUnsupportedRunOptions(runtime, opts, [..., "settingSources"])`
+  on the CLI branch of `invoke` and `openSession`, after the ACP
+  dispatch: any array, `[]` included, throws before spawn. ACP keeps the
+  `collectDegradedOptions` report.
 
 ## 5. Constraints
 

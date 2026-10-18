@@ -170,7 +170,12 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     }
     rejectUnsupportedSystemPromptFile("cursor", opts);
     // FR-L50 / FR-L52: no schema flag, no way to skip session files.
-    rejectUnsupportedRunOptions("cursor", opts, ["outputSchema", "ephemeral"]);
+    // FR-L28: `settingSources` names Claude config sources only.
+    rejectUnsupportedRunOptions("cursor", opts, [
+      "outputSchema",
+      "ephemeral",
+      "settingSources",
+    ]);
     validateToolFilter("cursor", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("cursor", opts);
@@ -201,7 +206,12 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
     // FR-L55..FR-L57: ACP-only session options.
     rejectUnsupportedRunOptions("cursor", opts, ACP_ONLY_SESSION_OPTIONS);
     // FR-L50 / FR-L52
-    rejectUnsupportedRunOptions("cursor", opts, ["outputSchema", "ephemeral"]);
+    // FR-L28
+    rejectUnsupportedRunOptions("cursor", opts, [
+      "outputSchema",
+      "ephemeral",
+      "settingSources",
+    ]);
     validateToolFilter("cursor", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("cursor", opts);
