@@ -61,7 +61,7 @@ support without guessing:
 
 ```ts
 const adapter = getRuntimeAdapter("codex");
-adapter.capabilities; // { permissionMode, transcript, interactive,
+adapter.capabilities; // { permissionMode, transcript,
                       //   toolUseObservation, session, capabilityInventory,
                       //   toolFilter, reasoningEffort }
 ```
@@ -73,7 +73,7 @@ to see which surfaces actually round-trip on that wire:
 ```ts
 adapter.capabilitiesFor?.("acp");
 // e.g. claude/codex/opencode pilots downgrade `transcript`,
-// `interactive`, `toolFilter`, and `capabilityInventory` to false
+// `toolFilter`, and `capabilityInventory` to false
 // on ACP. See "Alternate Transport (ACP)" below.
 ```
 
@@ -83,11 +83,9 @@ adapter.capabilitiesFor?.("acp");
 |----------------------|----------------|----------------|-------------------|----------------|
 | permissionMode       | yes            | yes            | no (`--yolo` only)| yes            |
 | transcript path      | yes            | yes (via `opencode export`) | no  | yes            |
-| interactive TUI      | yes            | yes            | no                | yes            |
 | toolUseObservation   | yes            | yes            | yes (FR-L30, fires on `tool_call/started`) | yes |
 | `openSession`        | yes (real)     | yes (`opencode serve`) | faux (per-send subprocess) | yes (app-server) |
 | capabilityInventory  | yes            | yes            | yes               | yes            |
-| skill loading        | yes (`~/.claude/skills/`) | yes (`.claude/skills/`) | no | yes (`~/.agents/skills/`) |
 | model selection      | yes            | yes            | partial (dropped on `--resume`) | yes |
 | session resume by id | `--resume`     | `--session`    | `--resume`        | `resume <id>`  |
 | toolFilter (FR-L24)  | yes (`--allowedTools` / `--disallowedTools`) | warn-only | warn-only | warn-only |
@@ -209,14 +207,11 @@ Runtime-scoped (check `capabilities` before using):
 
 Every Claude spawn sets
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for the child process
-(FR-L45) — `invoke`, `openSession`, `launchInteractive`, and the ACP
+(FR-L45) — `invoke`, `openSession`, and the ACP
 front, which runs the same binary under the Claude Agent SDK. The
 switch drops the auto-updater, bug-command, error-reporting, telemetry
 and model-discovery requests a programmatic caller never reads: about
-1.2 s off a short CLI run, about 0.3 s off the first ACP event. It
-applies to `launchInteractive` too, so the terminal session it opens
-runs without the auto-updater and the binary will not update itself
-while that session is up.
+1.2 s off a short CLI run, about 0.3 s off the first ACP event.
 
 Pass the variable in `env` to override it — the value you pass reaches
 the child unchanged. Exporting it in your own shell does not override
@@ -265,7 +260,7 @@ out. The agent's env is built from, later wins:
 Everything else in this process — `CLAUDECODE`, `CLAUDE_CODE_*` session
 vars, `OTEL_*`, proxies, another runtime's keys — stays out. It works on
 every runtime, on both transports, and for `invoke`, `openSession`,
-`launchInteractive`, `fetchCapabilitiesSlow` and `fetchCommands`.
+`fetchCapabilitiesSlow` and `fetchCommands`.
 
 No `env` is required: a CLI logged in from your shell stays logged in.
 Pass `env` only to add or override variables. The run throws before the
@@ -479,7 +474,7 @@ What's preserved across the ACP wire:
 
 What downgrades on the ACP path:
 
-- `transcript`, `interactive` (TUI), `toolFilter` (`allowedTools` /
+- `transcript`, `toolFilter` (`allowedTools` /
   `disallowedTools`), and `capabilityInventory` are unavailable.
 - ACP-lossy fields (`allowedTools`, `disallowedTools`,
   `settingSources`, `systemPrompt`) are surfaced as structured

@@ -11,8 +11,6 @@ import {
   type FetchCommandsOptions,
 } from "./commands.ts";
 import type {
-  InteractiveOptions,
-  InteractiveResult,
   RuntimeAdapter,
   RuntimeInvokeOptions,
   RuntimeSession,
@@ -35,11 +33,7 @@ import {
   rejectProcessGroupOnWindows,
   rejectUnsupportedRunOptions,
 } from "./run-options.ts";
-import { withSyncedPWD } from "./env-cwd-sync.ts";
-import { hostHome, spawnEnvOptions } from "./spawn-env.ts";
 import { opencodeAuthEnv } from "../opencode/auth-env.ts";
-import { join } from "@std/path";
-import { copy } from "@std/fs";
 
 // FR-L24: OpenCode has no native tool-filter CLI flag. The validator
 // still runs (uniform malformed-input rejection across runtimes); the
@@ -111,26 +105,9 @@ function opencodeEventToRuntime(
   return neutral;
 }
 
-/**
- * Resolve the OpenCode/Claude skills directory. OpenCode discovers skills
- * from `.opencode/skills/` and falls back to `.claude/skills/`. We use
- * the Claude path for broader compatibility.
- */
-function opencodeSkillsDir(
-  env: Record<string, string> | undefined,
-  inheritEnv: boolean | undefined,
-): string {
-  // FR-L53: an isolated child looks under the HOME it was given.
-  return join(
-    hostHome(env, inheritEnv, "OpenCode skills dir"),
-    ".claude",
-    "skills",
-  );
-}
-
 // FR-L39: transport-scoped capability vector for the OpenCode ACP
 // front (`opencode acp`). Mirrors the cross-pilot downgrade rule:
-// transcript / interactive / toolFilter drop to `false` because none
+// transcript / toolFilter drop to `false` because neither
 // survive the ACP wire dialect; `capabilityInventory` is `true`
 // (FR-L20) — `fetchCapabilitiesSlow` routes through `invokeViaAcp`. The
 // remaining surfaces (permissionMode, toolUseObservation, session,
@@ -138,7 +115,6 @@ function opencodeSkillsDir(
 const OPENCODE_ACP_CAPABILITIES: RuntimeCapabilities = {
   permissionMode: true,
   transcript: false,
-  interactive: false,
   toolUseObservation: true,
   session: true,
   // FR-L20: fetchCapabilitiesSlow routes through invokeViaAcp on ACP.
@@ -156,7 +132,6 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
   capabilities: {
     permissionMode: true,
     transcript: true,
-    interactive: true,
     toolUseObservation: true,
     session: true,
     capabilityInventory: true,
@@ -258,56 +233,5 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
       processRegistry: opts.processRegistry,
     });
     return adaptRuntimeSession("opencode", inner, opencodeEventToRuntime);
-  },
-
-  async launchInteractive(
-    opts: InteractiveOptions,
-  ): Promise<InteractiveResult> {
-    const injectedPaths: string[] = [];
-    try {
-      const env: Record<string, string> = { ...opts.env };
-
-      if (opts.skills && opts.skills.length > 0) {
-        const skillsDir = opencodeSkillsDir(opts.env, opts.inheritEnv);
-        await Deno.mkdir(skillsDir, { recursive: true });
-        for (const skill of opts.skills) {
-          const targetDir = join(
-            skillsDir,
-            skill.frontmatter.name,
-          );
-          await copy(skill.rootPath, targetDir, { overwrite: true });
-          injectedPaths.push(targetDir);
-        }
-      }
-
-      const args: string[] = [];
-      if (opts.systemPrompt) {
-        args.push("--system-prompt", opts.systemPrompt);
-      }
-
-      // FR-L33: sync env.PWD with cwd at the spawn boundary.
-      const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;
-      const cmd = new Deno.Command("opencode", {
-        args,
-        stdin: "inherit",
-        stdout: "inherit",
-        stderr: "inherit",
-        // FR-L53: `inheritEnv: false` drops this process's env.
-        ...spawnEnvOptions(syncedEnv, opts.inheritEnv, opencodeAuthEnv),
-        ...(opts.cwd ? { cwd: opts.cwd } : {}),
-      });
-
-      const process = cmd.spawn();
-      const status = await process.status;
-      return { exitCode: status.code };
-    } finally {
-      for (const p of injectedPaths) {
-        try {
-          await Deno.remove(p, { recursive: true });
-        } catch {
-          // Best-effort cleanup
-        }
-      }
-    }
   },
 };

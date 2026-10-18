@@ -122,9 +122,8 @@ a `!` commit, which is why leaving that series took one deliberate
   - `claude/content.ts` — `extractClaudeContent` per-runtime extractor
     consumed by the `runtime/content.ts` dispatcher (FR-L23).
   - `claude/nonessential-traffic.ts` — `withNonessentialTrafficDisabled`
-    sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` at all three
-    CLI-transport spawn sites (`invoke`, `openSession`,
-    `launchInteractive`), cutting ~1.2 s of auto-update / telemetry /
+    sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` at both
+    CLI-transport spawn sites (`invoke`, `openSession`), cutting ~1.2 s of auto-update / telemetry /
     model-discovery work off every run (FR-L45). The ACP transport gets
     the same switch from the Claude front's `env` in
     `runtime/acp/fronts.ts` (~0.3 s off first event).

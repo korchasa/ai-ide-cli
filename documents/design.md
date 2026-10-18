@@ -35,7 +35,7 @@ ai-ide-cli/
     adapter-types.ts    — RuntimeAdapter, RuntimeInvokeOptions,
                           RuntimeInvokeResult, ResolvedRuntimeConfig,
                           RuntimeConfigSource, ExtraArgsMap,
-                          RuntimeToolUseInfo, InteractiveOptions
+                          RuntimeToolUseInfo
     index.ts            — adapter registry + resolveRuntimeConfig()
     capabilities.ts     — CapabilityInventory types + shared LLM-probe driver
                           (fetchInventoryViaInvoke, parseCapabilityInventoryResponse)
@@ -232,7 +232,7 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
 **`runtime/types.ts`:**
 
 - `RuntimeCapabilities` — feature flags per adapter: `permissionMode`,
-  `transcript`, `interactive`, `toolUseObservation`, `session`,
+  `transcript`, `toolUseObservation`, `session`,
   `capabilityInventory`, `toolFilter`, `reasoningEffort`,
   `sessionFidelity?: "native" | "emulated"` (omitted ⇒ `"native"`).
   Cursor advertises `"emulated"` because `openCursorSession` spawns a
@@ -251,8 +251,6 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
   failure paths. Known subtypes are precise; otherwise adapters may return
   `kind: "runtime_error"` after they already know the failure came from the
   runtime.
-- `InteractiveOptions` — `{ skills?, systemPrompt?, cwd?, env? }`.
-- `InteractiveResult` — `{ exitCode: number }`.
 - `RuntimeSessionOptions` — streaming-session options: `agent`, `systemPrompt`,
   `resumeSessionId`, `extraArgs`, `permissionMode`, `model`, `signal`, `cwd`,
   `env`, `settingSources`, `allowedTools`, `disallowedTools` (FR-L24),
@@ -295,7 +293,7 @@ shutdown is no longer ambiguous about which subprocesses are in scope.
   optional `capabilitiesFor?(transport: TransportOption): RuntimeCapabilities`
   (FR-L39 — pilots override `"acp"` to reflect transport-bound
   downgrades; default delegates to `capabilities`), `invoke(opts)`,
-  `launchInteractive(opts)`, optional `openSession?(opts)` (only when
+  optional `openSession?(opts)` (only when
   `capabilities.session === true`), optional `fetchCapabilitiesSlow?(opts)`
   (only when `capabilities.capabilityInventory === true`).
 - `CapabilityInventory` — `{ runtime, skills: CapabilityRef[], commands:
@@ -1173,10 +1171,10 @@ Leaf helpers, no per-runtime imports. Login lists are passed in as
 - `IDENTITY_ENV = [PATH, HOME, USER, LOGNAME]` — OS-user vars always
   carried into an isolated child.
 - `spawnEnvOptions(env, inheritEnv, authEnv) → {env?, clearEnv?}` —
-  spread into every agent `Deno.Command` (14 sites: claude
-  process/session/interactive, codex process/app-server/interactive,
-  opencode process/session/transcript/interactive, cursor
-  process/session/chat, `AcpStdioClient`). Default → `env ? {env} : {}`
+  spread into every agent `Deno.Command` (11 sites: claude
+  process/session, codex process/app-server, opencode
+  process/session/transcript, cursor process/session/chat,
+  `AcpStdioClient`). Default → `env ? {env} : {}`
   (unchanged merge); `false` → `{clearEnv: true, env: {...carried,
   ...env}}` where carried = this process's vars in `IDENTITY_ENV` or
   accepted by `authEnv`; throws when the result has no `PATH`.
@@ -1195,12 +1193,12 @@ runtime adapter passes its matcher, absent (tests) → `NO_LOGIN_ENV`.
 
 Callers of the lookups (optional `(env?, inheritEnv?)` params, additive;
 `defaultClaudeConfigDir` also takes the matcher):
-`defaultClaudeConfigDir` (`runtime/setting-sources.ts`, also feeds
-`claudeSkillsDir`), `defaultCodexSessionsDir` (`codex/transcript.ts`,
+`defaultClaudeConfigDir` (`runtime/setting-sources.ts`),
+`defaultCodexSessionsDir` (`codex/transcript.ts`,
 resolved once before the exec spawn and passed to both
 `findCodexSessionFile` calls), `resolveOpenCodeLogDir`
-(`opencode/upstream-error-detector.ts`), `codexSkillsDir`,
-`opencodeSkillsDir`, ACP `spawnClient` (`CODEX_CONFIG` read).
+(`opencode/upstream-error-detector.ts`), ACP `spawnClient`
+(`CODEX_CONFIG` read).
 `AcpStdioClient` drops its explicit `Deno.env.toObject()` copy when
 isolated; `spawnEnvOptions` adds the carried vars. `inheritEnv` is threaded wherever `env` is forwarded
 (adapters, `fetchInventoryViaInvoke`, `fetchAcpCommands`,
@@ -1214,9 +1212,8 @@ Pure helper: `withNonessentialTrafficDisabled(env) → env`. Returns
 `env` unchanged when the caller already populated
 `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (any value, `""` included);
 otherwise returns `{ ...env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:
-"1" }`. Imported at all three CLI-transport spawn sites
-(`claude/process.ts`, `claude/session.ts`,
-`runtime/claude-adapter.ts::launchInteractive`), each marked with a
+"1" }`. Imported at both CLI-transport spawn sites
+(`claude/process.ts`, `claude/session.ts`), each marked with a
 `// FR-L45` traceability comment. The ACP transport reaches the same
 outcome through the launcher registry: the Claude entry in
 `runtime/acp/fronts.ts` carries `env: { CLAUDE_CODE_DISABLE_
@@ -1241,11 +1238,6 @@ Claude reads the variable for truthiness, so `"0"` also enables the
 strip; only an empty value restores the traffic. The library's
 "caller wins" contract covers what reaches the child env, not how
 Claude interprets it.
-
-`launchInteractive` is in scope as well, so one binary behaves one way
-whatever entry point reached it. Cost accepted there: the human at the
-terminal gets no auto-update prompt and the binary stays at its
-installed version for that session.
 
 ### 3.13 `e2e/` — Real-Binary Test Suite (FR-L31)
 
@@ -1416,12 +1408,12 @@ Publish exclusion: `deno.json:publish.exclude` covers both `e2e` and
 
 ### Runtime capability matrix
 
-| Runtime  | permissionMode | transcript | interactive | toolUseObservation | session | capabilityInventory | toolFilter |
-|----------|----------------|------------|-------------|--------------------|---------|---------------------|------------|
-| claude   | true           | true       | true        | true               | true    | true                | true       |
-| opencode | true           | true       | true        | true               | true    | true                | false      |
-| cursor   | false          | false      | false       | false              | true    | true                | false      |
-| codex    | true           | true       | true        | true               | true    | true                | false      |
+| Runtime  | permissionMode | transcript | toolUseObservation | session | capabilityInventory | toolFilter |
+|----------|----------------|------------|--------------------|---------|---------------------|------------|
+| claude   | true           | true       | true               | true    | true                | true       |
+| opencode | true           | true       | true               | true    | true                | false      |
+| cursor   | false          | false      | false              | true    | true                | false      |
+| codex    | true           | true       | true               | true    | true                | false      |
 
 **`session` specifics:**
 
@@ -1494,10 +1486,6 @@ Publish exclusion: `deno.json:publish.exclude` covers both `e2e` and
   `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`; the runner
   resolves the matching path post-run via `findCodexSessionFile` and
   surfaces it as `CliRunOutput.transcript_path`.
-- `interactive` — `launchInteractive` spawns the `codex` TUI with
-  `stdin/stdout/stderr` inherited; bundled skills are copied into
-  `~/.agents/skills/<name>/` for the duration of the session and removed
-  on exit. `systemPrompt` is forwarded via `--config base_instructions=…`.
 - `toolUseObservation` — fires `onToolUseObserved` once per
   `item.completed` for `command_execution`, `file_change`, `mcp_tool_call`,
   and `web_search` items; an `"abort"` decision SIGTERMs Codex and the
@@ -1977,7 +1965,7 @@ throws; flag alone stays open — FR-L24 rule, so the new flags sit in
   agent spawn sites (claude invoke/session, codex exec/app-server,
   opencode run/serve, cursor invoke/per-send, `AcpStdioClient`), registered
   as group leader; every SIGTERM/SIGKILL there goes through `signalChild`.
-  Excluded: `launchInteractive` (inherited TTY), `cursor create-chat`,
+  Excluded: `cursor create-chat`,
   `opencode export`. Without it an orphaned grandchild holds the stdout
   pipe open, so an aborted run waits for it (`runtime/process_group_test.ts`
   control case). Trade-off: a detached group leaves the terminal's

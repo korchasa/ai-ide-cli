@@ -5,7 +5,6 @@ import {
 } from "../cursor/session.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
 import type {
-  InteractiveResult,
   RuntimeAdapter,
   RuntimeInvokeOptions,
   RuntimeSession,
@@ -143,7 +142,6 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
   capabilities: {
     permissionMode: false,
     transcript: false,
-    interactive: false,
     // FR-L30: Cursor's stream-json emits `tool_call/started` events,
     // surfaced via `onToolUseObserved` in `cursor/process.ts`.
     toolUseObservation: true,
@@ -234,12 +232,6 @@ export const cursorRuntimeAdapter: RuntimeAdapter = {
       inner,
       cursorEventToRuntime,
       isCursorTurnEnd,
-    );
-  },
-
-  launchInteractive(): Promise<InteractiveResult> {
-    throw new Error(
-      "Cursor has no interactive CLI mode — use Cursor IDE directly",
     );
   },
 };

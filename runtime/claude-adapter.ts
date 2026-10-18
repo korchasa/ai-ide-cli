@@ -21,8 +21,6 @@ import {
 } from "./commands.ts";
 import type { ClaudeStreamEvent } from "../claude/stream.ts";
 import type {
-  InteractiveOptions,
-  InteractiveResult,
   RuntimeAdapter,
   RuntimeSession,
   RuntimeSessionEvent,
@@ -37,13 +35,7 @@ import {
   type FetchCapabilitiesOptions,
   fetchInventoryViaInvoke,
 } from "./capabilities.ts";
-import { withSyncedPWD } from "./env-cwd-sync.ts";
-import { spawnEnvOptions } from "./spawn-env.ts";
 import { claudeAuthEnv } from "../claude/auth-env.ts";
-import { defaultClaudeConfigDir } from "./setting-sources.ts";
-import { withNonessentialTrafficDisabled } from "../claude/nonessential-traffic.ts";
-import { join } from "@std/path";
-import { copy } from "@std/fs";
 
 function claudeEventToRuntime(event: ClaudeStreamEvent): RuntimeSessionEvent {
   const raw = event as unknown as Record<string, unknown>;
@@ -63,59 +55,10 @@ function isClaudeTurnEnd(event: ClaudeStreamEvent): boolean {
   return event.type === "result";
 }
 
-/**
- * Resolve the user-level Claude skills directory.
- * Skills placed here are discovered by Claude Code in any project.
- */
-function claudeSkillsDir(
-  env: Record<string, string> | undefined,
-  inheritEnv: boolean | undefined,
-): string {
-  // FR-L53: an isolated child reads its config from the passed env.
-  return join(
-    defaultClaudeConfigDir(env, inheritEnv, claudeAuthEnv),
-    "skills",
-  );
-}
-
-/**
- * Copy bundled skills into the user's Claude skills directory.
- * Directory name = frontmatter `name` field (already namespaced, e.g.
- * `flowai-workflow-init`). Returns created paths for cleanup.
- */
-async function injectSkills(
-  skills: NonNullable<InteractiveOptions["skills"]>,
-  env: Record<string, string> | undefined,
-  inheritEnv: boolean | undefined,
-): Promise<string[]> {
-  const skillsDir = claudeSkillsDir(env, inheritEnv);
-  await Deno.mkdir(skillsDir, { recursive: true });
-
-  const created: string[] = [];
-  for (const skill of skills) {
-    const targetDir = join(skillsDir, skill.frontmatter.name);
-    await copy(skill.rootPath, targetDir, { overwrite: true });
-    created.push(targetDir);
-  }
-  return created;
-}
-
-/** Remove previously injected skill directories. */
-async function removeInjectedSkills(paths: string[]): Promise<void> {
-  for (const p of paths) {
-    try {
-      await Deno.remove(p, { recursive: true });
-    } catch {
-      // Best-effort cleanup
-    }
-  }
-}
-
 // FR-L39: transport-scoped capability vector for the Claude ACP front
 // (`@agentclientprotocol/claude-agent-acp`). Diverges from the CLI
 // baseline on the dimensions ACP cannot round-trip:
 // - `transcript: false` — ACP has no exported transcript file.
-// - `interactive: false` — no TUI launcher on the ACP path.
 // - `toolFilter: false` — no client-side tool allow/deny-list on the wire.
 // `capabilityInventory: true` (FR-L20) — `fetchCapabilitiesSlow` routes its
 // single LLM turn through `invokeViaAcp` (the inventory driver is
@@ -126,7 +69,6 @@ async function removeInjectedSkills(paths: string[]): Promise<void> {
 const CLAUDE_ACP_CAPABILITIES: RuntimeCapabilities = {
   permissionMode: true,
   transcript: false,
-  interactive: false,
   toolUseObservation: true,
   session: true,
   // FR-L20: fetchCapabilitiesSlow routes through invokeViaAcp on ACP.
@@ -144,7 +86,6 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
   capabilities: {
     permissionMode: true,
     transcript: true,
-    interactive: true,
     toolUseObservation: true,
     session: true,
     capabilityInventory: true,
@@ -314,50 +255,5 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     return Promise.reject(
       new CommandsUnavailableError("claude", opts.transport, "no_fast_channel"),
     );
-  },
-
-  async launchInteractive(
-    opts: InteractiveOptions,
-  ): Promise<InteractiveResult> {
-    let injectedPaths: string[] = [];
-    try {
-      // FR-L45: same non-essential-traffic strip as the non-interactive
-      // paths — a caller-supplied value still wins.
-      const env: Record<string, string> = withNonessentialTrafficDisabled({
-        CLAUDECODE: "",
-        ...opts.env,
-      });
-
-      if (opts.skills && opts.skills.length > 0) {
-        injectedPaths = await injectSkills(
-          opts.skills,
-          opts.env,
-          opts.inheritEnv,
-        );
-      }
-
-      const args: string[] = [];
-      if (opts.systemPrompt) {
-        args.push("--append-system-prompt", opts.systemPrompt);
-      }
-
-      // FR-L33: sync env.PWD with cwd at the spawn boundary.
-      const syncedEnv = withSyncedPWD(env, opts.cwd) ?? env;
-      const cmd = new Deno.Command("claude", {
-        args,
-        stdin: "inherit",
-        stdout: "inherit",
-        stderr: "inherit",
-        // FR-L53: `inheritEnv: false` drops this process's env.
-        ...spawnEnvOptions(syncedEnv, opts.inheritEnv, claudeAuthEnv),
-        ...(opts.cwd ? { cwd: opts.cwd } : {}),
-      });
-
-      const process = cmd.spawn();
-      const status = await process.status;
-      return { exitCode: status.code };
-    } finally {
-      await removeInjectedSkills(injectedPaths);
-    }
   },
 };

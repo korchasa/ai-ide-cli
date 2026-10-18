@@ -2,7 +2,7 @@
  * @module
  * Cross-runtime contract tests for `RuntimeAdapter.capabilitiesFor`
  * (FR-L39). Every pilot must downgrade transport-bound capabilities
- * (transcript / interactive / toolFilter) when the consumer opts into
+ * (transcript / toolFilter) when the consumer opts into
  * the ACP transport, while preserving session and reasoning-effort.
  * `capabilityInventory` is advertised `true` on ACP (FR-L20) because
  * `fetchCapabilitiesSlow` routes through `invokeViaAcp`. Cursor stays
@@ -12,6 +12,21 @@
 import { assert, assertEquals, assertThrows } from "@std/assert";
 import { getRuntimeAdapter } from "./index.ts";
 import type { RuntimeId } from "../types.ts";
+import type { RuntimeAdapter } from "./adapter-types.ts";
+import type { RuntimeCapabilities } from "./capability-types.ts";
+
+// FR-L12: the library launches no interactive TUI. A regression that
+// re-adds `launchInteractive` or the `interactive` flag fails the compile.
+type _AdapterHasNoLaunchInteractive = "launchInteractive" extends
+  keyof RuntimeAdapter ? never
+  : true;
+const _typeAssertNoLaunchInteractive: _AdapterHasNoLaunchInteractive = true;
+void _typeAssertNoLaunchInteractive;
+type _CapabilitiesHaveNoInteractive = "interactive" extends
+  keyof RuntimeCapabilities ? never
+  : true;
+const _typeAssertNoInteractive: _CapabilitiesHaveNoInteractive = true;
+void _typeAssertNoInteractive;
 
 const PILOTS: RuntimeId[] = ["claude", "codex", "opencode"];
 
@@ -31,7 +46,7 @@ Deno.test("capabilitiesFor('cli') returns the static CLI baseline byte-for-byte 
   }
 });
 
-Deno.test("capabilitiesFor('acp') downgrades transcript/interactive/toolFilter for every pilot", () => {
+Deno.test("capabilitiesFor('acp') downgrades transcript/toolFilter for every pilot", () => {
   for (const runtime of PILOTS) {
     const adapter = getRuntimeAdapter(runtime);
     const acp = adapter.capabilitiesFor!("acp");
@@ -39,11 +54,6 @@ Deno.test("capabilitiesFor('acp') downgrades transcript/interactive/toolFilter f
       acp.transcript,
       false,
       `${runtime} ACP has no exported transcript`,
-    );
-    assertEquals(
-      acp.interactive,
-      false,
-      `${runtime} ACP has no TUI launcher`,
     );
     assertEquals(
       acp.toolFilter,

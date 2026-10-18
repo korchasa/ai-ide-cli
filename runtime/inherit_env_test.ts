@@ -117,23 +117,6 @@ for (const runtime of RUNTIMES) {
   });
 }
 
-for (const runtime of ["claude", "codex", "opencode"] as const) {
-  Deno.test({
-    ...opts,
-    name:
-      `FR-L53 ${runtime} launchInteractive with inheritEnv: false hides the parent env`,
-    fn: async () => {
-      const dump = await withDumpStub(runtime, async ({ env }) => {
-        await getRuntimeAdapter(runtime).launchInteractive({
-          env,
-          inheritEnv: false,
-        });
-      });
-      assertIsolated(dump);
-    },
-  });
-}
-
 Deno.test({
   ...opts,
   name: "FR-L53 ACP front with inheritEnv: false hides the parent env",

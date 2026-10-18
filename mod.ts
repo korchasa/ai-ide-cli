@@ -50,8 +50,6 @@ export {
 } from "./runtime/types.ts";
 export type {
   ExtraArgsMap,
-  InteractiveOptions,
-  InteractiveResult,
   OnRuntimeToolUseObservedCallback,
   ResolvedRuntimeConfig,
   RuntimeAdapter,
