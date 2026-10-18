@@ -1236,18 +1236,26 @@ stable — never renumber on move.
     invariant: `onInit` still fires for every `type:"system"` event
     regardless of subtype. Evidence:
     `ai-ide-cli/claude/stream.ts`, `ai-ide-cli/claude/stream_test.ts`.
+  - [x] **Hook-event emission (v2.1.302):** `SessionStart` hook
+    events stream by default; all other hook events (`PreToolUse`,
+    `PostToolUse`, `UserPromptSubmit`, `Stop`, …) need
+    `--include-hook-events`, passed via `claudeArgs` (not reserved).
+    `outcome` ∈ `"success"` (exit 0) / `"error"`. Evidence:
+    `ai-ide-cli/e2e/claude_hook_events_e2e_test.ts`.
   - [x] **Sidecar `effort.level` / `$CLAUDE_EFFORT` channel
-    (Claude Code v2.1.133+):** Claude Code propagates the active
-    effort to hook stdin (`effort.level` JSON field) and to hook /
-    Bash subprocess env (`$CLAUDE_EFFORT`). Neither lives in
-    `--output-format stream-json` — the library does not observe
-    them directly. Consumers wanting a strict round-trip check
-    install a project-scoped hook that echoes `$CLAUDE_EFFORT`; its
-    stdout surfaces in `ClaudeHookResponseEvent.stdout`. The
-    library's contract stops at emitting `--effort <value>` on
-    argv; sidecar propagation is Claude Code's responsibility.
-    Evidence: documentation-only — this Acceptance entry plus the
-    SDS § 3.x "Sidecar channels (v2.1.133+)" subsection.
+    (Claude Code v2.1.133+):** Claude Code passes the active effort
+    to TOOL hooks only (`PreToolUse` / `PostToolUse`): stdin JSON
+    `effort.level` + env `$CLAUDE_EFFORT`. `SessionStart` /
+    `UserPromptSubmit` hooks get neither, and inherit a parent
+    process's `CLAUDE_EFFORT` (e.g. a host Claude Code session).
+    Neither channel lives in `--output-format stream-json`. Strict
+    round-trip recipe: tool hook echoing its stdin, loaded via
+    `claudeArgs["--settings"]`, surfaced via
+    `claudeArgs["--include-hook-events"]`; read
+    `ClaudeHookResponseEvent.stdout`. The library's contract stops
+    at emitting `--effort <value>`. Evidence:
+    `ai-ide-cli/e2e/claude_hook_events_e2e_test.ts` (asserts
+    `effort.level === "low"` for `reasoningEffort: "low"`).
 
 ### 3.26 FR-L26: Typed Codex App-Server Notifications
 

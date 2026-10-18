@@ -72,11 +72,13 @@ export type ClaudeAssistantBlock =
 // FR-L25
 /**
  * `system` / `hook_started` event — Claude Code 2.1.133+ emits one of these
- * for every user-configured hook the CLI is about to dispatch (SessionStart,
- * PreToolUse, PostToolUse, UserPromptSubmit, …). Out-of-band `effort.level`
- * and `$CLAUDE_EFFORT` propagate to the hook process via stdin / env — neither
- * is exposed through stream-json; see the FR-L25 doc bullet in
- * `documents/requirements.md` for the sidecar-channel rationale.
+ * before it dispatches a user-configured hook. By default only `SessionStart`
+ * hooks surface; every other hook event (`UserPromptSubmit`, `PreToolUse`,
+ * `PostToolUse`, `Stop`, …) reaches stream-json only when the CLI runs with
+ * `--include-hook-events` (pass it via `claudeArgs`; verified on v2.1.302).
+ * Out-of-band `effort.level` and `$CLAUDE_EFFORT` reach tool hooks via stdin /
+ * env — neither is exposed through stream-json; see the FR-L25 sidecar bullet
+ * in `documents/requirements.md`.
  */
 export interface ClaudeHookStartedEvent {
   /** Discriminator: same `"system"` umbrella as `ClaudeSystemEvent`. */
@@ -97,10 +99,12 @@ export interface ClaudeHookStartedEvent {
   [key: string]: unknown;
 }
 
+// FR-L25
 /**
  * `system` / `hook_response` event — emitted once the hook subprocess exits.
  * Carries the aggregated `output`, the raw `stdout` / `stderr`, the
- * `exit_code`, and an `outcome` summary (observed value: `"success"`).
+ * `exit_code`, and an `outcome` summary (`"success"` on exit 0, `"error"`
+ * otherwise). Same emission rule as {@link ClaudeHookStartedEvent}.
  */
 export interface ClaudeHookResponseEvent {
   /** Discriminator: same `"system"` umbrella as `ClaudeSystemEvent`. */
@@ -121,7 +125,7 @@ export interface ClaudeHookResponseEvent {
   stderr?: string;
   /** Hook subprocess exit code (`0` on success). */
   exit_code?: number;
-  /** Observed value: `"success"`. Treated as forward-compat string. */
+  /** Observed values: `"success"`, `"error"`. Forward-compat string. */
   outcome?: string;
   /** Per-event uuid Claude Code allocates. */
   uuid?: string;

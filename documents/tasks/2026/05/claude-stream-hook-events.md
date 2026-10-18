@@ -1,6 +1,6 @@
 ---
 date: "2026-05-17"
-status: to do
+status: done
 implements: [FR-L25]
 tags: [claude, stream-json, hooks, effort, 2.1.133]
 related_tasks: []
@@ -62,6 +62,38 @@ Issue #8's "statusline" claim is not in the v2.1.133 release notes and
 not observed in `--output-format stream-json` capture; it is dropped
 from scope.
 
+#### Re-validation 2026-10-18 (claude v2.1.302)
+
+Typing (Steps 1–6 below) already landed in `3f9a0fa`; this task file was
+never status-flipped. Re-captured real NDJSON in a scratch cwd, hooks
+loaded via `--settings <file>` (no `~/` mutation), `--setting-sources ""`,
+`--permission-mode plan`, `env -i PATH HOME USER`:
+
+- `hook_started` / `hook_response` shapes match the typed interfaces
+  field-for-field (`hook_id`, `hook_name`, `hook_event`, `uuid`,
+  `session_id`; response adds `output`, `stdout`, `stderr`, `exit_code`,
+  `outcome`). No new fields.
+- **Default emission = `SessionStart` only.** `UserPromptSubmit`,
+  `PreToolUse`, `PostToolUse`, `Stop` hooks emit no stream events unless
+  `--include-hook-events` is passed (CLI help: "Include all hook
+  lifecycle events in the output stream"). A failing `Stop` hook without
+  the flag surfaces only as `system/notification` `key:"stop-hook-error"`.
+  Flag is not reserved → reachable today via `claudeArgs`.
+- **`outcome` values:** `"success"` (exit 0), `"error"` (exit 2 and 3
+  observed). `output` = stdout+stderr concatenation.
+- **Sidecar effort:** with `--effort low`, `PreToolUse` hook stdin carries
+  `"effort":{"level":"low"}` and env `CLAUDE_EFFORT=low`. `SessionStart`
+  and `UserPromptSubmit` hooks get neither (stdin has no `effort` key,
+  env unset). Under a parent Claude Code session the child inherits the
+  parent's `CLAUDE_EFFORT` (observed `high`), so non-tool hooks echo the
+  PARENT's value — a round-trip check must use a tool hook and stdin
+  `effort.level`.
+- `system/init` still has no `effort` field (new `per_turn_effort_active`
+  boolean; out of scope).
+- Original e2e deferral premise ("needs `~/.claude/settings.json`
+  mutation") is false now: `--settings <file>` loads hooks per run,
+  without approval prompts or `~/` writes.
+
 Upstream release notes (read 2026-05-17):
 
 - <https://github.com/anthropics/claude-code/releases/tag/v2.1.133>
@@ -108,45 +140,68 @@ Upstream release notes (read 2026-05-17):
 
 ## Definition of Done
 
-- [ ] FR-L25: `claude/stream.ts` exports two new typed event variants
+- [x] FR-L25: `claude/stream.ts` exports two new typed event variants
   `ClaudeHookStartedEvent` and `ClaudeHookResponseEvent`, added to the
   `ClaudeStreamEvent` union with `subtype: "hook_started"` /
   `"hook_response"` as the discriminator. Test path:
   `claude/stream_test.ts::"parseClaudeStreamEvent narrows hook_started / hook_response"`.
   Evidence: `NO_COLOR=1 deno task test claude/stream_test.ts`.
-- [ ] FR-L25: `ClaudeLifecycleHooks` gains optional `onHookStarted` /
+- [x] FR-L25: `ClaudeLifecycleHooks` gains optional `onHookStarted` /
   `onHookResponse` callbacks fired BEFORE state mutation in
   `processStreamEvent`'s dispatch order. Test path:
   `claude/stream_test.ts::"onHookStarted and onHookResponse fire before state mutation"`.
   Evidence: `NO_COLOR=1 deno task test claude/stream_test.ts`.
-- [ ] FR-L25: New types are re-exported from `mod.ts` to satisfy JSR
+- [x] FR-L25: New types are re-exported from `mod.ts` to satisfy JSR
   `private-type-ref`. Evidence: `NO_COLOR=1 deno task check` passes
   (the dry-run step catches missing re-exports).
-- [ ] FR-L25: SRS `### 3.25 FR-L25` Acceptance gains a typed
+- [x] FR-L25: SRS `### 3.25 FR-L25` Acceptance gains a typed
   hook-events bullet AND a documentation bullet stating that the
   v2.1.133 `effort.level` / `$CLAUDE_EFFORT` channel is a sidecar
   hook-stdin / Bash-subprocess-env contract not observable in
   stream-json. Evidence:
   `grep -n "hook_started\|sidecar\|CLAUDE_EFFORT" documents/requirements.md`
   returns the new bullets.
-- [ ] FR-L25: SDS § 3.5 (`claude/stream.ts` — Stream Processing)
+- [x] FR-L25: SDS § 3.5 (`claude/stream.ts` — Stream Processing)
   documents the two new variants in the typed union listing. SDS § 3.x
   (Reasoning-effort mapping) gains a "Sidecar channels (v2.1.133)"
   subsection noting that `effort.level` lives in hook stdin and
   `$CLAUDE_EFFORT` in hook/Bash env, neither observable through
   stream-json directly. Evidence:
   `grep -n "ClaudeHookStartedEvent\|sidecar\|effort.level" documents/design.md`.
-- [ ] FR-L25: `documents/index.md` `## FR` section has a row for
+- [x] FR-L25: `documents/index.md` `## FR` section has a row for
   FR-L25 pointing at the SRS section anchor with a one-line summary
   and `[x]` status. Evidence:
   `grep -n "FR-L25" documents/index.md`.
-- [ ] FR-L25: SRS-inline `**Tasks:**` back-pointer added on the
+- [x] FR-L25: SRS-inline `**Tasks:**` back-pointer added on the
   FR-L25 section pointing at this task file. Evidence:
   `grep -n "claude-stream-hook-events" documents/requirements.md`.
-- [ ] `// FR-L25` traceability comment lives immediately above each
+- [x] `// FR-L25` traceability comment lives immediately above each
   new exported type / hook-callback in `claude/stream.ts`. Evidence:
   `grep -n "// FR-L25" claude/stream.ts`.
-- [ ] Final check: `NO_COLOR=1 deno task check` exits 0.
+- [x] FR-L25 (2026-10-18 re-validation): `ClaudeHookStartedEvent` /
+  `ClaudeHookResponseEvent` JSDoc states the v2.1.302 emission rule
+  (`SessionStart` by default, every hook with `--include-hook-events`)
+  and the observed `outcome` values `"success"` / `"error"`; a second
+  `// FR-L25` sits directly above `ClaudeHookResponseEvent`. Evidence:
+  `grep -n "include-hook-events\|\"error\"\|// FR-L25" claude/stream.ts`.
+- [x] FR-L25: SRS sidecar bullet and SDS "Sidecar channels" subsection
+  corrected to the v2.1.302 facts — effort reaches tool hooks only
+  (`PreToolUse` / `PostToolUse` stdin `effort.level`, env
+  `$CLAUDE_EFFORT`), non-`SessionStart` hook events need
+  `--include-hook-events` via `claudeArgs`, parent `CLAUDE_EFFORT`
+  leaks into non-tool hooks. Evidence:
+  `grep -n "include-hook-events" documents/requirements.md documents/design.md`.
+- [x] FR-L25: real-binary e2e `e2e/claude_hook_events_e2e_test.ts`
+  loads hooks via `claudeArgs: {"--settings": <tmp file>,
+  "--include-hook-events": ""}` in a temp cwd (plan mode, 60 s ceiling),
+  asserts typed `onHookStarted` / `onHookResponse` fire with correlated
+  `hook_id`, a failing hook yields `outcome:"error"` + `exit_code`, and
+  the `PreToolUse` hook stdin echo carries `effort.level` = the requested
+  `reasoningEffort`. Test path:
+  `e2e/claude_hook_events_e2e_test.ts::"e2e hook-events/claude/typed hook lifecycle + effort sidecar"`.
+  Evidence: `NO_COLOR=1 deno task e2e:claude` (filter
+  `--filter hook-events`).
+- [x] Final check: `NO_COLOR=1 deno task check` exits 0.
 
 ## Solution
 
@@ -388,12 +443,54 @@ Insert under `## FR`, alphabetically (between FR-L23 and FR-L35):
 4. `NO_COLOR=1 deno doc --lint mod.ts` — clean.
 5. `NO_COLOR=1 deno task check` — exits 0.
 
+### Step 8 — Re-validation refresh (2026-10-18, claude v2.1.302)
+
+Steps 1–7 landed in `3f9a0fa`. Remaining work from the re-capture:
+
+1. `claude/stream.ts` (JSDoc only, no behaviour change): rewrite the
+   `ClaudeHookStartedEvent` summary — `SessionStart` hooks emit by
+   default, all other hook events only with `--include-hook-events`
+   (pass via `claudeArgs`); `outcome` doc → `"success"` / `"error"`;
+   add `// FR-L25` directly above `ClaudeHookResponseEvent`.
+2. SRS §3.25 sidecar bullet + SDS §3.x "Sidecar channels" subsection:
+   replace "project-scoped PostToolUse hook that echoes
+   `$CLAUDE_EFFORT`" with the verified recipe — tool hook
+   (`PreToolUse`/`PostToolUse`) reading stdin `effort.level`, hooks
+   loaded via `claudeArgs["--settings"]`, events surfaced via
+   `claudeArgs["--include-hook-events"]`; note that non-tool hooks get
+   no effort and inherit a parent `CLAUDE_EFFORT`. Add one SDS §3.5
+   sentence on the default-emission rule. Edits stay inside FR-L25
+   text (sibling sessions edit the same files).
+3. New e2e `e2e/claude_hook_events_e2e_test.ts` (TDD for real-binary
+   behaviour; `deno task check` does not run it):
+   - temp dir with `note.txt`; settings JSON with `SessionStart` hook
+     (`exit 3`, stderr line), `PreToolUse` matcher `Read` hook
+     (`cat` stdin → stdout);
+   - `invokeClaudeCli({ cwd: tmp, permissionMode: "plan",
+     reasoningEffort: "low", claudeArgs: {"--settings": file,
+     "--setting-sources": "local", "--include-hook-events": ""},
+     hooks: {onHookStarted, onHookResponse}, timeoutSeconds: 60 })`;
+   - assert: every response `hook_id` has a started peer; `SessionStart`
+     response `outcome === "error"`, `exit_code === 3`; `PreToolUse:Read`
+     response stdout parses to JSON with `effort.level === "low"`.
+   - `--setting-sources local` (not `""`): `expandExtraArgs` maps `""` to a
+     bare flag, and `local` resolves to an absent
+     `<tmp>/.claude/settings.local.json`, so the user's global hooks stay
+     out. Typed `settingSources: []` is unusable here — its empty
+     `CLAUDE_CONFIG_DIR` drops a keychain login (FR-L18 e2e note).
+   - No `PreToolUse:Read` response → fail with a message naming the
+     observed hook names (model skipped the tool), not a bare assert.
+   - RED first: write test, run against a stub expectation
+     (`effort.level === "max"`) to watch it fail for the asserted
+     reason, then fix the expectation to the requested value.
+4. Remove the "Real-binary e2e" bullet from Out-of-Scope (premise
+   false); keep the other two.
+
+Verification: `NO_COLOR=1 E2E=1 E2E_RUNTIMES=claude deno test -A --no-check e2e/claude_hook_events_e2e_test.ts`;
+`NO_COLOR=1 deno task check`.
+
 ### Out-of-Scope (deliberately deferred)
 
-- **Real-binary e2e round-trip test**: would require an approved
-  project hook in `~/.claude/settings.json` (Claude refuses
-  unapproved project hooks at runtime, and AGENTS.md forbids `~/`
-  mutation). Documentation-only acceptance is the correct contract.
 - **Statusline `effort.level`**: not in v2.1.133 release notes, not
   observable in `--output-format stream-json` headless mode, and the
   TUI statusline is not a library surface.
@@ -410,3 +507,11 @@ Insert under `## FR`, alphabetically (between FR-L23 and FR-L35):
   (exit ${exit_code})`) is a nice-to-have but separable from this
   task's typing concern. Out of scope; revisit if consumers request
   it.
+- **Typed `includeHookEvents` option** (Claude invoke/session options →
+  `--include-hook-events`): today reachable only via `claudeArgs`. A typed
+  field is a new public option (minor bump, new FR bullet) — outside this
+  re-validation's scope (typing the events). Revisit if consumers rely on
+  non-`SessionStart` hook events.
+- **`system/init.per_turn_effort_active`** (v2.1.302) and the
+  `system/notification` `key:"stop-hook-error"` event: untyped, pass
+  through `ClaudeSystemEvent`. Separate typing task if needed.

@@ -195,6 +195,8 @@ a `!` commit, which is why leaving that series took one deliberate
   (FR-L17 cross-runtime onInit + onResult),
   `reasoning_effort_e2e_test.ts` (FR-L25 argv-propagation smoke on
   Claude / Codex), `claude_settings_e2e_test.ts`,
+  `claude_hook_events_e2e_test.ts` (FR-L25 typed hook events + tool-hook
+  effort round trip via `--settings`),
   `cursor_typed_stream_e2e_test.ts` (FR-L30),
   `inherit_env_e2e_test.ts` (FR-L53 isolated reply),
   `isolated_auth_e2e_test.ts` (FR-L53 login-list drift check: each
