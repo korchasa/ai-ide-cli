@@ -38,6 +38,10 @@ Consumers pin the library with a direct `jsr:@korchasa/ai-ide-cli@<ver>`
 import specifier and often never list it in their `deno.json`. Answering
 "does anybody still use feature X?" from dependency manifests therefore
 returns a false "nobody" — grep import specifiers in source instead.
+`GET https://api.jsr.io/scopes/korchasa/packages/ai-ide-cli/dependents`
+lists only JSR-published dependents: on 2026-10-18 it named 2, while a
+grep over `~/www` found 2 more unpublished importers pinned by
+specifier (`flowai-experiments`, `tools/foxcode`). Use both.
 
 Versioning is plain semver from 1.0.0 (FR-L48). A feature commit raises
 the MINOR and a consumer on `^1` gets it by refreshing its lock; a `!`
