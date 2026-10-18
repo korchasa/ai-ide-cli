@@ -165,6 +165,8 @@ ai-ide-cli/
     reasoning_effort_e2e_test.ts — Claude / Codex argv-propagation smoke
                           for typed reasoningEffort (FR-L25)
     claude_settings_e2e_test.ts — Claude settingSources: [] cleanroom
+    claude_hook_events_e2e_test.ts — Claude typed hook events + tool-hook
+                          effort.level round trip via --settings (FR-L25)
     cursor_typed_stream_e2e_test.ts — Cursor --yolo + Read tool, asserts
                           parseCursorStreamEvent / unwrapCursorToolCall /
                           onToolUseObserved against live binary (FR-L30)
@@ -519,8 +521,10 @@ ClaudeUnknownEvent`. Assistant message content is a tagged union of
 events (`system.hook_started`, `system.hook_response`, Claude Code
 2.1.133+) carry `hook_id` / `hook_name` / `hook_event` plus, on the
 response variant, `output` / `stdout` / `stderr` / `exit_code` /
-`outcome`; consumers narrow them off the `subtype` string-literal
-discriminator. Index signatures `[key: string]: unknown` on every
+`outcome` (`"success"` / `"error"`); consumers narrow them off the
+`subtype` string-literal discriminator. Emission: `SessionStart` hooks
+by default, every hook with `--include-hook-events` (via `claudeArgs`;
+v2.1.302). Index signatures `[key: string]: unknown` on every
 event preserve forward-compat upstream fields without casts.
 
 `parseClaudeStreamEvent(line)`: pure function returning
@@ -1359,6 +1363,14 @@ Claude-CLI concern, not an adapter concern.
 **`e2e/claude_settings_e2e_test.ts`:** Claude-only `settingSources: []`
 cleanroom scenario.
 
+**`e2e/claude_hook_events_e2e_test.ts`:** Claude-only FR-L25 hook
+events. Temp cwd, hooks from `claudeArgs["--settings"]` (failing
+`SessionStart`, `PreToolUse:Read` echoing stdin), `--include-hook-events`,
+`--setting-sources local`, plan mode, `reasoningEffort: "low"`. Asserts
+every `hook_response` has a `hook_started` peer, the failing hook gives
+`outcome:"error"` + `exit_code: 3`, and the tool hook's stdin carries
+`effort.level === "low"`.
+
 **`e2e/lifecycle_hooks_e2e_test.ts`:** Cross-runtime
 `RuntimeLifecycleHooks` (FR-L17) check across Claude / OpenCode /
 Cursor / Codex. One short prompt per runtime with
@@ -1572,22 +1584,27 @@ every adapter invokes before dispatch.
   set-value call emits one `console.warn` per process.
 
 **Sidecar channels (Claude Code v2.1.133+).** Claude Code propagates
-the active effort level out-of-band to its own child processes:
+the active effort level out-of-band to tool hooks (`PreToolUse` /
+`PostToolUse`; verified v2.1.302):
 
 - `effort.level` is included in hook-stdin JSON (the hook process
   reads it from its own stdin).
-- `$CLAUDE_EFFORT` is set on hook and Bash-tool subprocess env.
+- `$CLAUDE_EFFORT` is set on tool-hook and Bash-tool subprocess env.
+- `SessionStart` / `UserPromptSubmit` hooks get neither; their env
+  inherits any parent `CLAUDE_EFFORT` (a host Claude Code session
+  exports its own), so an echo there reports the PARENT's level.
 
 Neither lives in `--output-format stream-json`, so the library
 itself cannot observe drift between the requested `reasoningEffort`
 argv and the value Claude Code ends up exposing to hooks (e.g. if a
 hypothetical mid-session picker override fires — not possible in
-headless `-p` mode today, but listed here for completeness). Library
-consumers that want a strict round-trip check install a
-project-scoped PostToolUse hook that echoes `$CLAUDE_EFFORT`; its
-stdout surfaces in the typed
-`ClaudeHookResponseEvent.stdout` (subtype `hook_response`) — the
-library stays out of the round-trip check itself.
+headless `-p` mode today, but listed here for completeness). Strict
+round-trip recipe (pinned by `e2e/claude_hook_events_e2e_test.ts`):
+`claudeArgs` `--settings <file>` with a tool hook that echoes its
+stdin, plus `--include-hook-events` (tool-hook events are hidden by
+default), plus `--setting-sources local` to keep user hooks out; read
+`effort.level` from `ClaudeHookResponseEvent.stdout` — the library
+stays out of the round-trip check itself.
 
 **Validation contract** (uniform across adapters):
 
