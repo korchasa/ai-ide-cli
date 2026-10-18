@@ -1,5 +1,4 @@
 import type { CliRunOutput, RuntimeId, Verbosity } from "../types.ts";
-import type { SkillDef } from "../skill/types.ts";
 import type { ProcessRegistry } from "../process-registry.ts";
 import type { OnCallbackError } from "./callback-safety.ts";
 import type { SettingSource } from "./setting-sources.ts";
@@ -352,32 +351,6 @@ export interface RuntimeInvokeResult {
   runtime_error?: RuntimeErrorAnalysis;
 }
 
-/** Options for launching an interactive CLI session with bundled skills. */
-export interface InteractiveOptions {
-  /** Skills to inject into the runtime's discovery path. */
-  skills?: SkillDef[];
-  /** System prompt content for the interactive session. */
-  systemPrompt?: string;
-  /** Working directory for the interactive session. */
-  cwd?: string;
-  /** Extra environment variables for the subprocess. */
-  env?: Record<string, string>;
-  /**
-   * FR-L53: `false` starts the subprocess from an empty env — it gets
-   * only `env` plus the library's own variables (`PWD`, FR-L45 switch,
-   * FR-L18 config dir, ACP front env), nothing from this process. Pass
-   * `PATH` (required: binary lookup) and `HOME` (agent auth / config).
-   * Default `true`: inherit this process's env, `env` merged on top.
-   */
-  inheritEnv?: boolean;
-}
-
-/** Result returned by an interactive session after it exits. */
-export interface InteractiveResult {
-  /** Process exit code. */
-  exitCode: number;
-}
-
 /** Adapter interface implemented by each supported runtime. */
 export interface RuntimeAdapter {
   /** Stable runtime identifier. */
@@ -404,11 +377,6 @@ export interface RuntimeAdapter {
   capabilitiesFor?(transport: TransportOption): RuntimeCapabilities;
   /** Invoke the runtime with normalized options. */
   invoke(opts: RuntimeInvokeOptions): Promise<RuntimeInvokeResult>;
-  /**
-   * Launch an interactive CLI session with injected skills.
-   * Adapters that do not support interactive mode throw an error.
-   */
-  launchInteractive(opts: InteractiveOptions): Promise<InteractiveResult>;
   /**
    * Open a long-lived streaming-input session. Implemented by every
    * shipped adapter (Claude, OpenCode, Cursor faux, Codex app-server).

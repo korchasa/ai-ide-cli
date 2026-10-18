@@ -38,6 +38,10 @@ Consumers pin the library with a direct `jsr:@korchasa/ai-ide-cli@<ver>`
 import specifier and often never list it in their `deno.json`. Answering
 "does anybody still use feature X?" from dependency manifests therefore
 returns a false "nobody" — grep import specifiers in source instead.
+`GET https://api.jsr.io/scopes/korchasa/packages/ai-ide-cli/dependents`
+lists only JSR-published dependents: on 2026-10-18 it named 2, while a
+grep over `~/www` found 2 more unpublished importers pinned by
+specifier (`flowai-experiments`, `tools/foxcode`). Use both.
 
 Versioning is plain semver from 1.0.0 (FR-L48). A feature commit raises
 the MINOR and a consumer on `^1` gets it by refreshing its lock; a `!`
@@ -122,9 +126,8 @@ a `!` commit, which is why leaving that series took one deliberate
   - `claude/content.ts` — `extractClaudeContent` per-runtime extractor
     consumed by the `runtime/content.ts` dispatcher (FR-L23).
   - `claude/nonessential-traffic.ts` — `withNonessentialTrafficDisabled`
-    sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` at all three
-    CLI-transport spawn sites (`invoke`, `openSession`,
-    `launchInteractive`), cutting ~1.2 s of auto-update / telemetry /
+    sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` at both
+    CLI-transport spawn sites (`invoke`, `openSession`), cutting ~1.2 s of auto-update / telemetry /
     model-discovery work off every run (FR-L45). The ACP transport gets
     the same switch from the Claude front's `env` in
     `runtime/acp/fronts.ts` (~0.3 s off first event).

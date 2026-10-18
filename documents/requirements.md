@@ -19,6 +19,10 @@ stable — never renumber on move.
   no `hitl` capability flag, no MCP servers. Consumers (e.g.
   `@korchasa/flowai-workflow`) own the orchestration loop and inject
   any HITL transport via `extraArgs`, `env`, or stream-event observers.
+- **Interactive TUI out of scope** (FR-L12): the library launches no
+  terminal session for a human. No `launchInteractive`, no
+  `interactive` capability flag, no skill injection into a runtime's
+  discovery dirs. Consumers spawn the IDE binary themselves.
 
 ## 1. Introduction
 
@@ -62,10 +66,10 @@ stable — never renumber on move.
   requires only a new adapter + registration.
 - **Acceptance:**
   - [x] `RuntimeAdapter` interface with `id`, `capabilities`, `invoke()`,
-        `launchInteractive()`, optional `openSession()` (see FR-L19). Evidence:
+        optional `openSession()` (see FR-L19). Evidence:
         `ai-ide-cli/runtime/types.ts`.
   - [x] `RuntimeCapabilities` flags: `permissionMode`, `transcript`,
-        `interactive`, `toolUseObservation`, `session`,
+        `toolUseObservation`, `session`,
         `sessionFidelity?: "native" | "emulated"` (omitted ⇒ `"native"`;
         Cursor advertises `"emulated"`, every other adapter `"native"`).
         Evidence: `ai-ide-cli/runtime/types.ts`.
@@ -313,7 +317,8 @@ stable — never renumber on move.
   rootPath, and additional files list. `parseSkill(dir)` reads `SKILL.md`,
   extracts YAML frontmatter, scans for additional files.
 - **Motivation:** Skills must be first-class objects (not plain text) for
-  injection into runtimes. Parser enables bundled and project-level skills.
+  consumers that bundle or inspect them. Parser enables bundled and
+  project-level skills. The library itself injects none (FR-L12).
 - **Acceptance:**
   - [x] `SkillFrontmatter` with required `name`, `description` and optional
         IDE-specific fields. Evidence: `ai-ide-cli/skill/types.ts:8-57`.
@@ -326,30 +331,32 @@ stable — never renumber on move.
   - [x] Sub-path export `@korchasa/ai-ide-cli/skill`.
         Evidence: `ai-ide-cli/deno.json` exports.
 
-### 3.12 FR-L12: Interactive Mode
+### 3.12 FR-L12: No Interactive Mode
 
-- **Description:** `RuntimeAdapter.launchInteractive(opts)` launches an
-  interactive CLI session with injected skills. `InteractiveOptions` carries
-  `skills`, `systemPrompt`, `cwd`, `env`. `InteractiveResult` returns
-  `exitCode`. Per-runtime skill injection: Claude uses temp `CLAUDE_CONFIG_DIR`
-  with symlinked auth + copied skills; OpenCode copies to temp
-  `.claude/skills/`; Cursor throws (no interactive CLI). `interactive`
-  capability flag advertises support.
-- **Motivation:** REPL needs to launch agent sessions with bundled management
-  skills. Injection strategy is runtime-specific — belongs in adapter layer.
+- **Description:** The library launches no interactive TUI.
+  `RuntimeAdapter` has no `launchInteractive`, `RuntimeCapabilities` has
+  no `interactive` flag, and no adapter copies skills into a runtime's
+  discovery dir (`~/.claude/skills`, `~/.agents/skills`).
+- **Tasks:** [launch-interactive-audit](tasks/2026/09/launch-interactive-audit.md)
+- **Motivation:** The launcher had no caller (2 JSR dependents, both
+  stubs only). With inherited stdio it observed nothing beyond the exit
+  code, so it added nothing over spawning the binary directly. Its skill
+  injection wrote into the user's home and could leave foreign skills
+  behind on a crash, against the no-`~/`-mutation rule. Claude
+  (`--plugin-dir`) and OpenCode (`skills.paths`) can load skills per
+  session; Codex's TUI cannot (checked 2026-10-18).
+- **Scenario:** A consumer that needs a terminal session spawns
+  `claude` / `codex` / `opencode` itself and passes per-session skill
+  flags if the runtime has them.
 - **Acceptance:**
-  - [x] `InteractiveOptions` and `InteractiveResult` types.
-        Evidence: `ai-ide-cli/runtime/types.ts:90-108`.
-  - [x] `launchInteractive()` on `RuntimeAdapter` interface.
-        Evidence: `ai-ide-cli/runtime/types.ts:120-123`.
-  - [x] `interactive` flag on `RuntimeCapabilities`.
-        Evidence: `ai-ide-cli/runtime/types.ts:18`.
-  - [x] Claude adapter: temp config dir with skills, stdin inherit.
-        Evidence: `ai-ide-cli/runtime/claude-adapter.ts:17-49,78-120`.
-  - [x] OpenCode adapter: temp .claude/skills/, stdin inherit.
-        Evidence: `ai-ide-cli/runtime/opencode-adapter.ts:22-63`.
-  - [x] Cursor adapter: throws UnsupportedError.
-        Evidence: `ai-ide-cli/runtime/cursor-adapter.ts:16-20`.
+  - [x] `RuntimeAdapter` has no `launchInteractive` member and
+        `RuntimeCapabilities` has no `interactive` member; a regression
+        fails the compile. Evidence: `// FR-L12` type assertions in
+        `runtime/transport_capabilities_test.ts`, run by
+        `deno check runtime/transport_capabilities_test.ts`.
+  - [x] No adapter writes skills under `~/`. Evidence:
+        `grep -rn -E "injectSkills|SkillsDir|copy\(" runtime/*-adapter.ts`
+        → no hits.
 
 ### 3.13 FR-L13: Codex CLI Wrapper
 
@@ -399,9 +406,8 @@ stable — never renumber on move.
   - [x] Retry loop with exponential backoff (same policy as other runtimes).
         Evidence: `ai-ide-cli/codex/process.ts`.
   - [x] Adapter registered with capabilities
-        `{ permissionMode: true, transcript: true, interactive: true, toolUseObservation: true }`;
-        `launchInteractive()` spawns the Codex TUI with skill injection at
-        `~/.agents/skills/<name>/`. Evidence:
+        `{ permissionMode: true, transcript: true, toolUseObservation: true }`.
+        Evidence:
         `ai-ide-cli/runtime/codex-adapter.ts`, `ai-ide-cli/runtime/index.ts`.
   - [x] `permissionMode` mapping covers `default` / `plan` / `acceptEdits` /
         `bypassPermissions` (mapped to `--sandbox` + `approval_policy`) and
@@ -2258,7 +2264,7 @@ stable — never renumber on move.
   - [x] `RuntimeAdapter.capabilitiesFor?(transport): RuntimeCapabilities`
         scopes capability advertisement to the selected transport:
         every pilot (claude, codex, opencode) downgrades `transcript`,
-        `interactive`, `toolFilter`, and `capabilityInventory` to
+        `toolFilter`, and `capabilityInventory` to
         `false` on `"acp"` while preserving `permissionMode`,
         `toolUseObservation`, `session`, `reasoningEffort`,
         `mcpInjection`, and `sessionFidelity: "native"`. `"cli"`
@@ -2777,8 +2783,8 @@ runs); OpenCode and Codex dispatch at completion time.
 
 - **Description:** Every Claude spawn path sets
   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` for the child process.
-  The three subprocess sites — one-shot `invokeClaudeCli`,
-  streaming-input `openClaudeSession`, and `launchInteractive` — route
+  The two subprocess sites — one-shot `invokeClaudeCli` and
+  streaming-input `openClaudeSession` — route
   their env through `withNonessentialTrafficDisabled(env)`; the ACP
   transport carries the variable on the Claude front launcher, which
   `handshake.ts` merges under the caller's `env`. Either way the caller's own value for that
@@ -2800,11 +2806,10 @@ runs); OpenCode and Codex dispatch at completion time.
   traffic serves a programmatic caller — the wrapper reads no bug
   reports, and an auto-updater must not swap the binary under a
   running consumer.
-- **Scope:** Every path, `launchInteractive` included — one binary, one
-  behaviour, so a consumer never has to reason about which entry point
-  it came through. The trade accepted there: the human at the terminal
-  sees no auto-update prompt and the binary does not update itself
-  during that session; keeping Claude current is the user's own job.
+- **Scope:** Every path — one binary, one behaviour, so a consumer
+  never has to reason about which entry point it came through. The
+  binary does not update itself during a library run; keeping Claude
+  current is the user's own job.
 
   The ACP front is in scope because it runs the same binary: the
   package depends on `@anthropic-ai/claude-agent-sdk`, whose bundled
@@ -2840,12 +2845,6 @@ runs); OpenCode and Codex dispatch at completion time.
         traffic switch is not overwritten`,
         `claude/session_test.ts::openClaudeSession — caller-supplied
         traffic switch is not overwritten`.
-  - [x] `launchInteractive` spawns with the flag set, and a
-        caller-supplied value survives. Tests:
-        `runtime/claude-adapter_test.ts::claudeRuntimeAdapter.launchInteractive
-        — child sees the traffic switch`,
-        `runtime/claude-adapter_test.ts::claudeRuntimeAdapter.launchInteractive
-        — caller-supplied switch survives`.
   - [x] The ACP Claude front launcher carries the variable, and no
         other front does. Tests:
         `runtime/acp/fronts_test.ts::claude front carries the
@@ -3137,9 +3136,7 @@ runs); OpenCode and Codex dispatch at completion time.
   own `ProcessRegistry` and uses it as the pgid.
 - **Covered spawns:** Claude invoke and session, Codex exec and
   app-server, OpenCode run and serve, Cursor invoke and per-send
-  subprocess, every ACP front. Not covered: `launchInteractive` (an
-  inherited terminal cannot be read from a background process group, and
-  its options carry no such field) and the short helpers
+  subprocess, every ACP front. Not covered: the short helpers
   `cursor agent create-chat` and `opencode export`.
 - **Platform:** Windows has no negative-pid signal in Deno; the option
   throws `RuntimeUnsupportedOptionError` there.
@@ -3174,7 +3171,7 @@ runs); OpenCode and Codex dispatch at completion time.
 ### 3.51 FR-L53: Opt Out Of Env Inheritance (`inheritEnv`)
 
 - **Description:** `inheritEnv: false` on `RuntimeInvokeOptions`,
-  `RuntimeSessionOptions`, `InteractiveOptions`,
+  `RuntimeSessionOptions`,
   `FetchCapabilitiesOptions` or `FetchCommandsOptions` spawns the agent
   with `clearEnv: true`. Its env, later wins: this process's OS-user
   vars (`PATH`, `HOME`, `USER`, `LOGNAME`); this process's login vars of
@@ -3194,15 +3191,13 @@ runs); OpenCode and Codex dispatch at completion time.
   `CODEX_API_KEY`, `CODEX_HOME`; OpenCode — any `*_API_KEY`; Cursor —
   `CURSOR_API_KEY`. One runtime's list never reaches another runtime.
 - **Tasks:** [isolated-child-env](tasks/2026/10/isolated-child-env.md)
-- **Covered spawns:** all 14 agent spawn sites — Claude invoke, session,
-  interactive; Codex exec, app-server, interactive; OpenCode run, serve,
-  export, interactive; Cursor invoke, per-send, create-chat; every ACP
-  front. Cursor has no interactive mode.
+- **Covered spawns:** all 11 agent spawn sites — Claude invoke,
+  session; Codex exec, app-server; OpenCode run, serve, export; Cursor
+  invoke, per-send, create-chat; every ACP front.
 - **Library lookups:** in isolated mode the paths the library computes
   for the child read what the child sees (caller `env`, else a carried
   OS-user / login var), never the rest of this process: Claude config
-  dir (FR-L18 cleanroom source, skills), Codex / OpenCode skills dirs,
-  Codex sessions dir (transcript), OpenCode log dir (upstream-error
+  dir (FR-L18 cleanroom source), Codex sessions dir (transcript), OpenCode log dir (upstream-error
   detector), ACP `CODEX_CONFIG`.
 - **Fail fast:** no `PATH` in `env` nor in this process → throw before
   the spawn (Deno would look the binary up through a `PATH` the child

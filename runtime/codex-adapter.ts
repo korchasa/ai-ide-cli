@@ -9,8 +9,6 @@ import {
   type FetchCommandsOptions,
 } from "./commands.ts";
 import type {
-  InteractiveOptions,
-  InteractiveResult,
   RuntimeAdapter,
   RuntimeInvokeOptions,
   RuntimeSession,
@@ -28,11 +26,7 @@ import { validateToolFilter } from "./tool-filter.ts";
 import { validateReasoningEffort } from "./reasoning-effort.ts";
 import { validateMcpServers } from "./mcp-injection.ts";
 import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
-import { withSyncedPWD } from "./env-cwd-sync.ts";
-import { hostHome, spawnEnvOptions } from "./spawn-env.ts";
 import { codexAuthEnv } from "../codex/auth-env.ts";
-import { join } from "@std/path";
-import { copy } from "@std/fs";
 
 // FR-L24: see runtime/opencode-adapter.ts for the shared rationale.
 let warnedToolFilter = false;
@@ -60,26 +54,6 @@ export function _resetToolFilterWarning(): void {
 }
 
 /**
- * Resolve the Codex user-level skills directory.
- *
- * Codex discovers user-level skills under `~/.agents/skills/<name>/SKILL.md`
- * (verified 2026-04-16; same convention as documented in flow-cli's
- * `scope.ts`). The `~/.codex/` tree is reserved for Codex's own state and
- * agent TOML sidecars.
- */
-function codexSkillsDir(
-  env: Record<string, string> | undefined,
-  inheritEnv: boolean | undefined,
-): string {
-  // FR-L53: an isolated child looks under the HOME it was given.
-  return join(
-    hostHome(env, inheritEnv, "Codex skills dir"),
-    ".agents",
-    "skills",
-  );
-}
-
-/**
  * Runtime adapter for the OpenAI Codex CLI.
  *
  * Modeled after the `@openai/codex-sdk` TypeScript SDK but implemented as a
@@ -101,9 +75,6 @@ function codexSkillsDir(
  *   `~/.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`; the runner
  *   resolves the path post-completion and returns it as
  *   `CliRunOutput.transcript_path`.
- * - `interactive: true` — `launchInteractive` spawns the Codex TUI with
- *   stdin/stdout/stderr inherited and copies bundled skills into
- *   `~/.agents/skills/<name>/` for the lifetime of the session.
  * - `toolUseObservation: true` — fires `onToolUseObserved` once per
  *   `item.completed` for `command_execution`, `file_change`,
  *   `mcp_tool_call`, and `web_search` items; an `"abort"` decision
@@ -117,7 +88,7 @@ function codexSkillsDir(
  */
 // FR-L39: transport-scoped capability vector for the Codex ACP front
 // (`@agentclientprotocol/codex-acp`, FR-L43). Same downgrade rationale as the
-// Claude pilot — transcript / interactive / toolFilter are unavailable
+// Claude pilot — transcript / toolFilter are unavailable
 // on the ACP path while session, reasoning-effort, MCP injection, and
 // tool-use observation round-trip natively. `capabilityInventory` is
 // `true` (FR-L20) — `fetchCapabilitiesSlow` routes through
@@ -127,7 +98,6 @@ function codexSkillsDir(
 const CODEX_ACP_CAPABILITIES: RuntimeCapabilities = {
   permissionMode: true,
   transcript: false,
-  interactive: false,
   toolUseObservation: true,
   session: true,
   // FR-L20: fetchCapabilitiesSlow routes through invokeViaAcp on ACP.
@@ -145,7 +115,6 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
   capabilities: {
     permissionMode: true,
     transcript: true,
-    interactive: true,
     toolUseObservation: true,
     session: true,
     capabilityInventory: true,
@@ -211,56 +180,5 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     return Promise.reject(
       new CommandsUnavailableError("codex", opts.transport, "no_fast_channel"),
     );
-  },
-
-  async launchInteractive(
-    opts: InteractiveOptions,
-  ): Promise<InteractiveResult> {
-    const injectedPaths: string[] = [];
-    try {
-      if (opts.skills && opts.skills.length > 0) {
-        const skillsDir = codexSkillsDir(opts.env, opts.inheritEnv);
-        await Deno.mkdir(skillsDir, { recursive: true });
-        for (const skill of opts.skills) {
-          const targetDir = join(skillsDir, skill.frontmatter.name);
-          await copy(skill.rootPath, targetDir, { overwrite: true });
-          injectedPaths.push(targetDir);
-        }
-      }
-
-      const args: string[] = [];
-      if (opts.systemPrompt) {
-        // Codex has no `--append-system-prompt`; the closest stable
-        // mechanism is a TOML config override on `base_instructions`.
-        args.push(
-          "--config",
-          `base_instructions=${JSON.stringify(opts.systemPrompt)}`,
-        );
-      }
-
-      // FR-L33: sync env.PWD with cwd at the spawn boundary.
-      const syncedEnv = withSyncedPWD(opts.env, opts.cwd);
-      const cmd = new Deno.Command("codex", {
-        args,
-        stdin: "inherit",
-        stdout: "inherit",
-        stderr: "inherit",
-        // FR-L53: `inheritEnv: false` drops this process's env.
-        ...spawnEnvOptions(syncedEnv, opts.inheritEnv, codexAuthEnv),
-        ...(opts.cwd ? { cwd: opts.cwd } : {}),
-      });
-
-      const process = cmd.spawn();
-      const status = await process.status;
-      return { exitCode: status.code };
-    } finally {
-      for (const p of injectedPaths) {
-        try {
-          await Deno.remove(p, { recursive: true });
-        } catch {
-          // Best-effort cleanup
-        }
-      }
-    }
   },
 };

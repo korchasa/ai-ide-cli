@@ -6,8 +6,6 @@ export interface RuntimeCapabilities {
   permissionMode: boolean;
   /** Whether the runtime provides an external transcript file the engine can copy. */
   transcript: boolean;
-  /** Whether the runtime supports interactive CLI mode (stdin-based REPL). */
-  interactive: boolean;
   /**
    * Whether the runtime surfaces a per-tool-use observation hook
    * (`onToolUseObserved`). All four adapters expose it: Claude, Codex,

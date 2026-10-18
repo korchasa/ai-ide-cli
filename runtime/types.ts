@@ -46,8 +46,6 @@ export {
 
 export type {
   ExtraArgsMap,
-  InteractiveOptions,
-  InteractiveResult,
   OnRuntimeToolUseObservedCallback,
   ResolvedRuntimeConfig,
   RuntimeAdapter,
