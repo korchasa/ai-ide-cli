@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.1.0](https://github.com/korchasa/ai-ide-cli/compare/v2.0.0...v2.1.0) (2026-10-18)
+
+
+### Features
+
+* **acp:** session options, shared connection and client-fs for embedders ([0a58b2f](https://github.com/korchasa/ai-ide-cli/commit/0a58b2f2a2f94489f0c3445e73736be654ef9eaa))
+
+
+### Documentation
+
+* tick checkboxes the 2.0.0 release already satisfies (FR-L48, FR-L37, FR-L39) ([1e13cd8](https://github.com/korchasa/ai-ide-cli/commit/1e13cd8d9cbbefa3f500acfa6ade962e247930e5))
+
 ## [2.0.0](https://github.com/korchasa/ai-ide-cli/compare/v1.2.1...v2.0.0) (2026-10-18)
 
 
