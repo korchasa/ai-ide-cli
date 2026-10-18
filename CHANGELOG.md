@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [3.0.3](https://github.com/korchasa/ai-ide-cli/compare/v3.0.2...v3.0.3) (2026-10-18)
+
+
+### Bug Fixes
+
+* **acp:** create the client-fs temp file with its final mode, inside writeRoot ([5ab50e5](https://github.com/korchasa/ai-ide-cli/commit/5ab50e5a69617b950f5e13ada935e81241834e7b))
+
 ### [3.0.2](https://github.com/korchasa/ai-ide-cli/compare/v3.0.1...v3.0.2) (2026-10-18)
 
 
