@@ -12,7 +12,9 @@ import type { AcpFrontLauncher } from "./acp/fronts.ts";
  * `RuntimeAdapter.openSession`. Mirrors `RuntimeInvokeOptions` but omits
  * one-shot fields (`taskPrompt`, retries, timeouts, hooks) that do not
  * apply to a long-lived session. Adapters that do not recognize a field
- * ignore it (e.g. non-Claude runtimes ignore `settingSources`).
+ * ignore it; fields a runtime cannot honour throw
+ * `RuntimeUnsupportedOptionError` (e.g. `settingSources` on non-Claude
+ * CLI runtimes, FR-L28).
  *
  * **Out of scope (by design):**
  *
@@ -70,7 +72,10 @@ export interface RuntimeSessionOptions {
    * Default `true`: inherit this process's env, `env` merged on top.
    */
   inheritEnv?: boolean;
-  /** Claude-specific configuration-source filter. Ignored by other runtimes. */
+  /**
+   * Claude configuration-source filter. Claude only; other CLI runtimes
+   * throw `RuntimeUnsupportedOptionError`, `[]` included (FR-L28).
+   */
   settingSources?: SettingSource[];
   /**
    * Tool-name allow-list. Same contract as

@@ -97,7 +97,7 @@ adapter.capabilitiesFor?.("acp");
 | outputSchema (FR-L50) | yes (`--json-schema`) | throws | throws | yes (`--output-schema`; session `turn/start.outputSchema`) |
 | processGroup (FR-L51) | yes | yes | yes | yes |
 | ephemeral (FR-L52)   | yes (`--no-session-persistence`) | throws | throws | yes (`--ephemeral`; session `thread/start.ephemeral`) |
-| settingSources cleanroom | yes (`CLAUDE_CONFIG_DIR` redirect, FR-L18) | silent ignore (FR-L28 pending: will throw) | silent ignore (FR-L28 pending: will throw) | silent ignore (FR-L28 pending: will throw) |
+| settingSources cleanroom | yes (`CLAUDE_CONFIG_DIR` redirect, FR-L18) | throws (FR-L28) | throws (FR-L28) | throws (FR-L28) |
 
 Universal across all four runtimes: NDJSON event streaming, `AbortSignal`
 + timeout, custom `cwd` / `env`, `extraArgs` / `runtime_args` passthrough,

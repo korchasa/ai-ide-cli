@@ -2004,6 +2004,11 @@ throws; flag alone stays open — FR-L24 rule, so the new flags sit in
   app-server `thread/start {ephemeral: true}`, refused with
   `resumeSessionId`; Claude `--no-session-persistence`; OpenCode / Cursor
   throw; ACP tuple entry (`ephemeral: false` not counted).
+- **Setting sources (FR-L28).** Codex / OpenCode / Cursor adapters run
+  `rejectUnsupportedRunOptions(runtime, opts, [..., "settingSources"])`
+  on the CLI branch of `invoke` and `openSession`, after the ACP
+  dispatch: any array, `[]` included, throws before spawn. ACP keeps the
+  `collectDegradedOptions` report.
 
 ## 5. Constraints
 

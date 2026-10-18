@@ -1,5 +1,8 @@
 import { invokeCodexCli } from "../codex/process.ts";
-import { rejectProcessGroupOnWindows } from "./run-options.ts";
+import {
+  rejectProcessGroupOnWindows,
+  rejectUnsupportedRunOptions,
+} from "./run-options.ts";
 import { openCodexSession } from "../codex/session.ts";
 import { invokeViaAcp, openSessionViaAcp } from "./acp/adapter.ts";
 import { fetchAcpCommands } from "./acp/commands.ts";
@@ -138,6 +141,9 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
       return invokeViaAcp("codex", opts, codexAuthEnv);
     }
     rejectUnsupportedSystemPromptFile("codex", opts);
+    // FR-L28: `settingSources` names Claude config sources; Codex config
+    // layers do not map onto them.
+    rejectUnsupportedRunOptions("codex", opts, ["settingSources"]);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);
@@ -151,6 +157,8 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     if (opts.transport === "acp") {
       return openSessionViaAcp("codex", opts, codexAuthEnv);
     }
+    // FR-L28
+    rejectUnsupportedRunOptions("codex", opts, ["settingSources"]);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);

@@ -177,7 +177,8 @@ export interface RuntimeInvokeOptions {
    * temporary dir populated from the listed sources (see
    * `prepareSettingSourcesDir`).
    *
-   * Currently honored by the Claude adapter only; other adapters ignore.
+   * Claude only; other CLI runtimes throw `RuntimeUnsupportedOptionError`
+   * before spawn, `[]` included (FR-L28). ACP reports it as degraded.
    */
   settingSources?: SettingSource[];
   /**

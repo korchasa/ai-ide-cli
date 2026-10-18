@@ -602,8 +602,8 @@ stable — never renumber on move.
   subprocess env for the run, then removes the tmp dir in `finally`.
   `'user'` symlinks the host `settings.json` into the tmp dir if it
   exists; `'project'` / `'local'` are recognized but not yet isolated
-  (they still come from CWD). Other adapters ignore `settingSources`
-  silently.
+  (they still come from CWD). Claude only; other CLI runtimes throw
+  `RuntimeUnsupportedOptionError` (FR-L28).
 - **Motivation:** Reproducible cleanroom runs for benchmarks and
   experiments — pairs naturally with FR-L9 `env` isolation.
 - **Acceptance:**
@@ -1425,14 +1425,16 @@ stable — never renumber on move.
   (MAJOR, FR-L48). No known consumer passes it to a non-Claude runtime
   (grep over `~/www`, 2026-10-18).
 - **Acceptance:**
-  - [ ] Codex, OpenCode and Cursor invoke and session paths throw
+  - [x] Codex, OpenCode and Cursor invoke and session paths throw
         `RuntimeUnsupportedOptionError` with `fields` holding
         `settingSources` for any array, `[]` included; `undefined`
         passes. Tests named `FR-L28 *`.
-  - [ ] `settingSources` JSDoc in `runtime/adapter-types.ts` and
+  - [x] `settingSources` JSDoc in `runtime/adapter-types.ts` and
         `runtime/session-types.ts`, and the FR-L18 Description, say
         "Claude only; other CLI runtimes throw" instead of "ignore".
-  - [ ] `// FR-L28` at each rejection site.
+        Evidence: `grep -n -F 'Claude only' runtime/adapter-types.ts
+        runtime/session-types.ts documents/requirements.md`.
+  - [x] `// FR-L28` at each rejection site.
 
 ### 3.29 FR-L29: No Codex-Only Per-Turn Hook
 
