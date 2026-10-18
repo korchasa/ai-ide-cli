@@ -3259,8 +3259,12 @@ runs); OpenCode and Codex dispatch at completion time.
   `writeRoot` and of the target's deepest existing ancestor), so a
   symlink inside `writeRoot` that points outside cannot carry a write
   out. A target that is itself a symlink, dangling or not, is refused.
-  Residual: the check and the write are separate syscalls, so a process
-  that swaps a directory for a symlink between them can race it. Unset → the
+  The content goes to a fresh sibling temp file (exclusive create, the
+  old file's permission bits) that is renamed over the target, so a hard
+  link inside `writeRoot` to an outside file is replaced, not written
+  through, and the final component cannot be swapped for a symlink
+  after the check. Residual: an intermediate directory swapped for a
+  symlink between the check and the write can still race it. Unset → the
   capability is declined and `fs/*` answer `-32601`, as before.
 - **Why:** fronts delegate edits to a client that declares the capability;
   a sandboxing caller must decide where writes may land, and resolving a
@@ -3270,8 +3274,10 @@ runs); OpenCode and Codex dispatch at completion time.
 - **Acceptance criteria:**
   - [x] Declined by default; served when set; relative paths anchored;
         writes outside `writeRoot` refused, including through a symlinked
-        directory inside it or a symlinked target; a `writeRoot` reached
-        through a symlink still accepts writes. Tests:
+        directory inside it or a symlinked target; a hard link to an
+        outside file is replaced, not written through; an overwrite keeps
+        the permission bits; a `writeRoot` reached through a symlink still
+        accepts writes. Tests:
         `runtime/acp/session_options_test.ts::FR-L56 *`,
         `runtime/acp/client-fs_test.ts::FR-L56 *`.
 

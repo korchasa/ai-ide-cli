@@ -1750,8 +1750,12 @@ subprocess wrapper. One implementation
   checks the lexical path, refuses a target that `lstat` reports as a
   symlink, then compares the real paths of `writeRoot` and of the
   target's deepest existing ancestor (missing tail appended), so a
-  symlink inside the root cannot redirect the write. The check-then-write
-  gap stays open to a racing process; Deno exposes no `O_NOFOLLOW` open.
+  symlink inside the root cannot redirect the write. `serveClientFs`
+  then writes a sibling temp file with `createNew` (O_EXCL, never follows
+  a link), copies the old permission bits and renames it over the target,
+  which defeats hard links and a symlink swapped in at the final
+  component. An intermediate directory swapped for a symlink after the
+  check still races it; Deno exposes no `openat` / `O_NOFOLLOW` walk.
 - Permission answers use the protocol's `outcome` discriminator
   (FR-L54). Sessions pass `onToolUseObserved` to the permission handler
   (FR-L55); `acpSessionMeta` rides as `_meta` on `session/new` /

@@ -113,3 +113,44 @@ Deno.test("FR-L56 a writeRoot reached through a symlink still accepts writes int
     await Deno.remove(base, { recursive: true });
   }
 });
+
+Deno.test("FR-L56 a hard link inside writeRoot does not carry a write into the outside file", async () => {
+  const root = await Deno.makeTempDir();
+  const outside = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(join(outside, "secret.txt"), "keep");
+    await Deno.link(join(outside, "secret.txt"), join(root, "hard.txt"));
+    await serveClientFs(
+      "fs/write_text_file",
+      { path: "hard.txt", content: "new" },
+      { cwd: root, writeRoot: root },
+    );
+    assertEquals(await Deno.readTextFile(join(outside, "secret.txt")), "keep");
+    assertEquals(await Deno.readTextFile(join(root, "hard.txt")), "new");
+  } finally {
+    await Deno.remove(root, { recursive: true });
+    await Deno.remove(outside, { recursive: true });
+  }
+});
+
+Deno.test("FR-L56 overwriting a file keeps its permission bits and leaves no temp file", async () => {
+  if (Deno.build.os === "windows") return;
+  const root = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(join(root, "run.sh"), "old");
+    await Deno.chmod(join(root, "run.sh"), 0o750);
+    await serveClientFs(
+      "fs/write_text_file",
+      { path: "run.sh", content: "new" },
+      { cwd: root, writeRoot: root },
+    );
+    assertEquals(await Deno.readTextFile(join(root, "run.sh")), "new");
+    assertEquals((await Deno.stat(join(root, "run.sh"))).mode! & 0o777, 0o750);
+    assertEquals(
+      (await Array.fromAsync(Deno.readDir(root))).map((e) => e.name),
+      ["run.sh"],
+    );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});

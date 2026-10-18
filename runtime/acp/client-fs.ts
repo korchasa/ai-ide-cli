@@ -16,7 +16,10 @@
  *   an error, so a sandboxed agent cannot reach the caller's files
  *   through the client. Containment is checked on real paths, so a
  *   symlink inside `writeRoot` that points outside cannot carry a write
- *   out, and a target that is itself a symlink is refused.
+ *   out, and a target that is itself a symlink is refused. The content
+ *   goes to a fresh temp file beside the target and is renamed over it,
+ *   so a hard link inside `writeRoot` to an outside file is replaced,
+ *   never written through.
  */
 
 import {
@@ -94,8 +97,9 @@ async function realPathOfDeepestExisting(path: string): Promise<string> {
  * again, so a symlink inside `writeRoot` cannot point the write outside.
  * A target that is itself a symlink (dangling or not) is refused: the
  * write would follow it. The check and the write are separate syscalls,
- * so a process that swaps a directory for a symlink between them can
- * still race it.
+ * so a process that swaps an intermediate directory for a symlink
+ * between them can still race it; the final component cannot, because
+ * {@link serveClientFs} renames a fresh file over it.
  *
  * @param writeRoot Directory writes must stay inside.
  * @param cwd Session working directory (anchors a relative path).
@@ -130,6 +134,28 @@ export async function confineClientFsWrite(
   return target;
 }
 
+/**
+ * Write `content` to `target` without writing through what is there:
+ * create a sibling temp file with exclusive-create (which never follows
+ * a symlink), give it the old file's permission bits, and rename it over
+ * `target`. A hard link at `target` loses its directory entry instead of
+ * having the shared inode rewritten.
+ */
+async function replaceFile(target: string, content: string): Promise<void> {
+  const previous = await lstatOrNull(target);
+  const temp = `${target}.${crypto.randomUUID()}.tmp`;
+  try {
+    await Deno.writeTextFile(temp, content, { createNew: true });
+    if (previous?.mode != null && Deno.build.os !== "windows") {
+      await Deno.chmod(temp, previous.mode & 0o7777);
+    }
+    await Deno.rename(temp, target);
+  } catch (e) {
+    await Deno.remove(temp).catch(() => {});
+    throw e;
+  }
+}
+
 /** Inbound fs methods this module serves. */
 export const CLIENT_FS_METHODS: readonly string[] = [
   "fs/read_text_file",
@@ -141,7 +167,9 @@ export const CLIENT_FS_METHODS: readonly string[] = [
  *
  * `fs/read_text_file` honours the optional 1-based `line` and `limit`
  * the protocol defines; `fs/write_text_file` creates missing parent
- * directories, as an editor saving a new file would.
+ * directories, as an editor saving a new file would, and replaces the
+ * target with a new file (permission bits kept) rather than writing into
+ * the existing one.
  *
  * @param method `fs/read_text_file` or `fs/write_text_file`.
  * @param params Request params (`path`, `content`, `line`, `limit`).
@@ -169,6 +197,6 @@ export async function serveClientFs(
   }
   const target = await confineClientFsWrite(ctx.writeRoot, ctx.cwd, path);
   await Deno.mkdir(join(target, ".."), { recursive: true });
-  await Deno.writeTextFile(target, String(params["content"] ?? ""));
+  await replaceFile(target, String(params["content"] ?? ""));
   return {};
 }
