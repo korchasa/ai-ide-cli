@@ -1656,7 +1656,7 @@ three per-runtime renderers consumed by adapters.
   supported (Claude CLI accepts the union).
 - **OpenCode (`capabilities.mcpInjection: true`)** —
   `buildOpenCodeConfigContent(servers)` renders both transports
-  per upstream OpenCode SSE schema (FR-L27):
+  per upstream OpenCode config schema:
   - stdio: `{mcp: {<name>: {type:"local", command:[cmd, …args],
     environment?, enabled:true}}}`
   - http:  `{mcp: {<name>: {type:"remote", url, headers?,
