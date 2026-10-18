@@ -51,6 +51,7 @@ import {
   usageFromPromptResponse,
 } from "./mapping.ts";
 import { createPermissionHandler } from "./permissions.ts";
+import type { AuthEnvMatcher } from "../spawn-env.ts";
 
 interface PromptResult extends Record<string, unknown> {
   stopReason?: string;
@@ -309,10 +310,13 @@ function abortReason(signal?: AbortSignal): string {
  *   `opencode` are end-to-end validated; `cursor` rejects with a
  *   "not piloted yet" error unless `opts.acpFront` is supplied.
  * @param opts Standard invocation options.
+ * @param authEnv The runtime's login-variable matcher (FR-L53), passed by
+ *   the per-runtime adapter; omitted only by tests (identity vars only).
  */
 export async function invokeViaAcp(
   runtime: RuntimeId,
   opts: RuntimeInvokeOptions,
+  authEnv?: AuthEnvMatcher,
 ): Promise<RuntimeInvokeResult> {
   // FR-L39: external abort + wall-clock timeout must tear down the ACP
   // front, otherwise consumer ceilings (e2e tests, engine watchdogs)
@@ -335,7 +339,7 @@ export async function invokeViaAcp(
   const baseDelayMs = (opts.retryDelaySeconds ?? 1) * 1000;
   let lastResult: RuntimeInvokeResult | undefined;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const result = await attemptInvocation(runtime, opts);
+    const result = await attemptInvocation(runtime, opts, authEnv);
     if (!result.error && !result.output?.is_error) return result;
     if (!shouldRetry(result, attempt, maxRetries)) return result;
     lastResult = result;
@@ -358,6 +362,7 @@ export async function invokeViaAcp(
 async function attemptInvocation(
   runtime: RuntimeId,
   opts: RuntimeInvokeOptions,
+  authEnv: AuthEnvMatcher | undefined,
 ): Promise<RuntimeInvokeResult> {
   const startedAt = performance.now();
   const turn = 1;
@@ -374,6 +379,7 @@ async function attemptInvocation(
       cwd: opts.cwd,
       env: opts.env,
       inheritEnv: opts.inheritEnv,
+      authEnv,
       processRegistry: opts.processRegistry,
       onStderr: undefined,
       acpFront: opts.acpFront,
@@ -653,10 +659,13 @@ class AcpRuntimeSession implements RuntimeSession {
  *
  * @param runtime Pilot runtime selector.
  * @param opts Standard session options.
+ * @param authEnv The runtime's login-variable matcher (FR-L53), passed by
+ *   the per-runtime adapter; omitted only by tests (identity vars only).
  */
 export async function openSessionViaAcp(
   runtime: RuntimeId,
   opts: RuntimeSessionOptions,
+  authEnv?: AuthEnvMatcher,
 ): Promise<RuntimeSession> {
   // FR-L39: mirror the invoke-path guard. The throw lives at the factory
   // entry (not in AcpRuntimeSession's constructor): the class is
@@ -679,6 +688,7 @@ export async function openSessionViaAcp(
     cwd: opts.cwd,
     env: opts.env,
     inheritEnv: opts.inheritEnv,
+    authEnv,
     processRegistry: opts.processRegistry,
     onStderr: opts.onStderr,
     acpFront: opts.acpFront,

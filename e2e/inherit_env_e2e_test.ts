@@ -1,10 +1,10 @@
 /**
  * @module
- * Real-binary smoke for FR-L53: with `inheritEnv: false` and only `PATH`
- * plus `HOME` passed, the agent still starts, authenticates and replies.
- * The env leak itself is unit-tested with stubs
- * (`runtime/inherit_env_test.ts`); this checks that the minimal env a
- * caller is told to pass is enough for the real CLIs.
+ * Real-binary smoke for FR-L53: with `inheritEnv: false` and no `env` at
+ * all, the agent still starts, authenticates and replies — the identity
+ * and login vars carried from this process are enough. The env leak itself
+ * is unit-tested with stubs (`runtime/inherit_env_test.ts`); the login
+ * lists are drift-checked without tokens in `isolated_auth_e2e_test.ts`.
  *
  * Cases: claude CLI, claude ACP front, codex CLI. One-word prompt in a
  * scratch git repo, `permissionMode: "plan"`.
@@ -24,14 +24,6 @@ const SANITIZE = {
   sanitizeResources: false,
   sanitizeExit: false,
 };
-
-/** The env FR-L53 tells a caller to pass: binary lookup and home only. */
-function minimalEnv(): Record<string, string> {
-  const path = Deno.env.get("PATH");
-  const home = Deno.env.get("HOME");
-  assert(path && home, "e2e needs PATH and HOME in this process");
-  return { PATH: path, HOME: home };
-}
 
 const CASES: { runtime: RuntimeId; transport: TransportOption; on: boolean }[] =
   [
@@ -66,7 +58,6 @@ for (const { runtime, transport, on } of CASES) {
           retryDelaySeconds: 0,
           cwd,
           permissionMode: "plan",
-          env: minimalEnv(),
           inheritEnv: false,
         });
         assert(!result.error, `${runtime}/${transport}: ${result.error}`);

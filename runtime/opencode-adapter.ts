@@ -37,6 +37,7 @@ import {
 } from "./run-options.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { hostHome, spawnEnvOptions } from "./spawn-env.ts";
+import { opencodeAuthEnv } from "../opencode/auth-env.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -177,7 +178,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     // FR-L39: opt-in ACP transport. Default `transport === "cli"` keeps
     // the CLI path unchanged.
     if (opts.transport === "acp") {
-      return invokeViaAcp("opencode", opts);
+      return invokeViaAcp("opencode", opts, opencodeAuthEnv);
     }
     rejectUnsupportedSystemPromptFile("opencode", opts);
     // FR-L50 / FR-L52: no schema flag, no way to skip session files.
@@ -208,7 +209,9 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
 
   // FR-L42: zero-LLM-cost commands fast-channel via the ACP front.
   fetchCommands(opts: FetchCommandsOptions): Promise<CommandsSnapshot> {
-    if (opts.transport === "acp") return fetchAcpCommands("opencode", opts);
+    if (opts.transport === "acp") {
+      return fetchAcpCommands("opencode", opts, opencodeAuthEnv);
+    }
     return Promise.reject(
       new CommandsUnavailableError(
         "opencode",
@@ -222,7 +225,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
     // FR-L51: Deno cannot signal a process group on Windows.
     rejectProcessGroupOnWindows("opencode", opts);
     if (opts.transport === "acp") {
-      return openSessionViaAcp("opencode", opts);
+      return openSessionViaAcp("opencode", opts, opencodeAuthEnv);
     }
     // FR-L50 / FR-L52
     rejectUnsupportedRunOptions("opencode", opts, [
@@ -290,7 +293,7 @@ export const opencodeRuntimeAdapter: RuntimeAdapter = {
         stdout: "inherit",
         stderr: "inherit",
         // FR-L53: `inheritEnv: false` drops this process's env.
-        ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
+        ...spawnEnvOptions(syncedEnv, opts.inheritEnv, opencodeAuthEnv),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
       });
 

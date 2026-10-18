@@ -22,6 +22,7 @@
  */
 
 import { hostEnv } from "../runtime/spawn-env.ts";
+import { opencodeAuthEnv } from "./auth-env.ts";
 
 /** Structured upstream-API fatal error extracted from the OpenCode log. */
 export interface UpstreamFatalError {
@@ -90,9 +91,14 @@ export function resolveOpenCodeLogDir(
   env?: Record<string, string>,
   inheritEnv?: boolean,
 ): string | undefined {
-  const override = hostEnv("OPENCODE_LOG_DIR", env, inheritEnv);
+  const override = hostEnv(
+    "OPENCODE_LOG_DIR",
+    env,
+    inheritEnv,
+    opencodeAuthEnv,
+  );
   if (override) return override;
-  const home = hostEnv("HOME", env, inheritEnv);
+  const home = hostEnv("HOME", env, inheritEnv, opencodeAuthEnv);
   if (!home) return undefined;
   return `${home}/.local/share/opencode/log`;
 }

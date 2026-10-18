@@ -1,12 +1,13 @@
 /**
  * FR-L53 behavioural check across every agent spawn site: with
- * `inheritEnv: false` the child sees only the env the caller passed (plus
- * the library's own variables), never this process's env. A PATH stub
+ * `inheritEnv: false` the child sees the env the caller passed, the OS-user
+ * vars and its own runtime's login vars from this process, and the
+ * library's own variables — never the rest of this process's env. A PATH stub
  * named after each runtime appends its env to `$ENV_PROBE` and exits; this
  * process carries a sentinel variable that must not reach the stub.
  */
 
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { assert, assertStringIncludes } from "@std/assert";
 import { join } from "@std/path";
 import { ProcessRegistry } from "../process-registry.ts";
 import { getRuntimeAdapter } from "./index.ts";
@@ -208,23 +209,108 @@ Deno.test({
   },
 });
 
+/** One login variable per runtime, accepted by its `<runtime>/auth-env.ts`. */
+const LOGIN_VAR: Record<RuntimeId, string> = {
+  claude: "ANTHROPIC_API_KEY",
+  codex: "OPENAI_API_KEY",
+  opencode: "AI_IDE_CLI_FR_L53_API_KEY",
+  cursor: "CURSOR_API_KEY",
+};
+
+/** Run `fn` with `vars` set in this process's env, restoring them after. */
+async function withParentEnv(
+  vars: Record<string, string>,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const prev = Object.fromEntries(
+    Object.keys(vars).map((k) => [k, Deno.env.get(k)]),
+  );
+  for (const [k, v] of Object.entries(vars)) Deno.env.set(k, v);
+  try {
+    await fn();
+  } finally {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) Deno.env.delete(k);
+      else Deno.env.set(k, v);
+    }
+  }
+}
+
+/** Assert the isolated child kept the OS user and its runtime's login. */
+function assertLoginCarried(dump: string, runtime: RuntimeId): void {
+  assertIsolated(dump);
+  assertStringIncludes(dump, `${LOGIN_VAR[runtime]}=parent-login`);
+  assertStringIncludes(dump, "USER=fr-l53-user");
+}
+
+const TRANSPORTS = [
+  ...RUNTIMES.map((runtime) => ({ runtime, acp: false })),
+  { runtime: "claude" as const, acp: true },
+  { runtime: "codex" as const, acp: true },
+  { runtime: "opencode" as const, acp: true },
+];
+
+for (const { runtime, acp } of TRANSPORTS) {
+  Deno.test({
+    ...opts,
+    name: `FR-L53 ${runtime}${
+      acp ? " ACP" : ""
+    } isolated child keeps the user and its login, no env passed`,
+    fn: async () => {
+      let dump = "";
+      await withParentEnv(
+        { [LOGIN_VAR[runtime]]: "parent-login", USER: "fr-l53-user" },
+        async () => {
+          dump = await withDumpStub(
+            acp ? "acp-front" : runtime,
+            async ({ env, bin }) => {
+              await getRuntimeAdapter(runtime).invoke({
+                processRegistry: new ProcessRegistry(),
+                taskPrompt: "x",
+                timeoutSeconds: 10,
+                maxRetries: acp ? 0 : 1,
+                retryDelaySeconds: 0,
+                // Only the probe path: PATH, HOME, USER and the login come
+                // from this process.
+                env: { ENV_PROBE: env.ENV_PROBE },
+                inheritEnv: false,
+                ...(acp
+                  ? {
+                    transport: "acp" as const,
+                    acpFront: { cmd: bin, args: [], pilot: true },
+                    model: "m-1",
+                  }
+                  : {}),
+              }).catch(() => {});
+            },
+          );
+        },
+      );
+      assertLoginCarried(dump, runtime);
+    },
+  });
+}
+
 Deno.test({
   ...opts,
-  name: "FR-L53 isolated codex invoke without HOME fails before the spawn",
+  name: "FR-L53 isolated child does not get another runtime's login",
   fn: async () => {
-    const dump = await withDumpStub("codex", async ({ env }) => {
-      const result = await getRuntimeAdapter("codex").invoke({
-        processRegistry: new ProcessRegistry(),
-        taskPrompt: "x",
-        timeoutSeconds: 10,
-        maxRetries: 1,
-        retryDelaySeconds: 0,
-        env: { PATH: env.PATH, ENV_PROBE: env.ENV_PROBE },
-        inheritEnv: false,
+    let dump = "";
+    await withParentEnv({ [LOGIN_VAR.codex]: "parent-login" }, async () => {
+      dump = await withDumpStub("claude", async ({ env }) => {
+        await getRuntimeAdapter("claude").invoke({
+          processRegistry: new ProcessRegistry(),
+          taskPrompt: "x",
+          timeoutSeconds: 10,
+          maxRetries: 1,
+          retryDelaySeconds: 0,
+          env: { ENV_PROBE: env.ENV_PROBE },
+          inheritEnv: false,
+        }).catch(() => {});
       });
-      assertStringIncludes(result.error ?? "", "Codex sessions dir needs HOME");
     });
-    assertEquals(dump, "", "codex must not start without HOME");
+    assertIsolated(dump);
+    assert(!dump.includes(`${LOGIN_VAR.codex}=`), dump);
   },
 });
 

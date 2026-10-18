@@ -14,7 +14,7 @@
 import type { RuntimeId } from "../../types.ts";
 import type { RuntimeInvokeOptions } from "../adapter-types.ts";
 import { AcpStdioClient } from "./client.ts";
-import { hostEnv } from "../spawn-env.ts";
+import { type AuthEnvMatcher, hostEnv, NO_LOGIN_ENV } from "../spawn-env.ts";
 import { getAcpFront } from "./fronts.ts";
 import {
   type AcpConfigOptionDecl,
@@ -72,6 +72,8 @@ export function spawnClient(opts: {
   processGroup?: boolean;
   /** FR-L53: `false` → the front's env is launcher env + `env` only. */
   inheritEnv?: boolean;
+  /** FR-L53: the runtime's login-variable matcher; absent → identity only. */
+  authEnv?: AuthEnvMatcher;
 }): AcpStdioClient {
   const front = opts.acpFront ?? getAcpFront(opts.runtime);
   if (!opts.acpFront && !front.pilot) throw notPiloted(opts.runtime);
@@ -80,7 +82,12 @@ export function spawnClient(opts: {
     ? codexThreadStartEnv(
       launchEnv,
       // FR-L53: an isolated front sees only the passed CODEX_CONFIG.
-      hostEnv("CODEX_CONFIG", opts.env, opts.inheritEnv),
+      hostEnv(
+        "CODEX_CONFIG",
+        opts.env,
+        opts.inheritEnv,
+        opts.authEnv ?? NO_LOGIN_ENV,
+      ),
       opts.model,
     )
     : launchEnv;
@@ -95,6 +102,7 @@ export function spawnClient(opts: {
       onRequest: opts.onRequest,
       processGroup: opts.processGroup,
       inheritEnv: opts.inheritEnv,
+      authEnv: opts.authEnv,
     });
   } catch (err) {
     if (err instanceof Deno.errors.NotFound) {

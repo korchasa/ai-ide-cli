@@ -26,6 +26,7 @@ import { defaultRegistry } from "../../process-registry.ts";
 import type { AcpStdioClient } from "./client.ts";
 import { getAcpFront } from "./fronts.ts";
 import { handshake, spawnClient } from "./handshake.ts";
+import type { AuthEnvMatcher } from "../spawn-env.ts";
 
 /** Default ceiling on the wait for the first `available_commands_update`. */
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -103,10 +104,13 @@ function isObject(v: unknown): v is Record<string, unknown> {
  * @param runtime Pilot runtime selector.
  * @param opts Fast-channel options (transport, registry, front
  *   override, cwd/env, timeout, signal).
+ * @param authEnv The runtime's login-variable matcher (FR-L53), passed by
+ *   the per-runtime adapter; omitted only by tests (identity vars only).
  */
 export async function fetchAcpCommands(
   runtime: RuntimeId,
   opts: FetchCommandsOptions,
+  authEnv?: AuthEnvMatcher,
 ): Promise<CommandsSnapshot> {
   // Synchronous pilot guard — refuse a non-piloted front before we
   // spend a spawn, unless the caller explicitly supplied an override.
@@ -127,6 +131,7 @@ export async function fetchAcpCommands(
     cwd: opts.cwd,
     env: opts.env,
     inheritEnv: opts.inheritEnv,
+    authEnv,
     processRegistry: registry,
     acpFront: opts.acpFront,
   });

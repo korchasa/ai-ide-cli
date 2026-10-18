@@ -30,6 +30,7 @@ import {
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { spawnEnvOptions } from "../runtime/spawn-env.ts";
+import { opencodeAuthEnv } from "./auth-env.ts";
 import type { ReasoningEffort } from "../runtime/reasoning-effort.ts";
 import {
   buildOpenCodeConfigContent,
@@ -218,7 +219,7 @@ export async function openOpenCodeSession(
     stdout: "piped",
     stderr: "piped",
     // FR-L53: `inheritEnv: false` drops this process's env.
-    ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
+    ...spawnEnvOptions(syncedEnv, opts.inheritEnv, opencodeAuthEnv),
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(opts.processGroup ? { detached: true } : {}),

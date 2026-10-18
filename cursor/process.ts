@@ -18,6 +18,7 @@ import type {
 import { expandExtraArgs } from "../runtime/argv.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { spawnEnvOptions } from "../runtime/spawn-env.ts";
+import { cursorAuthEnv } from "./auth-env.ts";
 import { stampLines } from "../runtime/log-format.ts";
 import {
   analyzeRuntimeErrorSignal,
@@ -349,7 +350,7 @@ async function executeCursorProcess(
     stdout: "piped",
     stderr: "piped",
     // FR-L53: `inheritEnv: false` drops this process's env.
-    ...spawnEnvOptions(syncedEnv, inheritEnv),
+    ...spawnEnvOptions(syncedEnv, inheritEnv, cursorAuthEnv),
     ...(cwd ? { cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(processGroup ? { detached: true } : {}),

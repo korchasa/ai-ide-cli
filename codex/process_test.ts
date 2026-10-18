@@ -706,21 +706,23 @@ printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_token
   }
 });
 
-Deno.test("FR-L53 defaultCodexSessionsDir isolated reads only the passed env", async () => {
+Deno.test("FR-L53 defaultCodexSessionsDir isolated sees what the child sees", async () => {
   const { defaultCodexSessionsDir } = await import("./transcript.ts");
-  assertEquals(
-    defaultCodexSessionsDir({ HOME: "/iso" }, false),
-    "/iso/.codex/sessions",
-  );
-  assertEquals(
-    defaultCodexSessionsDir({ CODEX_HOME: "/ch" }, false),
-    "/ch/sessions",
-  );
-  let message = "";
+  const prev = Deno.env.get("CODEX_HOME");
+  Deno.env.set("CODEX_HOME", "/parent-codex");
   try {
-    defaultCodexSessionsDir({}, false);
-  } catch (err) {
-    message = (err as Error).message;
+    // CODEX_HOME is a Codex login var, so it is carried to the child.
+    assertEquals(defaultCodexSessionsDir({}, false), "/parent-codex/sessions");
+    assertEquals(
+      defaultCodexSessionsDir({ CODEX_HOME: "/ch" }, false),
+      "/ch/sessions",
+    );
+  } finally {
+    if (prev === undefined) Deno.env.delete("CODEX_HOME");
+    else Deno.env.set("CODEX_HOME", prev);
   }
-  assert(message.includes("Codex sessions dir needs HOME"), message);
+  assertEquals(
+    defaultCodexSessionsDir({ HOME: "/iso", CODEX_HOME: "/x" }, false),
+    "/x/sessions",
+  );
 });

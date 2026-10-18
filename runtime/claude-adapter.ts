@@ -39,6 +39,7 @@ import {
 } from "./capabilities.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { spawnEnvOptions } from "./spawn-env.ts";
+import { claudeAuthEnv } from "../claude/auth-env.ts";
 import { defaultClaudeConfigDir } from "./setting-sources.ts";
 import { withNonessentialTrafficDisabled } from "../claude/nonessential-traffic.ts";
 import { join } from "@std/path";
@@ -71,7 +72,10 @@ function claudeSkillsDir(
   inheritEnv: boolean | undefined,
 ): string {
   // FR-L53: an isolated child reads its config from the passed env.
-  return join(defaultClaudeConfigDir(env, inheritEnv), "skills");
+  return join(
+    defaultClaudeConfigDir(env, inheritEnv, claudeAuthEnv),
+    "skills",
+  );
 }
 
 /**
@@ -164,7 +168,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     // instead of the CLI subprocess. Default `transport === "cli"` keeps
     // every byte-for-byte existing behaviour intact.
     if (opts.transport === "acp") {
-      return invokeViaAcp("claude", opts);
+      return invokeViaAcp("claude", opts, claudeAuthEnv);
     }
     // Translate runtime-neutral onToolUseObserved into the Claude-specific
     // callback (just adds `runtime: "claude"` to the info object).
@@ -248,7 +252,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
     // FR-L51: Deno cannot signal a process group on Windows.
     rejectProcessGroupOnWindows("claude", opts);
     if (opts.transport === "acp") {
-      return openSessionViaAcp("claude", opts);
+      return openSessionViaAcp("claude", opts, claudeAuthEnv);
     }
     const inner = await openClaudeSession({
       agent: opts.agent,
@@ -304,7 +308,9 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
 
   // FR-L42: zero-LLM-cost commands fast-channel via the ACP front.
   fetchCommands(opts: FetchCommandsOptions): Promise<CommandsSnapshot> {
-    if (opts.transport === "acp") return fetchAcpCommands("claude", opts);
+    if (opts.transport === "acp") {
+      return fetchAcpCommands("claude", opts, claudeAuthEnv);
+    }
     return Promise.reject(
       new CommandsUnavailableError("claude", opts.transport, "no_fast_channel"),
     );
@@ -343,7 +349,7 @@ export const claudeRuntimeAdapter: RuntimeAdapter = {
         stdout: "inherit",
         stderr: "inherit",
         // FR-L53: `inheritEnv: false` drops this process's env.
-        ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
+        ...spawnEnvOptions(syncedEnv, opts.inheritEnv, claudeAuthEnv),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
       });
 

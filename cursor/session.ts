@@ -49,6 +49,7 @@ import {
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { spawnEnvOptions } from "../runtime/spawn-env.ts";
+import { cursorAuthEnv } from "./auth-env.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
 import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import { buildCursorSendArgs } from "./argv.ts";
@@ -287,7 +288,7 @@ export async function openCursorSession(
       stdout: "piped",
       stderr: "piped",
       // FR-L53: `inheritEnv: false` drops this process's env.
-      ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
+      ...spawnEnvOptions(syncedEnv, opts.inheritEnv, cursorAuthEnv),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
       // FR-L51: own process group → pgid == pid.
       ...(opts.processGroup ? { detached: true } : {}),

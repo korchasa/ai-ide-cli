@@ -12,6 +12,7 @@
 import type { ProcessRegistry } from "../process-registry.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { spawnEnvOptions } from "../runtime/spawn-env.ts";
+import { cursorAuthEnv } from "./auth-env.ts";
 
 /** Options for {@link createCursorChat}. */
 export interface CreateCursorChatOptions {
@@ -52,7 +53,7 @@ export async function createCursorChat(
     stderr: "piped",
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
     // FR-L53: `inheritEnv: false` drops this process's env.
-    ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
+    ...spawnEnvOptions(syncedEnv, opts.inheritEnv, cursorAuthEnv),
     signal: AbortSignal.timeout(timeoutMs),
   });
   const proc = cmd.spawn();

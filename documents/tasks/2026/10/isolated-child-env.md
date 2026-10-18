@@ -1,6 +1,6 @@
 ---
 date: "2026-10-18"
-status: in progress
+status: done
 implements: [FR-L53]
 tags: [env, isolation, spawn, consumer]
 related_tasks: []
@@ -171,7 +171,8 @@ Dispositions (variant B):
       and ACP transports, invoke + session; interactive for claude / codex /
       opencode — Cursor has no interactive mode) so the child env
       contains no variable from the caller's process env except those the
-      caller explicitly passes.
+      caller explicitly passes (amended by variant C: plus the OS-user vars
+      and that runtime's login vars, see Solution addendum).
   - FR-L53. Tests: `runtime/inherit_env_test.ts::FR-L53 *`. Evidence:
     `deno test -A runtime/inherit_env_test.ts`.
 - [x] Default behaviour (full inheritance) unchanged.
@@ -183,13 +184,34 @@ Dispositions (variant B):
       fails before the spawn; a missing `PATH` fails before the spawn.
   - FR-L53. Tests: `runtime/spawn-env_test.ts::FR-L53 *`. Evidence:
     `deno test -A runtime/spawn-env_test.ts`.
-- [ ] Real binaries run with `inheritEnv: false` + explicit `PATH`/`HOME`.
+- [x] Real binaries run with `inheritEnv: false` (variant C: no `env`
+      passed at all).
   - FR-L53. Test: `e2e/inherit_env_e2e_test.ts`. Evidence:
     `E2E=1 E2E_RUNTIMES=claude,codex deno test -A --no-check e2e/inherit_env_e2e_test.ts`
-    (claude CLI + claude ACP + codex CLI).
+    → claude CLI, claude ACP, codex CLI ok (2026-10-18, 3 passed).
 - [x] Add FR-L53 section to SRS with `**Acceptance:**` filled; SDS
       component section; index row; README usage note.
   - FR-L53. Evidence: `deno task check` (doc-lint + publish dry-run).
+
+- [x] Isolation does not break agent login (user, 2026-10-18: "не должно
+      быть такого, что отключение наследования ломает авторизацию"):
+      `inheritEnv: false` with no `env` still authenticates every logged-in
+      runtime.
+  - FR-L53. Tests: `runtime/spawn-env_test.ts::FR-L53 *`,
+    `runtime/inherit_env_test.ts::FR-L53 * keeps the user and its login*`
+    (CLI for 4 runtimes + ACP for claude / codex / opencode) and
+    `::FR-L53 isolated child does not get another runtime's login`; drift
+    check `e2e/isolated_auth_e2e_test.ts` (`E2E=1 deno test -A --no-check
+    e2e/isolated_auth_e2e_test.ts`) → claude, codex, opencode, cursor ok
+    (2026-10-18). Probe: dropping `USER` from `IDENTITY_ENV` turns the
+    claude case red (`claude auth status exited 1`); routing ACP through
+    `NO_LOGIN_ENV` turns the 3 ACP stub tests red.
+- [x] README / SRS / SDS / AGENTS.md no longer claim Claude needs the
+      Claude Desktop host env (wrong: it needs `USER` for the macOS
+      keychain lookup).
+  - FR-L53. Evidence: `grep -rn -F 'Claude Desktop' README.md
+    documents/requirements.md documents/design.md AGENTS.md
+    runtime/AGENTS.md` returns nothing (2026-10-18).
 
 ## Solution
 
@@ -282,8 +304,42 @@ runtime/spawn-env_test.ts`; e2e command from DoD.
   binary e2e) — add when those runtimes get e2e coverage for env.
 - Real-binary e2e 2026-10-18 (`e2e/inherit_env_e2e_test.ts`): codex CLI
   passed; claude CLI → `Not logged in`, claude ACP → `Authentication
-  required`. Cause: this machine's standalone `claude` has no working
-  login (`env -i PATH HOME claude -p` gives the same answer); inside Claude
-  Desktop it authenticates through the host's env, which isolation
-  removes by design. Re-run the claude cases where `claude` is logged in
-  on its own, then tick the e2e DoD item and the SRS criterion.
+  required`. Cause: no `USER` in the child env, so Claude could not find
+  its macOS keychain login (see Solution addendum). Fixed by carrying the
+  parent's identity vars into the isolated env.
+
+
+## Solution addendum — login survives isolation (variant C, 2026-10-18)
+
+Measured 2026-10-18 (`<cli> auth status`, adding one parent var at a time
+to `env -i PATH HOME`): claude needs `USER` (macOS keychain item
+`Claude Code-credentials` is looked up by account = `$USER`); codex and
+opencode need `HOME` only (`~/.codex/auth.json`,
+`~/.local/share/opencode/auth.json`); cursor (`cursor-agent status`)
+stays logged in under `PATH` + `HOME` + `USER` + `LOGNAME`.
+The earlier "Claude Desktop host env" conclusion came from a zsh probe
+bug: an unquoted `$extra` holding `USER=… LOGNAME=…` is not word-split in
+zsh, so `env` got one malformed `USER`.
+
+1. `runtime/spawn-env.ts`: isolated child env = parent's identity vars
+   (`PATH`, `HOME`, `USER`, `LOGNAME`) + parent vars the runtime's login
+   matcher accepts, then caller `env` on top (caller wins), then library
+   vars. `AuthEnvMatcher = (name) => boolean` is a required param of
+   `spawnEnvOptions` and `hostEnv`; `hostHome` takes `HOME` from caller,
+   else parent. `PATH` throw stays only for a parent without `PATH`.
+2. Per-runtime matchers in the runtime's own dir: `claude/auth-env.ts`
+   (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`,
+   `CLAUDE_CONFIG_DIR`, Bedrock / Vertex switches and credentials),
+   `codex/auth-env.ts` (`OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_HOME`),
+   `cursor/auth-env.ts` (`CURSOR_API_KEY`), `opencode/auth-env.ts`
+   (`*_API_KEY`). ACP: per-runtime adapters pass the matcher as a third
+   arg to `invokeViaAcp` / `openSessionViaAcp` / `fetchAcpCommands`
+   (internal, not exported) → `spawnClient` → `AcpStdioClient`; `runtime/`
+   never imports a runtime dir.
+3. Drift check `e2e/isolated_auth_e2e_test.ts`: for each installed
+   runtime whose `<cli> auth status` succeeds with the full env, the same
+   command with the isolated env built by `spawnEnvOptions({}, false,
+   <matcher>)` must also succeed. No tokens spent.
+4. `e2e/inherit_env_e2e_test.ts` passes no `env` at all.
+5. Docs: README, SRS FR-L53, SDS, `runtime/AGENTS.md`; replace the wrong
+   e2e note in `AGENTS.md`.

@@ -107,9 +107,13 @@ a `!` commit, which is why leaving that series took one deliberate
     (FR-L33).
   - `runtime/spawn-env.ts` — `spawnEnvOptions` / `hostEnv` / `hostHome`
     behind `inheritEnv: false` (FR-L53): every agent spawn site spreads
-    `spawnEnvOptions(env, inheritEnv)` (`clearEnv` + `PATH` required), and
-    child-facing path lookups (config / skills / sessions / log dirs,
-    ACP `CODEX_CONFIG`) read the passed env instead of `Deno.env`.
+    `spawnEnvOptions(env, inheritEnv, authEnv)` (`clearEnv`; carries this
+    process's `PATH` / `HOME` / `USER` / `LOGNAME` plus the runtime's
+    login vars, caller `env` wins), and child-facing path lookups
+    (config / skills / sessions / log dirs, ACP `CODEX_CONFIG`) read what
+    the child sees instead of `Deno.env`. The login lists live in
+    `<runtime>/auth-env.ts` (`claudeAuthEnv`, `codexAuthEnv`,
+    `opencodeAuthEnv`, `cursorAuthEnv`).
 - `claude/process.ts`, `claude/stream.ts`, `claude/session.ts` — Claude CLI
   invocation, streaming output parser, and streaming-input session.
   - `claude/permission-mode.ts` — Claude `--permission-mode` enum +
@@ -191,15 +195,19 @@ a `!` commit, which is why leaving that series took one deliberate
   (FR-L17 cross-runtime onInit + onResult),
   `reasoning_effort_e2e_test.ts` (FR-L25 argv-propagation smoke on
   Claude / Codex), `claude_settings_e2e_test.ts`,
-  `cursor_typed_stream_e2e_test.ts` (FR-L30). Driven by
+  `cursor_typed_stream_e2e_test.ts` (FR-L30),
+  `inherit_env_e2e_test.ts` (FR-L53 isolated reply),
+  `isolated_auth_e2e_test.ts` (FR-L53 login-list drift check: each
+  CLI's login-status command under full vs isolated env, no tokens, no
+  auth probe). Driven by
   `deno task e2e` / `deno task e2e:<runtime>`. Gated by `E2E=1` +
   `E2E_RUNTIMES` + per-runtime binary probe + auth probe. E2E does
   NOT run in CI (FR-L34) — `.github/workflows/e2e.yml` is manual
-  `workflow_dispatch` only. Inside the Claude desktop app `claude`
-  authenticates through the host's env, not a login of its own: an e2e
-  that strips the env (`inheritEnv: false`, `env -i`) answers
-  `Not logged in` there (2026-10-18) — that is the machine, not a
-  regression; run such cases from a terminal-logged-in `claude`.
+  `workflow_dispatch` only. On macOS `claude` finds its keychain login
+  by account `$USER`: an `env -i` probe without `USER` answers
+  `Not logged in` although the shell is logged in (2026-10-18). Probe
+  env-stripped CLIs with `PATH` + `HOME` + `USER` before blaming the
+  login.
 - `scripts/smoke.ts` — ad-hoc real-binary capture script for adding
   typed stream-event unions to a new runtime (e.g. `cursor-events`).
   Not a regression suite — that role moved to `e2e/`. Manual,

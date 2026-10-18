@@ -7,6 +7,7 @@
 
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { spawnEnvOptions } from "../runtime/spawn-env.ts";
+import { opencodeAuthEnv } from "./auth-env.ts";
 
 /**
  * Result of {@link exportOpenCodeTranscript}. Exactly one of `path` or
@@ -63,7 +64,7 @@ export async function exportOpenCodeTranscript(
       stderr: "piped",
       ...(opts?.cwd ? { cwd: opts.cwd } : {}),
       // FR-L53: `inheritEnv: false` drops this process's env.
-      ...spawnEnvOptions(syncedEnv, opts?.inheritEnv),
+      ...spawnEnvOptions(syncedEnv, opts?.inheritEnv, opencodeAuthEnv),
       ...(opts?.signal ? { signal: opts.signal } : {}),
     });
     const { success, code, stdout, stderr } = await cmd.output();

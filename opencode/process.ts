@@ -35,6 +35,7 @@ import {
 import { ERROR_CATEGORY_STREAM_STALL } from "../runtime/error-types.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { spawnEnvOptions } from "../runtime/spawn-env.ts";
+import { opencodeAuthEnv } from "./auth-env.ts";
 import { stampLines } from "../runtime/log-format.ts";
 import {
   buildOpenCodeConfigContent,
@@ -272,7 +273,7 @@ async function executeOpenCodeProcess(
     stdout: "piped",
     stderr: "piped",
     // FR-L53: `inheritEnv: false` drops this process's env.
-    ...spawnEnvOptions(syncedEnv, inheritEnv),
+    ...spawnEnvOptions(syncedEnv, inheritEnv, opencodeAuthEnv),
     ...(cwd ? { cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(processGroup ? { detached: true } : {}),

@@ -200,15 +200,21 @@ Deno.test("watchOpenCodeLogForFatalError — exits cleanly when signal aborts be
   await Deno.remove(dir, { recursive: true });
 });
 
-Deno.test("FR-L53 resolveOpenCodeLogDir isolated reads only the passed env", () => {
-  assertEquals(
-    resolveOpenCodeLogDir({ HOME: "/iso" }, false),
-    "/iso/.local/share/opencode/log",
-  );
-  assertEquals(
-    resolveOpenCodeLogDir({ HOME: "/iso", OPENCODE_LOG_DIR: "/logs" }, false),
-    "/logs",
-  );
-  // No HOME passed: the detector is off, as for a parent without HOME.
-  assertEquals(resolveOpenCodeLogDir({}, false), undefined);
+Deno.test("FR-L53 resolveOpenCodeLogDir isolated sees what the child sees", () => {
+  const prev = Deno.env.get("OPENCODE_LOG_DIR");
+  Deno.env.set("OPENCODE_LOG_DIR", "/parent-logs");
+  try {
+    // OPENCODE_LOG_DIR is not carried, so the child logs under its HOME.
+    assertEquals(
+      resolveOpenCodeLogDir({ HOME: "/iso" }, false),
+      "/iso/.local/share/opencode/log",
+    );
+    assertEquals(
+      resolveOpenCodeLogDir({ HOME: "/iso", OPENCODE_LOG_DIR: "/logs" }, false),
+      "/logs",
+    );
+  } finally {
+    if (prev === undefined) Deno.env.delete("OPENCODE_LOG_DIR");
+    else Deno.env.set("OPENCODE_LOG_DIR", prev);
+  }
 });

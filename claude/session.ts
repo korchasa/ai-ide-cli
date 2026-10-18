@@ -30,6 +30,7 @@ import { expandExtraArgs } from "../runtime/argv.ts";
 import { validateToolFilter } from "../runtime/tool-filter.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { spawnEnvOptions } from "../runtime/spawn-env.ts";
+import { claudeAuthEnv } from "./auth-env.ts";
 import { withNonessentialTrafficDisabled } from "./nonessential-traffic.ts";
 import {
   type ReasoningEffort,
@@ -315,7 +316,7 @@ export async function openClaudeSession(
     const prepared = await prepareSettingSourcesDir(
       opts.settingSources,
       env.CLAUDE_CONFIG_DIR ??
-        defaultClaudeConfigDir(opts.env, opts.inheritEnv),
+        defaultClaudeConfigDir(opts.env, opts.inheritEnv, claudeAuthEnv),
       opts.cwd ?? Deno.cwd(),
     );
     settingCleanup = prepared.cleanup;
@@ -342,7 +343,7 @@ export async function openClaudeSession(
     stdout: "piped",
     stderr: "piped",
     // FR-L53: `inheritEnv: false` drops this process's env.
-    ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
+    ...spawnEnvOptions(syncedEnv, opts.inheritEnv, claudeAuthEnv),
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(opts.processGroup ? { detached: true } : {}),

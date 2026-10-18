@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import { join } from "@std/path";
 import {
   defaultClaudeConfigDir,
@@ -117,15 +117,25 @@ Deno.test("prepareSettingSourcesDir — ['user'] with missing settings.json skip
   }
 });
 
-Deno.test("FR-L53 defaultClaudeConfigDir isolated reads only the passed env", () => {
-  assertEquals(defaultClaudeConfigDir({ HOME: "/iso" }, false), "/iso/.claude");
-  assertEquals(
-    defaultClaudeConfigDir({ HOME: "/iso", CLAUDE_CONFIG_DIR: "/cfg" }, false),
-    "/cfg",
-  );
-  assertThrows(
-    () => defaultClaudeConfigDir({}, false),
-    Error,
-    "Claude config dir needs HOME",
-  );
+Deno.test("FR-L53 defaultClaudeConfigDir isolated sees what the child sees", () => {
+  const login = (n: string) => n === "CLAUDE_CONFIG_DIR";
+  const prev = Deno.env.get("CLAUDE_CONFIG_DIR");
+  Deno.env.set("CLAUDE_CONFIG_DIR", "/parent-cfg");
+  try {
+    // A carried login var reaches the child, so the lookup sees it.
+    assertEquals(defaultClaudeConfigDir({}, false, login), "/parent-cfg");
+    // The caller's value wins.
+    assertEquals(
+      defaultClaudeConfigDir({ CLAUDE_CONFIG_DIR: "/cfg" }, false, login),
+      "/cfg",
+    );
+    // Not a login var for this matcher: the child does not get it.
+    assertEquals(
+      defaultClaudeConfigDir({ HOME: "/iso" }, false, () => false),
+      "/iso/.claude",
+    );
+  } finally {
+    if (prev === undefined) Deno.env.delete("CLAUDE_CONFIG_DIR");
+    else Deno.env.set("CLAUDE_CONFIG_DIR", prev);
+  }
 });

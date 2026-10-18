@@ -249,22 +249,27 @@ By default the agent inherits this process's whole environment and `env`
 is merged on top. An app that runs inside an agent session (Claude Code,
 Codex, …) therefore hands that session's `CLAUDE_CODE_*`, `ANTHROPIC_*`,
 `CODEX_*`, `OTEL_*` and proxy variables to every agent it starts.
-`inheritEnv: false` cuts that off (FR-L53): the agent gets only `env`
-plus the library's own variables (`PWD`, the FR-L45 switch, the
-cleanroom `CLAUDE_CONFIG_DIR`, the ACP front's env). It works on every
-runtime, on both transports, and for `invoke`, `openSession`,
+`inheritEnv: false` cuts that off (FR-L53) without logging the agent
+out. The agent's env is built from, later wins:
+
+1. this process's OS-user variables — `PATH`, `HOME`, `USER`, `LOGNAME`;
+2. this process's login variables of that runtime only — e.g.
+   `ANTHROPIC_API_KEY` / `CLAUDE_CONFIG_DIR` / Bedrock and Vertex vars
+   for Claude, `OPENAI_API_KEY` / `CODEX_HOME` for Codex, any
+   `*_API_KEY` for OpenCode, `CURSOR_API_KEY` for Cursor (lists in
+   `<runtime>/auth-env.ts`);
+3. your `env`;
+4. the library's own variables (`PWD`, the FR-L45 switch, the cleanroom
+   `CLAUDE_CONFIG_DIR`, the ACP front's env).
+
+Everything else in this process — `CLAUDECODE`, `CLAUDE_CODE_*` session
+vars, `OTEL_*`, proxies, another runtime's keys — stays out. It works on
+every runtime, on both transports, and for `invoke`, `openSession`,
 `launchInteractive`, `fetchCapabilitiesSlow` and `fetchCommands`.
 
-You pass everything the agent needs:
-
-- `PATH` — required; the run throws without it, because Deno would
-  otherwise find the binary through this process's `PATH`.
-- `HOME` — where the agent keeps its login and config; the library also
-  resolves the config, skills, transcript and log directories from it.
-  A lookup that needs it throws when it is missing.
-- Credentials — an API key, or a `HOME` whose agent login works on its
-  own. A Claude started from inside Claude Desktop authenticates through
-  the host's variables and is not logged in without them.
+No `env` is required: a CLI logged in from your shell stays logged in.
+Pass `env` only to add or override variables. The run throws before the
+spawn when no `PATH` is left (neither in `env` nor in this process).
 
 ```ts
 import { ProcessRegistry } from "jsr:@korchasa/ai-ide-cli";
@@ -277,7 +282,6 @@ const { output, error } = await getRuntimeAdapter("codex").invoke({
   maxRetries: 1,
   retryDelaySeconds: 1,
   inheritEnv: false,
-  env: { PATH: Deno.env.get("PATH")!, HOME: Deno.env.get("HOME")! },
 });
 ```
 

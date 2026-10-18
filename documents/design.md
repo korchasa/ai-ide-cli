@@ -1165,22 +1165,36 @@ helper closes that gap at the spawn boundary without mutating
 
 ### 3.12.5a `runtime/spawn-env.ts` — Env Inheritance Opt-Out (FR-L53)
 
-Leaf helpers, no per-runtime imports:
+Leaf helpers, no per-runtime imports. Login lists are passed in as
+`AuthEnvMatcher = (name) => boolean`, one per runtime in
+`<runtime>/auth-env.ts` (`claudeAuthEnv`, `codexAuthEnv`,
+`opencodeAuthEnv`, `cursorAuthEnv`); `NO_LOGIN_ENV` accepts nothing.
 
-- `spawnEnvOptions(env, inheritEnv) → {env?, clearEnv?}` — spread into
-  every agent `Deno.Command` (14 sites: claude process/session/interactive,
-  codex process/app-server/interactive, opencode
-  process/session/transcript/interactive, cursor process/session/chat,
-  `AcpStdioClient`). Default → `env ? {env} : {}` (unchanged merge);
-  `false` → `{clearEnv: true, env}`, throws when `env.PATH` is unset
-  (Deno resolves the binary via the parent `PATH` when the child env has
-  none).
-- `hostEnv(name, env, inheritEnv)` — isolated → `env[name]`; default →
-  `Deno.env.get(name)`.
-- `hostHome(env, inheritEnv, purpose)` — isolated → `env.HOME` or throw
-  naming `purpose`; default → `Deno.env.get("HOME") ?? Deno.cwd()`.
+- `IDENTITY_ENV = [PATH, HOME, USER, LOGNAME]` — OS-user vars always
+  carried into an isolated child.
+- `spawnEnvOptions(env, inheritEnv, authEnv) → {env?, clearEnv?}` —
+  spread into every agent `Deno.Command` (14 sites: claude
+  process/session/interactive, codex process/app-server/interactive,
+  opencode process/session/transcript/interactive, cursor
+  process/session/chat, `AcpStdioClient`). Default → `env ? {env} : {}`
+  (unchanged merge); `false` → `{clearEnv: true, env: {...carried,
+  ...env}}` where carried = this process's vars in `IDENTITY_ENV` or
+  accepted by `authEnv`; throws when the result has no `PATH`.
+- `hostEnv(name, env, inheritEnv, authEnv)` — isolated → `env[name]`,
+  else this process's value when `name` is carried, else `undefined`;
+  default → `Deno.env.get(name)`.
+- `hostHome(env, inheritEnv, purpose)` — isolated → `env.HOME` ??
+  this process's `HOME`, else throw naming `purpose`; default →
+  `Deno.env.get("HOME") ?? Deno.cwd()`.
 
-Callers of the lookups (optional `(env?, inheritEnv?)` params, additive):
+Matcher plumbing: each per-runtime spawn site imports its own matcher.
+ACP internals (`invokeViaAcp`, `openSessionViaAcp`, `fetchAcpCommands`
+→ `spawnClient` → `AcpStdioClient`) take an optional `authEnv`; every
+runtime adapter passes its matcher, absent (tests) → `NO_LOGIN_ENV`.
+`runtime/` never imports `<runtime>/auth-env.ts` outside the adapters.
+
+Callers of the lookups (optional `(env?, inheritEnv?)` params, additive;
+`defaultClaudeConfigDir` also takes the matcher):
 `defaultClaudeConfigDir` (`runtime/setting-sources.ts`, also feeds
 `claudeSkillsDir`), `defaultCodexSessionsDir` (`codex/transcript.ts`,
 resolved once before the exec spawn and passed to both
@@ -1188,7 +1202,7 @@ resolved once before the exec spawn and passed to both
 (`opencode/upstream-error-detector.ts`), `codexSkillsDir`,
 `opencodeSkillsDir`, ACP `spawnClient` (`CODEX_CONFIG` read).
 `AcpStdioClient` drops its explicit `Deno.env.toObject()` copy when
-isolated. `inheritEnv` is threaded wherever `env` is forwarded
+isolated; `spawnEnvOptions` adds the carried vars. `inheritEnv` is threaded wherever `env` is forwarded
 (adapters, `fetchInventoryViaInvoke`, `fetchAcpCommands`,
 `openCodexSession` → `CodexAppServerClient.spawn`, cursor
 `createCursorChat`, `exportOpenCodeTranscript`). Not an ACP-unsupported

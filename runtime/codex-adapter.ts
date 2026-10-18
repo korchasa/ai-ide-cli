@@ -30,6 +30,7 @@ import { validateMcpServers } from "./mcp-injection.ts";
 import { rejectUnsupportedSystemPromptFile } from "./system-prompt-file.ts";
 import { withSyncedPWD } from "./env-cwd-sync.ts";
 import { hostHome, spawnEnvOptions } from "./spawn-env.ts";
+import { codexAuthEnv } from "../codex/auth-env.ts";
 import { join } from "@std/path";
 import { copy } from "@std/fs";
 
@@ -164,7 +165,9 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
     // FR-L51: Deno cannot signal a process group on Windows.
     rejectProcessGroupOnWindows("codex", opts);
     // FR-L39
-    if (opts.transport === "acp") return invokeViaAcp("codex", opts);
+    if (opts.transport === "acp") {
+      return invokeViaAcp("codex", opts, codexAuthEnv);
+    }
     rejectUnsupportedSystemPromptFile("codex", opts);
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
@@ -176,7 +179,9 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
   openSession(opts: RuntimeSessionOptions): Promise<RuntimeSession> {
     // FR-L51: Deno cannot signal a process group on Windows.
     rejectProcessGroupOnWindows("codex", opts);
-    if (opts.transport === "acp") return openSessionViaAcp("codex", opts);
+    if (opts.transport === "acp") {
+      return openSessionViaAcp("codex", opts, codexAuthEnv);
+    }
     validateToolFilter("codex", opts);
     warnToolFilterOnce(opts);
     validateReasoningEffort("codex", opts);
@@ -200,7 +205,9 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
 
   // FR-L42: zero-LLM-cost commands fast-channel via the ACP front.
   fetchCommands(opts: FetchCommandsOptions): Promise<CommandsSnapshot> {
-    if (opts.transport === "acp") return fetchAcpCommands("codex", opts);
+    if (opts.transport === "acp") {
+      return fetchAcpCommands("codex", opts, codexAuthEnv);
+    }
     return Promise.reject(
       new CommandsUnavailableError("codex", opts.transport, "no_fast_channel"),
     );
@@ -239,7 +246,7 @@ export const codexRuntimeAdapter: RuntimeAdapter = {
         stdout: "inherit",
         stderr: "inherit",
         // FR-L53: `inheritEnv: false` drops this process's env.
-        ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
+        ...spawnEnvOptions(syncedEnv, opts.inheritEnv, codexAuthEnv),
         ...(opts.cwd ? { cwd: opts.cwd } : {}),
       });
 

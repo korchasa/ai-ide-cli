@@ -67,6 +67,7 @@ import {
 } from "../runtime/callback-safety.ts";
 import { withSyncedPWD } from "../runtime/env-cwd-sync.ts";
 import { spawnEnvOptions } from "../runtime/spawn-env.ts";
+import { codexAuthEnv } from "./auth-env.ts";
 import { parseStructuredReply } from "../runtime/run-options.ts";
 import { stampLines } from "../runtime/log-format.ts";
 import { type ProcessRegistry, signalChild } from "../process-registry.ts";
@@ -270,7 +271,7 @@ async function executeCodexProcess(
     stdout: "piped",
     stderr: "piped",
     // FR-L53: `inheritEnv: false` drops this process's env.
-    ...spawnEnvOptions(syncedEnv, runOpts.inheritEnv),
+    ...spawnEnvOptions(syncedEnv, runOpts.inheritEnv, codexAuthEnv),
     ...(cwd ? { cwd } : {}),
     // FR-L51: own process group → pgid == pid.
     ...(runOpts.processGroup ? { detached: true } : {}),

@@ -9,6 +9,7 @@
 
 import { join } from "@std/path";
 import { hostEnv, hostHome } from "../runtime/spawn-env.ts";
+import { codexAuthEnv } from "./auth-env.ts";
 
 /**
  * Default Codex sessions directory: `$CODEX_HOME/sessions` or `~/.codex/sessions`.
@@ -21,7 +22,7 @@ export function defaultCodexSessionsDir(
   env?: Record<string, string>,
   inheritEnv?: boolean,
 ): string {
-  const codexHome = hostEnv("CODEX_HOME", env, inheritEnv) ??
+  const codexHome = hostEnv("CODEX_HOME", env, inheritEnv, codexAuthEnv) ??
     join(hostHome(env, inheritEnv, "Codex sessions dir"), ".codex");
   return join(codexHome, "sessions");
 }

@@ -3151,34 +3151,45 @@ runs); OpenCode and Codex dispatch at completion time.
 - **Description:** `inheritEnv: false` on `RuntimeInvokeOptions`,
   `RuntimeSessionOptions`, `InteractiveOptions`,
   `FetchCapabilitiesOptions` or `FetchCommandsOptions` spawns the agent
-  with `clearEnv: true`: its env is the caller-passed `env` plus the
+  with `clearEnv: true`. Its env, later wins: this process's OS-user
+  vars (`PATH`, `HOME`, `USER`, `LOGNAME`); this process's login vars of
+  that runtime only (per-runtime list); the caller-passed `env`; the
   library's own variables (`PWD` FR-L33, FR-L45 switch, FR-L18
   `CLAUDE_CONFIG_DIR`, `CLAUDECODE=""`, ACP front `env`, FR-L47
-  `CODEX_CONFIG`), nothing from this process. Default `true` keeps
+  `CODEX_CONFIG`). Nothing else from this process. Default `true` keeps
   today's merge over the inherited env.
+- **Login survives isolation:** a CLI logged in under this process's env
+  stays logged in when isolated, with no caller `env`. Login lists:
+  Claude — `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+  `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, Bedrock
+  (`CLAUDE_CODE_USE_BEDROCK`, `AWS_*` credentials / profile / region,
+  `AWS_BEARER_TOKEN_BEDROCK`), Vertex (`CLAUDE_CODE_USE_VERTEX`,
+  `ANTHROPIC_VERTEX_PROJECT_ID`, `CLOUD_ML_REGION`,
+  `GOOGLE_APPLICATION_CREDENTIALS`); Codex — `OPENAI_API_KEY`,
+  `CODEX_API_KEY`, `CODEX_HOME`; OpenCode — any `*_API_KEY`; Cursor —
+  `CURSOR_API_KEY`. One runtime's list never reaches another runtime.
 - **Tasks:** [isolated-child-env](tasks/2026/10/isolated-child-env.md)
 - **Covered spawns:** all 14 agent spawn sites — Claude invoke, session,
   interactive; Codex exec, app-server, interactive; OpenCode run, serve,
   export, interactive; Cursor invoke, per-send, create-chat; every ACP
   front. Cursor has no interactive mode.
 - **Library lookups:** in isolated mode the paths the library computes
-  for the child read the passed `env`, never this process: Claude config
+  for the child read what the child sees (caller `env`, else a carried
+  OS-user / login var), never the rest of this process: Claude config
   dir (FR-L18 cleanroom source, skills), Codex / OpenCode skills dirs,
   Codex sessions dir (transcript), OpenCode log dir (upstream-error
   detector), ACP `CODEX_CONFIG`.
-- **Fail fast:** `env` without `PATH` throws before the spawn — Deno
-  would look the binary up through this process's `PATH`, so the caller's
-  env would still pick the agent. A lookup that needs `HOME` throws when
-  `env` has neither `HOME` nor the lookup's own override
-  (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`); the Codex sessions dir is resolved
-  before the spawn, so no tokens are spent first. No missing variable is
-  filled from this process.
-- **Caller's duty:** pass `PATH`, `HOME` and whatever the agent needs to
-  authenticate (API key, or a `HOME` whose agent login works without the
-  host). Measured 2026-10-18: `codex` with empty env exits 127 (`env:
-  node: No such file or directory`), with `PATH` only it starts; `claude`
-  run from inside Claude Desktop authenticates through the host's env, so
-  with `PATH` + `HOME` alone it answers `Not logged in`.
+- **Fail fast:** no `PATH` in `env` nor in this process → throw before
+  the spawn (Deno would look the binary up through a `PATH` the child
+  lacks). A lookup that needs `HOME` throws when neither `env` nor this
+  process has it and the lookup's own override (`CLAUDE_CONFIG_DIR`,
+  `CODEX_HOME`) is unset; the Codex sessions dir resolves before the
+  spawn, so no tokens are spent first.
+- **Why OS-user vars are carried:** measured 2026-10-18 — `codex` with
+  empty env exits 127 (`env: node: No such file or directory`), so npm
+  shims need `PATH`; `codex` / `opencode` read their login under `HOME`;
+  `claude` finds its macOS keychain login by account `$USER` and answers
+  `Not logged in` without it.
 - **Motivation:** an app built on this library that runs inside an agent
   session hands that session's variables (`CLAUDE_CODE_*`,
   `ANTHROPIC_*`, `CODEX_*`, `OTEL_*`, proxies) to every agent it spawns,
@@ -3186,12 +3197,21 @@ runs); OpenCode and Codex dispatch at completion time.
 - **Acceptance criteria:**
   - [x] Every spawn site hides this process's env when isolated; default
         still inherits. Tests: `runtime/inherit_env_test.ts::FR-L53 *`.
+  - [x] Login vars and `USER` reach the isolated child per runtime and
+        transport, another runtime's do not. Tests:
+        `runtime/inherit_env_test.ts::FR-L53 * keeps the user and its
+        login*`, `::FR-L53 isolated child does not get another runtime's
+        login`.
   - [x] Helper truth table, `PATH` / `HOME` fail-fast. Tests:
         `runtime/spawn-env_test.ts::FR-L53 *`.
   - [x] Library lookups read only the passed env. Tests:
         `runtime/setting-sources_test.ts::FR-L53 *`,
         `codex/process_test.ts::FR-L53 *`,
         `opencode/upstream-error-detector_test.ts::FR-L53 *`.
-  - [ ] Real binaries reply with `PATH` + `HOME` only. Test:
-        `e2e/inherit_env_e2e_test.ts` — codex CLI passes (2026-10-18);
-        claude CLI / ACP need a host-independent Claude login.
+  - [x] Real binaries reply isolated with no caller `env`. Test:
+        `e2e/inherit_env_e2e_test.ts` — claude CLI, claude ACP, codex CLI
+        pass (2026-10-18).
+  - [x] Login lists not stale: each installed CLI's login status matches
+        under full and isolated env, no tokens. Test:
+        `e2e/isolated_auth_e2e_test.ts` — claude, codex, opencode, cursor
+        pass (2026-10-18).

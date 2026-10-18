@@ -15,7 +15,11 @@
 
 import { type ProcessRegistry, signalChild } from "../../process-registry.ts";
 import { withSyncedPWD } from "../env-cwd-sync.ts";
-import { spawnEnvOptions } from "../spawn-env.ts";
+import {
+  type AuthEnvMatcher,
+  NO_LOGIN_ENV,
+  spawnEnvOptions,
+} from "../spawn-env.ts";
 
 /** Inbound notification (server → client, no `id`). */
 export interface AcpClientNotification {
@@ -84,6 +88,8 @@ export interface AcpStdioClientOptions {
   processGroup?: boolean;
   /** FR-L53: `false` → the front's env is `env` only. */
   inheritEnv?: boolean;
+  /** FR-L53: the runtime's login-variable matcher; absent → identity only. */
+  authEnv?: AuthEnvMatcher;
 }
 
 /**
@@ -194,7 +200,8 @@ export class AcpStdioClient {
     this.#registry = opts.processRegistry;
     this.#onRequest = opts.onRequest;
     this.#onStderr = opts.onStderr;
-    // FR-L53: isolated fronts start from `env` alone, never this process.
+    // FR-L53: isolated fronts get `env` plus the identity / login vars
+    // `spawnEnvOptions` carries, never the rest of this process's env.
     const baseEnv = opts.inheritEnv === false
       ? { ...(opts.env ?? {}) }
       : { ...Deno.env.toObject(), ...(opts.env ?? {}) };
@@ -204,7 +211,11 @@ export class AcpStdioClient {
       stdin: "piped",
       stdout: "piped",
       stderr: "piped",
-      ...spawnEnvOptions(syncedEnv, opts.inheritEnv),
+      ...spawnEnvOptions(
+        syncedEnv,
+        opts.inheritEnv,
+        opts.authEnv ?? NO_LOGIN_ENV,
+      ),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
       // FR-L51: own process group → pgid == pid.
       ...(opts.processGroup ? { detached: true } : {}),

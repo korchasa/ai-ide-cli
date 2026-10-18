@@ -21,7 +21,12 @@
  */
 
 import { join } from "@std/path";
-import { hostEnv, hostHome } from "./spawn-env.ts";
+import {
+  type AuthEnvMatcher,
+  hostEnv,
+  hostHome,
+  NO_LOGIN_ENV,
+} from "./spawn-env.ts";
 
 /** Individual Claude settings source. */
 export type SettingSource = "user" | "project" | "local";
@@ -95,13 +100,18 @@ export async function prepareSettingSourcesDir(
  * or the platform default `$HOME/.claude`.
  *
  * @param env Caller-passed env of the run (FR-L53).
- * @param inheritEnv `false` reads `env` only and throws without
- *   `CLAUDE_CONFIG_DIR` / `HOME`; otherwise this process's env.
+ * @param inheritEnv `false` answers with what the isolated child sees;
+ *   otherwise this process's env.
+ * @param authEnv Claude's login-variable matcher (`claude/auth-env.ts`),
+ *   passed in because `runtime/` does not import runtime dirs. Library
+ *   call sites always pass it; absent → only the OS-user vars count as
+ *   carried, so an isolated parent `CLAUDE_CONFIG_DIR` is not seen.
  */
 export function defaultClaudeConfigDir(
   env?: Record<string, string>,
   inheritEnv?: boolean,
+  authEnv: AuthEnvMatcher = NO_LOGIN_ENV,
 ): string {
-  return hostEnv("CLAUDE_CONFIG_DIR", env, inheritEnv) ??
+  return hostEnv("CLAUDE_CONFIG_DIR", env, inheritEnv, authEnv) ??
     join(hostHome(env, inheritEnv, "Claude config dir"), ".claude");
 }
