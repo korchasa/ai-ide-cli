@@ -1,6 +1,6 @@
 /**
  * @module
- * Typed discriminated union over the `codex exec --experimental-json`
+ * Typed discriminated union over the `codex exec --json`
  * NDJSON event stream + a single-line parser.
  *
  * **Parallel protocol warning.** This module models the snake_case
@@ -279,7 +279,7 @@ export interface CodexExecUnknownEvent {
   [key: string]: unknown;
 }
 
-/** Discriminated union of every Codex `exec --experimental-json` event. */
+/** Discriminated union of every Codex `exec --json` event. */
 export type CodexExecEvent =
   | CodexExecThreadStartedEvent
   | CodexExecTurnCompletedEvent

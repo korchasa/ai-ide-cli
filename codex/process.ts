@@ -1,13 +1,13 @@
 /**
  * @module
- * Codex CLI process runner: spawns `codex exec --experimental-json` with
+ * Codex CLI process runner: spawns `codex exec --json` with
  * the user prompt piped on stdin, processes NDJSON events in real-time,
  * and returns normalized {@link CliRunOutput}. Includes retry logic with
  * exponential backoff, AbortSignal cancellation, runtime-neutral lifecycle
  * hooks, observed tool-use callback, and persisted transcript discovery.
  *
  * **Parallel protocol warning.** This file parses the `codex exec
- * --experimental-json` NDJSON stream — item types are **snake_case**
+ * --json` NDJSON stream — item types are **snake_case**
  * (`agent_message`, `command_execution`, `file_change`, `mcp_tool_call`,
  * `web_search`, `reasoning`, `todo_list`, `error`) and live at
  * `event.item.*` on `item.completed` events. The streaming-input session
@@ -234,7 +234,7 @@ async function runCodexAttempts(
 }
 
 /**
- * Execute the codex CLI process with --experimental-json output.
+ * Execute the codex CLI process with --json output.
  * The prompt is written to the child's stdin and stdin is then closed.
  */
 async function executeCodexProcess(

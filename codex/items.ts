@@ -3,7 +3,7 @@
  * Conceptual tool-item layer shared between Codex's two parallel
  * protocols.
  *
- * `codex exec --experimental-json` emits NDJSON items with snake_case
+ * `codex exec --json` emits NDJSON items with snake_case
  * discriminators (`command_execution`, `file_change`, `mcp_tool_call`,
  * `web_search`, …). `codex app-server` emits JSON-RPC items with
  * camelCase discriminators (`commandExecution`, `fileChange`,
@@ -74,7 +74,7 @@ export interface CodexConceptualItem {
 }
 
 /**
- * Lift a `codex exec --experimental-json` (snake_case) item into a
+ * Lift a `codex exec --json` (snake_case) item into a
  * {@link CodexConceptualItem}. Returns `undefined` for non-tool items
  * (`agent_message`, `reasoning`, `error`, `todo_list`).
  *

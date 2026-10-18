@@ -1,9 +1,9 @@
 ---
 date: "2026-05-17"
-status: to do
+status: done
 implements: [FR-L13, FR-L14]
 tags: [codex, argv, placement, 0.123]
-related_tasks: [codex-ban-full-auto-flag]
+related_tasks: [2026/05/codex-ban-full-auto-flag.md]
 ---
 
 # Codex: Audit Flag Placement After 0.123 Root-Inheritance
@@ -67,35 +67,35 @@ Upstream: <https://github.com/openai/codex/releases/tag/rust-v0.123.0>.
 
 ## Definition of Done
 
-- [ ] FR-L13: `codex/argv.ts:buildCodexArgs` never emits a duplicate
+- [x] FR-L13: `codex/argv.ts:buildCodexArgs` never emits a duplicate
       shared flag for any combination of `model` / `cwd` /
       `permissionMode` / `reasoningEffort` / `extraArgs`. Test path:
       `codex/argv_test.ts::"no duplicate shared flag positions"`.
       Evidence: `NO_COLOR=1 deno task test codex/argv_test.ts`.
-- [ ] FR-L13: `codex/argv.ts:buildCodexArgs` never emits two
+- [x] FR-L13: `codex/argv.ts:buildCodexArgs` never emits two
       `--config <key>=...` pairs sharing the same key when the typed
       paths (permission mode, reasoning effort, mcpServers) collide
       with adapter-emitted keys. Same test as above, second
       assertion section. Evidence:
       `NO_COLOR=1 deno task test codex/argv_test.ts`.
-- [ ] FR-L14: `runtime/AGENTS.md` codex bullet documents the
+- [x] FR-L14: `runtime/AGENTS.md` codex bullet documents the
       placement convention: all flags emit at subcommand position;
       `extraArgs` map is a single bucket appended at the end of
       subcommand argv; Codex 0.123 root-inheritance is N/A since the
       adapter never writes root-position flags; `--config` is
       intentionally repeatable with last-wins semantics. Evidence:
       `grep -n "subcommand position\|placement" runtime/AGENTS.md`.
-- [ ] FR-L13: SRS `### 3.13 FR-L13` Acceptance includes a
+- [x] FR-L13: SRS `### 3.13 FR-L13` Acceptance includes a
       no-duplicate-placement invariant referencing the new test.
       Evidence: `grep -n "duplicate placement" documents/requirements.md`.
-- [ ] FR-L13: SDS `### 3.10.4` for `codex/argv.ts` notes the canonical
+- [x] FR-L13: SDS `### 3.10.4` for `codex/argv.ts` notes the canonical
       placement rule (subcommand-only; reserved-flag de-dup;
       `--config` intentionally open). Evidence:
       `grep -n "placement" documents/design.md`.
-- [ ] `documents/index.md` `## FR` rows: FR-L13 entry updated to
+- [x] `documents/index.md` `## FR` rows: FR-L13 entry updated to
       reference placement; FR-L14 row added. Evidence:
       `grep -n "FR-L13\|FR-L14" documents/index.md`.
-- [ ] Final check: `NO_COLOR=1 deno task check` exits 0.
+- [x] Final check: `NO_COLOR=1 deno task check` exits 0.
 
 ## Solution
 
@@ -209,7 +209,34 @@ Upstream: <https://github.com/openai/codex/releases/tag/rust-v0.123.0>.
 9. **Final check.**
    - `NO_COLOR=1 deno task check` — must exit 0.
 
+## Re-validation (2026-10-18)
+
+- Steps 1–8 implemented in `665fee7` (2026-05-17); this file's
+  checklist was never ticked. Re-checked against current code and
+  `codex-cli 0.159.1`.
+- Binary: root-level `--sandbox` / `--model` / `--cd` / `--config`
+  still exist (`codex --help`), so the root-inheritance hazard is
+  live and the rule still matters. `--experimental-json` is hidden
+  from `codex exec --help` (only `--json` listed) but still parses.
+- Code drift since May: `buildCodexArgs` gained `--output-schema`
+  (FR-L50), `--ephemeral` (FR-L52) and typed `mcpServers` (FR-L35);
+  the May test covered none of them, and never asserted the
+  subcommand-position rule itself (only flag counts). Extended
+  `"no duplicate shared flag positions"`: options now carry
+  `mcpServers`, `outputSchema` + schema path, `ephemeral`,
+  `resumeSessionId`; asserts `argv[0] === "exec"` and
+  `resume <id>` closes argv; `--output-schema` / `--ephemeral` added
+  to the singleton list. SRS / SDS / `runtime/AGENTS.md` list the new
+  flags.
+- Mutation probes (restored from a copy): `--sandbox x` before
+  `exec` → red on the `argv[0]` assertion; doubled `--ephemeral` →
+  red on the singleton count.
+
 ## Follow-ups
+
+- (New) `--experimental-json` is hidden from `codex exec --help` in
+  0.159.1; `--json` is the listed spelling. Evaluate switching the
+  exec transport to `--json` before upstream drops the hidden alias.
 
 - (Deferred) Real-binary e2e smoke
   `e2e/lifecycle_hooks_e2e_test.ts::"codex sandbox flag is not

@@ -51,10 +51,12 @@ async function withStubCodex<T>(script: string, fn: () => Promise<T>) {
 
 // --- buildCodexArgs ---
 
-Deno.test("buildCodexArgs — fresh invocation starts with exec --experimental-json", () => {
+// FR-L13
+Deno.test("buildCodexArgs — fresh invocation starts with exec --json", () => {
   const args = buildCodexArgs(makeInvokeOpts());
   assertEquals(args[0], "exec");
-  assertEquals(args[1], "--experimental-json");
+  assertEquals(args[1], "--json");
+  assertEquals(args.includes("--experimental-json"), false);
 });
 
 Deno.test("buildCodexArgs — prompt is NOT appended to argv (stdin-only)", () => {

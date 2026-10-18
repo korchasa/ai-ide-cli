@@ -1,6 +1,6 @@
 /**
  * @module
- * Codex `codex exec --experimental-json` run-state aggregator.
+ * Codex `codex exec --json` run-state aggregator.
  *
  * Pure functions that fold the parsed NDJSON event stream into a
  * `CodexRunState`, then project it onto a runtime-neutral `CliRunOutput`.
@@ -8,7 +8,7 @@
  * subprocess-free.
  *
  * Parallel-protocol warning (same as the runner): all types here describe
- * the **snake_case** `codex exec --experimental-json` protocol. The
+ * the **snake_case** `codex exec --json` protocol. The
  * camelCase `codex app-server` JSON-RPC v2 transport used by
  * `codex/session.ts` has its own helpers — do NOT cross-reference.
  */
@@ -178,7 +178,7 @@ export function classifyCodexErrorText(
 ): RuntimeErrorCategory | undefined {
   if (typeof message !== "string" || message.length === 0) return undefined;
   // Envelope form: try a JSON parse first. Most error events from
-  // `codex exec --experimental-json` ship the upstream API body verbatim.
+  // `codex exec --json` ship the upstream API body verbatim.
   const trimmed = message.trim();
   if (trimmed.startsWith("{")) {
     try {

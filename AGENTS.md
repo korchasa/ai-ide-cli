@@ -157,7 +157,7 @@ a `!` commit, which is why leaving that series took one deliberate
   `codex/app-server-internals.ts`, `codex/session.ts`,
   `codex/permission-mode.ts`, `codex/items.ts`,
   `codex/exec-events.ts`, `codex/events.ts`, `codex/content.ts` — Codex
-  (`codex exec --experimental-json`) invocation split into argv builder
+  (`codex exec --json`) invocation split into argv builder
   + permission-mode serializer (`argv.ts`), NDJSON event aggregator +
   output projector + formatter + tool-use info extractor
   (`run-state.ts`), and persisted-rollout discovery

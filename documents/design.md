@@ -131,7 +131,7 @@ ai-ide-cli/
     transcript.ts       — defaultCodexSessionsDir, findCodexSessionFile
     exec-events.ts      — CodexExecEvent / CodexExecItem typed unions +
                           parseCodexExecEvent (snake_case NDJSON protocol
-                          for `codex exec --experimental-json`)
+                          for `codex exec --json`)
     app-server.ts       — CodexAppServerClient, CodexAppServerError,
                           CodexAppServerNotification (JSON-RPC transport for
                           `codex app-server --listen stdio://`)
@@ -852,11 +852,12 @@ Single source of truth for the runtime-neutral `permissionMode` →
 
 Consumers are thin serializers:
 
-- `permissionModeToCodexArgs(mode)` in `codex/process.ts` →
-  `--sandbox <mode>` + `--config approval_policy="<mode>"` argv
-  (one-shot exec transport). The deprecated `--full-auto` flag (Codex
-  `rust-v0.128.0`) is intentionally never emitted — permission profiles
-  are the supported replacement.
+- `permissionModeToCodexArgs(mode)` in `codex/argv.ts` (re-exported from
+  `codex/process.ts`) → `--sandbox <mode>` +
+  `--config approval_policy="<mode>"` argv (one-shot exec transport).
+  `--full-auto` (deprecated in Codex `rust-v0.128.0`, rejected by
+  `codex-cli 0.159.1`) is intentionally never emitted — permission
+  profiles are the supported replacement.
 - `permissionModeToThreadStartFields(mode)` in `codex/session.ts` →
   `{approvalPolicy?, sandbox?}` fields for `thread/start` /
   `thread/resume` (app-server transport).
@@ -949,9 +950,14 @@ piping, NDJSON parsing, denial synthesis). Pure helpers moved out:
   reserved-flag sets (`CODEX_RESERVED_FLAGS`,
   `CODEX_RESERVED_POSITIONALS`, `CODEX_INTENTIONALLY_OPEN_FLAGS`).
   Canonical placement: every emitted flag lives at subcommand position
-  (after `exec`); reserved singletons (`--experimental-json`,
-  `--model`, `--cd`, `--sandbox`) structurally de-duplicate against
-  `extraArgs`; `--config` is intentionally open (repeatable, last-wins
+  (after `exec`); reserved singletons (`--json`, `--model`, `--cd`,
+  `--sandbox`; plus the private `CODEX_RESERVED_FLAG_ALIASES` =
+  `--experimental-json`, a hidden clap alias of `--json`, rejected but
+  never emitted) structurally de-duplicate against
+  `extraArgs`; typed `--output-schema` / `--ephemeral` are emitted at
+  most once and guarded against `extraArgs` by
+  `rejectTypedFlagCollision`; `resume <id>` closes argv; `--config` is
+  intentionally open (repeatable, last-wins
   per Codex convention) and adapter-emitted `--config` keys
   (`approval_policy`, `model_reasoning_effort`,
   `mcp_servers.<name>.*`) never collide among themselves. Codex
