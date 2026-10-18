@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [2.0.0](https://github.com/korchasa/ai-ide-cli/compare/v1.2.1...v2.0.0) (2026-10-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** RuntimeAdapter no longer has launchInteractive and
+RuntimeCapabilities no longer has interactive. Delete stub members
+and `interactive:` fields from adapter literals; spawn the IDE binary
+directly for a terminal session.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Features
+
+* **runtime:** remove launchInteractive and the interactive flag ([f97ee77](https://github.com/korchasa/ai-ide-cli/commit/f97ee7728f126a010d7a3f13c1f1a9d15dd48849))
+
+
+### Bug Fixes
+
+* **codex:** emit documented --json and reserve its hidden alias (FR-L13/FR-L14) ([2506c64](https://github.com/korchasa/ai-ide-cli/commit/2506c64389159ff69b524aafe871b13077350a1b))
+* **codex:** keep a reported zero reasoning_tokens (FR-L13/FR-L26) ([33aac60](https://github.com/korchasa/ai-ide-cli/commit/33aac6066e59188b886f322bfbdc93c091bd211b)), closes [#21642](https://github.com/korchasa/ai-ide-cli/issues/21642)
+
+
+### Documentation
+
+* **codex:** record --full-auto removal in codex-cli 0.159.1 (FR-L13) ([6ae65ff](https://github.com/korchasa/ai-ide-cli/commit/6ae65fff92209d2de06331903df771ed3c31e09f)), closes [#6](https://github.com/korchasa/ai-ide-cli/issues/6)
+
+
+### Tests
+
+* **claude:** pin hook events and effort sidecar on real binary (FR-L25) ([e383fce](https://github.com/korchasa/ai-ide-cli/commit/e383fce1b0267db14665dbb3cb506fc3ef9038d5))
+* **codex:** cover post-May argv paths in placement invariant (FR-L13/FR-L14) ([a1eda89](https://github.com/korchasa/ai-ide-cli/commit/a1eda8946351e4402585d66bcb8c6f3112bd9423)), closes [#7](https://github.com/korchasa/ai-ide-cli/issues/7)
+
 ### [1.2.1](https://github.com/korchasa/ai-ide-cli/compare/v1.2.0...v1.2.1) (2026-10-18)
 
 
