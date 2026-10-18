@@ -50,6 +50,8 @@ const RESERVED_SINGLETON_FLAGS: readonly string[] = [
   "--model",
   "--cd",
   "--sandbox",
+  "--output-schema",
+  "--ephemeral",
 ];
 
 function configKeysFromArgv(argv: readonly string[]): string[] {
@@ -72,9 +74,23 @@ Deno.test("no duplicate shared flag positions", () => {
         model: "gpt-5",
         cwd: "/tmp/scratch",
         reasoningEffort: "medium",
+        mcpServers: {
+          local: { type: "stdio", command: "srv", args: ["-v"] },
+        },
+        outputSchema: { type: "object" },
+        ephemeral: true,
+        resumeSessionId: "thread-1",
         extraArgs: { "--config": "web_search=true" },
       } as unknown as RuntimeInvokeOptions,
+      "/tmp/scratch/schema.json",
     );
+
+    // Subcommand position only: nothing precedes `exec`, so Codex
+    // 0.123+ root-flag inheritance has nothing to inherit; the `resume`
+    // positional closes argv.
+    assertEquals(argv[0], "exec", `argv=${JSON.stringify(argv)}`);
+    assertEquals(argv.slice(-2), ["resume", "thread-1"]);
+    assertEquals(argv.indexOf("resume"), argv.length - 2);
 
     for (const token of RESERVED_SINGLETON_FLAGS) {
       const count = argv.filter((t) => t === token).length;

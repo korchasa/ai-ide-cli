@@ -947,7 +947,10 @@ piping, NDJSON parsing, denial synthesis). Pure helpers moved out:
   Canonical placement: every emitted flag lives at subcommand position
   (after `exec`); reserved singletons (`--experimental-json`,
   `--model`, `--cd`, `--sandbox`) structurally de-duplicate against
-  `extraArgs`; `--config` is intentionally open (repeatable, last-wins
+  `extraArgs`; typed `--output-schema` / `--ephemeral` are emitted at
+  most once and guarded against `extraArgs` by
+  `rejectTypedFlagCollision`; `resume <id>` closes argv; `--config` is
+  intentionally open (repeatable, last-wins
   per Codex convention) and adapter-emitted `--config` keys
   (`approval_policy`, `model_reasoning_effort`,
   `mcp_servers.<name>.*`) never collide among themselves. Codex

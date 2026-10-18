@@ -417,9 +417,12 @@ stable — never renumber on move.
   - [x] `buildCodexArgs()` enforces canonical no-duplicate placement —
         every flag emits at subcommand position only (Codex
         `rust-v0.123.0` root-inheritance is N/A; the adapter never
-        writes flags before `exec`), reserved singleton flags appear at
-        most once, and no two adapter-emitted `--config <key>=...`
-        pairs share a key. Evidence: `ai-ide-cli/codex/argv_test.ts`.
+        writes flags before `exec`; `exec` is always `argv[0]` and
+        `resume <id>` always closes argv), singleton flags
+        (`--experimental-json`, `--model`, `--cd`, `--sandbox`,
+        `--output-schema`, `--ephemeral`) appear at most once, and no two
+        adapter-emitted `--config <key>=...` pairs share a key. Evidence:
+        `ai-ide-cli/codex/argv_test.ts`.
   - [x] `turn.completed.usage.reasoning_output_tokens` (Codex
         `rust-v0.128.0`+) is typed on `CodexExecUsage`, summed across
         turns in `CodexRunState`, and projected onto
