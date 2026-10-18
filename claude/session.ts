@@ -44,11 +44,7 @@ import { prepareMcpConfigFile } from "./mcp.ts";
 import { mapReasoningEffortToClaude } from "./process.ts";
 import { validateClaudePermissionMode } from "./permission-mode.ts";
 import { SessionEventQueue } from "../runtime/event-queue.ts";
-import {
-  defaultClaudeConfigDir,
-  prepareSettingSourcesDir,
-  type SettingSource,
-} from "../runtime/setting-sources.ts";
+import type { SettingSource } from "../runtime/setting-sources.ts";
 import { type ProcessRegistry, signalChild } from "../process-registry.ts";
 import { buildClaudeRunOptionArgs, CLAUDE_RESERVED_FLAGS } from "./process.ts";
 import { type ClaudeStreamEvent, parseClaudeStreamEvent } from "./stream.ts";
@@ -83,7 +79,10 @@ export interface ClaudeSessionOptions {
    * session's `done` promise resolves with the resulting exit code.
    */
   signal?: AbortSignal;
-  /** Claude configuration-source filter (see {@link prepareSettingSourcesDir}). */
+  /**
+   * Claude configuration sources — emitted as `--setting-sources
+   * <comma-joined>` (`[]` → `""`). Unset → all three. See FR-L18.
+   */
   settingSources?: SettingSource[];
   /**
    * Tool-name allow-list — emitted as `--allowedTools <comma-joined>`.
@@ -306,25 +305,13 @@ export async function openClaudeSession(
 ): Promise<ClaudeSession> {
   const args = buildClaudeSessionArgs(opts);
 
-  let settingCleanup: (() => Promise<void>) | undefined;
   // FR-L45: same non-essential-traffic strip as the one-shot invoke path.
-  let env: Record<string, string> = withNonessentialTrafficDisabled({
+  const env: Record<string, string> = withNonessentialTrafficDisabled({
     CLAUDECODE: "",
     ...(opts.env ?? {}),
   });
-  if (opts.settingSources) {
-    const prepared = await prepareSettingSourcesDir(
-      opts.settingSources,
-      env.CLAUDE_CONFIG_DIR ??
-        defaultClaudeConfigDir(opts.env, opts.inheritEnv, claudeAuthEnv),
-      opts.cwd ?? Deno.cwd(),
-    );
-    settingCleanup = prepared.cleanup;
-    env = { ...env, CLAUDE_CONFIG_DIR: prepared.tmpDir };
-  }
 
   // FR-L35: render mcpServers to a tmp file and emit `--mcp-config <path>`.
-  // Cleanup runs in the same finalizer as `settingCleanup`.
   let mcpCleanup: (() => Promise<void>) | undefined;
   let resolvedArgs = args;
   if (opts.mcpServers) {
@@ -500,9 +487,6 @@ export async function openClaudeSession(
         opts.signal.removeEventListener("abort", onExternalAbort);
       }
       registry.unregister(process);
-      if (settingCleanup) {
-        await settingCleanup();
-      }
       // FR-L35: reap the per-session mcp-config tmp file.
       if (mcpCleanup) {
         await mcpCleanup();

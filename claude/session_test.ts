@@ -15,6 +15,11 @@ function makeOpts(
 
 // --- buildClaudeSessionArgs ---
 
+Deno.test("FR-L18 buildClaudeSessionArgs emits --setting-sources", () => {
+  const args = buildClaudeSessionArgs(makeOpts({ settingSources: ["local"] }));
+  assertEquals(args[args.indexOf("--setting-sources") + 1], "local");
+});
+
 Deno.test("buildClaudeSessionArgs — emits -p bare and streaming transport flags", () => {
   const args = buildClaudeSessionArgs(makeOpts());
   // -p without value

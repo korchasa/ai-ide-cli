@@ -67,7 +67,7 @@ export interface FetchCapabilitiesOptions {
   /**
    * FR-L53: `false` starts the subprocess from an empty env — it gets
    * only `env` plus the library's own variables (`PWD`, FR-L45 switch,
-   * FR-L18 config dir, ACP front env), nothing from this process. Pass
+   * ACP front env), nothing from this process. Pass
    * `PATH` (required: binary lookup) and `HOME` (agent auth / config).
    * Default `true`: inherit this process's env, `env` merged on top.
    */
