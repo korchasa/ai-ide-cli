@@ -2,7 +2,7 @@
  * @module
  * Per-parser equivalence tests for the conceptual tool-item layer.
  *
- * Both wire formats — `codex exec --experimental-json` (snake_case) and
+ * Both wire formats — `codex exec --json` (snake_case) and
  * `codex app-server` (camelCase) — must lift their tool items into the
  * same {@link CodexConceptualItem} shape (id, kind, name, status). The
  * `input` map intentionally mirrors the source wire format and is

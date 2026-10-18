@@ -2,7 +2,7 @@
  * @module
  * Single source of truth for Codex permission-mode → flag mapping.
  *
- * Both Codex transports — `codex exec --experimental-json` (NDJSON,
+ * Both Codex transports — `codex exec --json` (NDJSON,
  * snake_case argv) and `codex app-server` (JSON-RPC, camelCase fields)
  * — share the same conceptual decision: "given a runtime-neutral
  * permission mode, what sandbox + approval policy should Codex apply?".

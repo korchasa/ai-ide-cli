@@ -354,7 +354,7 @@ stable — never renumber on move.
 ### 3.13 FR-L13: Codex CLI Wrapper
 
 - **Description:** `invokeCodexCli(opts)` spawns `codex exec
-  --experimental-json`, writes the merged `systemPrompt`+`taskPrompt` to the
+  --json`, writes the merged `systemPrompt`+`taskPrompt` to the
   child's stdin (codex does not accept the prompt as argv), processes NDJSON
   events in real-time, and returns normalized `CliRunOutput`. Session resume
   via the positional subcommand `resume <threadId>`. Permission bypass via
@@ -375,9 +375,19 @@ stable — never renumber on move.
 - **Motivation:** Add OpenAI's Codex CLI as a first-class runtime alongside
   Claude Code / OpenCode / Cursor, without bundling an npm SDK.
 - **Acceptance:**
-  - [x] `buildCodexArgs()` emits `exec`, `--experimental-json`, `--model`,
+  - [x] `buildCodexArgs()` emits `exec`, `--json`, `--model`,
         `--cd`, `--sandbox`, `--config`, `resume <id>`; prompt is NOT in argv.
         Evidence: `ai-ide-cli/codex/process.ts`,
+        `ai-ide-cli/codex/process_test.ts`.
+  - [x] JSONL output via the documented `--json`, never the hidden
+        `--experimental-json`: upstream `codex-rs/exec/src/cli.rs`
+        declares one field `long = "json", alias = "experimental-json"`
+        from the `codex-cli 0.121.0` floor through 0.159.1, so the event
+        stream is identical; `codex-cli 0.159.1` lists only `--json` in
+        `codex exec --help`. Both spellings are reserved in `extraArgs`
+        (FR-L14), because a repeat in either spelling makes Codex exit 2
+        (`the argument '--json' cannot be used multiple times`).
+        Evidence: `ai-ide-cli/codex/argv_test.ts`,
         `ai-ide-cli/codex/process_test.ts`.
   - [x] `invokeCodexCli()` writes prompt to stdin, closes stdin, then reads
         NDJSON from stdout. Evidence: `ai-ide-cli/codex/process.ts`.
@@ -419,7 +429,7 @@ stable — never renumber on move.
         `rust-v0.123.0` root-inheritance is N/A; the adapter never
         writes flags before `exec`; `exec` is always `argv[0]` and
         `resume <id>` always closes argv), singleton flags
-        (`--experimental-json`, `--model`, `--cd`, `--sandbox`,
+        (`--json`, `--experimental-json`, `--model`, `--cd`, `--sandbox`,
         `--output-schema`, `--ephemeral`) appear at most once, and no two
         adapter-emitted `--config <key>=...` pairs share a key. Evidence:
         `ai-ide-cli/codex/argv_test.ts`.
@@ -2481,7 +2491,7 @@ runs); OpenCode and Codex dispatch at completion time.
   typed category without substring-matching the human-readable
   message.
 
-  **Wire decoding.** `codex exec --experimental-json` ships the
+  **Wire decoding.** `codex exec --json` ships the
   upstream OpenAI/ChatGPT failure body verbatim inside the `message`
   field of `type: "error"` and inside `error.message` of
   `type: "turn.failed"`. The envelope is the standard

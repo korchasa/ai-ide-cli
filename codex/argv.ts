@@ -1,6 +1,6 @@
 /**
  * @module
- * Codex CLI argv builders for `codex exec --experimental-json`. Pure
+ * Codex CLI argv builders for `codex exec --json`. Pure
  * functions: no subprocess spawning, no event aggregation. The runner
  * (`codex/process.ts`) composes these into the `Deno.Command` argv.
  *
@@ -24,13 +24,28 @@ import {
 
 /**
  * Flags reserved by {@link buildCodexArgs}. Keys in `extraArgs` that match
- * these throw synchronously — the adapter emits them itself.
+ * these throw synchronously — the adapter emits them itself. Hidden
+ * aliases of these flags are rejected too (see
+ * {@link CODEX_RESERVED_FLAG_ALIASES}).
  */
 export const CODEX_RESERVED_FLAGS: readonly string[] = [
-  "--experimental-json",
+  "--json",
   "--model",
   "--cd",
   "--sandbox",
+];
+
+// FR-L14
+/**
+ * Hidden aliases of {@link CODEX_RESERVED_FLAGS} entries — never emitted,
+ * but rejected in `extraArgs` like the flag they alias.
+ * `--experimental-json` is a clap alias of `--json` (one field, every
+ * Codex since the 0.121.0 floor); passing it next to the adapter's
+ * `--json` makes Codex exit 2 with `the argument '--json' cannot be used
+ * multiple times`.
+ */
+const CODEX_RESERVED_FLAG_ALIASES: readonly string[] = [
+  "--experimental-json",
 ];
 
 /**
@@ -89,13 +104,14 @@ export function permissionModeToCodexArgs(mode?: string): string[] {
   return out;
 }
 
+// FR-L13
 // FR-L50
 // FR-L52
 /**
  * Build CLI arguments for the `codex` command.
  * Exported for testing.
  *
- * Codex headless mode: `codex exec --experimental-json [flags] [resume <id>]`.
+ * Codex headless mode: `codex exec --json [flags] [resume <id>]`.
  * Prompt is written to the subprocess stdin; it is NOT appended to argv.
  *
  * - Session resume: `resume <threadId>` positional subcommand.
@@ -125,7 +141,7 @@ export function buildCodexArgs(
     ["--ephemeral"],
     opts.extraArgs,
   );
-  const args: string[] = ["exec", "--experimental-json"];
+  const args: string[] = ["exec", "--json"];
 
   if (opts.model) {
     args.push("--model", opts.model);
@@ -152,7 +168,12 @@ export function buildCodexArgs(
   // FR-L50 / FR-L52
   if (outputSchemaPath) args.push("--output-schema", outputSchemaPath);
   if (opts.ephemeral) args.push("--ephemeral");
-  args.push(...expandExtraArgs(opts.extraArgs, CODEX_RESERVED_FLAGS));
+  args.push(
+    ...expandExtraArgs(opts.extraArgs, [
+      ...CODEX_RESERVED_FLAGS,
+      ...CODEX_RESERVED_FLAG_ALIASES,
+    ]),
+  );
 
   if (opts.resumeSessionId) {
     args.push("resume", opts.resumeSessionId);

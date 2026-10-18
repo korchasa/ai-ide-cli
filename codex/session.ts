@@ -19,7 +19,7 @@
  * (`aggregatedOutput`, `exitCode`, `threadId`, `turnId`), and final
  * assistant text lives at `params.item.text` (not `content[*].text`).
  * The one-shot `codex/process.ts` file uses a DIFFERENT protocol
- * (`codex exec --experimental-json` NDJSON) with **snake_case** item
+ * (`codex exec --json` NDJSON) with **snake_case** item
  * types (`agent_message`, `command_execution`, `file_change`,
  * `mcp_tool_call`, `web_search`) and slightly different fields. Do NOT
  * cross-reference helpers between the two files — a helper like

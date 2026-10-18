@@ -10,7 +10,7 @@
  * runtime on a modern Codex binary.
  */
 
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { buildCodexArgs } from "./argv.ts";
 import type { RuntimeInvokeOptions } from "../runtime/types.ts";
 
@@ -46,6 +46,7 @@ Deno.test("never emits deprecated --full-auto", () => {
 });
 
 const RESERVED_SINGLETON_FLAGS: readonly string[] = [
+  "--json",
   "--experimental-json",
   "--model",
   "--cd",
@@ -110,6 +111,23 @@ Deno.test("no duplicate shared flag positions", () => {
       `buildCodexArgs emitted duplicate --config <key> entries for permissionMode=${mode}: keys=${
         JSON.stringify(keys)
       } argv=${JSON.stringify(argv)}`,
+    );
+  }
+});
+
+// FR-L14
+Deno.test("extraArgs rejects both JSON output spellings", () => {
+  // `--experimental-json` is a clap alias of `--json` (one field), and
+  // Codex exits 2 on `the argument '--json' cannot be used multiple
+  // times` — so either spelling in extraArgs must fail fast here.
+  for (const key of ["--json", "--experimental-json"]) {
+    assertThrows(
+      () =>
+        buildCodexArgs(
+          { extraArgs: { [key]: "" } } as unknown as RuntimeInvokeOptions,
+        ),
+      Error,
+      `extraArgs key "${key}" is reserved by the runtime adapter`,
     );
   }
 });

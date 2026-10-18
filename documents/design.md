@@ -131,7 +131,7 @@ ai-ide-cli/
     transcript.ts       — defaultCodexSessionsDir, findCodexSessionFile
     exec-events.ts      — CodexExecEvent / CodexExecItem typed unions +
                           parseCodexExecEvent (snake_case NDJSON protocol
-                          for `codex exec --experimental-json`)
+                          for `codex exec --json`)
     app-server.ts       — CodexAppServerClient, CodexAppServerError,
                           CodexAppServerNotification (JSON-RPC transport for
                           `codex app-server --listen stdio://`)
@@ -945,8 +945,10 @@ piping, NDJSON parsing, denial synthesis). Pure helpers moved out:
   reserved-flag sets (`CODEX_RESERVED_FLAGS`,
   `CODEX_RESERVED_POSITIONALS`, `CODEX_INTENTIONALLY_OPEN_FLAGS`).
   Canonical placement: every emitted flag lives at subcommand position
-  (after `exec`); reserved singletons (`--experimental-json`,
-  `--model`, `--cd`, `--sandbox`) structurally de-duplicate against
+  (after `exec`); reserved singletons (`--json`, `--model`, `--cd`,
+  `--sandbox`; plus the private `CODEX_RESERVED_FLAG_ALIASES` =
+  `--experimental-json`, a hidden clap alias of `--json`, rejected but
+  never emitted) structurally de-duplicate against
   `extraArgs`; typed `--output-schema` / `--ephemeral` are emitted at
   most once and guarded against `extraArgs` by
   `rejectTypedFlagCollision`; `resume <id>` closes argv; `--config` is

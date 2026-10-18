@@ -273,7 +273,7 @@ export type {
   CodexConceptualKind,
 } from "./codex/items.ts";
 
-// --- Codex exec NDJSON event types (snake_case `codex exec --experimental-json` protocol) ---
+// --- Codex exec NDJSON event types (snake_case `codex exec --json` protocol) ---
 export { parseCodexExecEvent } from "./codex/exec-events.ts";
 export type {
   CodexExecAgentMessageItem,
