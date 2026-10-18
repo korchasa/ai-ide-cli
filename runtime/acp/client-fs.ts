@@ -14,10 +14,19 @@
  *   wrong root reads or writes the wrong tree.
  * - A write must land inside `writeRoot`. Anything else is refused with
  *   an error, so a sandboxed agent cannot reach the caller's files
- *   through the client.
+ *   through the client. Containment is checked on real paths, so a
+ *   symlink inside `writeRoot` that points outside cannot carry a write
+ *   out, and a target that is itself a symlink is refused.
  */
 
-import { isAbsolute, join, normalize, resolve } from "@std/path";
+import {
+  dirname,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+  resolve,
+} from "@std/path";
 
 /** Caller opt-in for the client-side filesystem. */
 export interface AcpClientFsOptions {
@@ -40,24 +49,82 @@ export function resolveClientFsPath(cwd: string, path: string): string {
   return join(resolve(cwd), path);
 }
 
+function isInside(root: string, target: string): boolean {
+  return target === root || target.startsWith(`${root}/`);
+}
+
+async function lstatOrNull(path: string): Promise<Deno.FileInfo | null> {
+  try {
+    return await Deno.lstat(path);
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) return null;
+    throw e;
+  }
+}
+
+/**
+ * Real path of `path` when parts of it do not exist yet: resolve the
+ * deepest existing ancestor through `Deno.realPath` and append the
+ * missing tail, which `mkdir` will create as plain directories.
+ */
+async function realPathOfDeepestExisting(path: string): Promise<string> {
+  let existing = path;
+  while ((await lstatOrNull(existing)) === null) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    existing = parent;
+  }
+  try {
+    return join(await Deno.realPath(existing), relative(existing, path));
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      throw new Error(
+        `client fs: refusing to write ${path} — ${existing} is a dangling symbolic link`,
+      );
+    }
+    throw e;
+  }
+}
+
 /**
  * Resolve a write target and refuse it outside `writeRoot`.
+ *
+ * The lexical check runs first; then both `writeRoot` and the target's
+ * deepest existing ancestor are resolved to real paths and compared
+ * again, so a symlink inside `writeRoot` cannot point the write outside.
+ * A target that is itself a symlink (dangling or not) is refused: the
+ * write would follow it. The check and the write are separate syscalls,
+ * so a process that swaps a directory for a symlink between them can
+ * still race it.
  *
  * @param writeRoot Directory writes must stay inside.
  * @param cwd Session working directory (anchors a relative path).
  * @param path Path as the agent sent it.
- * @throws Error naming both paths when the target escapes `writeRoot`.
+ * @throws Error naming both paths when the target escapes `writeRoot`,
+ *   or naming the target when it is a symlink.
  */
-export function confineClientFsWrite(
+export async function confineClientFsWrite(
   writeRoot: string,
   cwd: string,
   path: string,
-): string {
+): Promise<string> {
   const target = resolveClientFsPath(cwd, path);
   const root = resolve(writeRoot);
-  if (target !== root && !target.startsWith(`${root}/`)) {
+  if (!isInside(root, target)) {
     throw new Error(
       `client fs: refusing to write ${target} — outside writeRoot ${root}`,
+    );
+  }
+  if ((await lstatOrNull(target))?.isSymlink) {
+    throw new Error(
+      `client fs: refusing to write ${target} — it is a symbolic link`,
+    );
+  }
+  const realRoot = await realPathOfDeepestExisting(root);
+  const realTarget = await realPathOfDeepestExisting(target);
+  if (!isInside(realRoot, realTarget)) {
+    throw new Error(
+      `client fs: refusing to write ${target} — resolves to ${realTarget}, outside writeRoot ${realRoot}`,
     );
   }
   return target;
@@ -100,7 +167,7 @@ export async function serveClientFs(
     const end = limit === undefined ? lines.length : start + limit;
     return { content: lines.slice(start, end).join("\n") };
   }
-  const target = confineClientFsWrite(ctx.writeRoot, ctx.cwd, path);
+  const target = await confineClientFsWrite(ctx.writeRoot, ctx.cwd, path);
   await Deno.mkdir(join(target, ".."), { recursive: true });
   await Deno.writeTextFile(target, String(params["content"] ?? ""));
   return {};

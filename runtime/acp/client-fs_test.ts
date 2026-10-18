@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { join } from "@std/path";
 import {
   confineClientFsWrite,
@@ -11,14 +11,14 @@ Deno.test("FR-L56 a relative path anchors to the session cwd, not the process cw
   assertEquals(resolveClientFsPath("/sandbox", "/etc/x/../y"), "/etc/y");
 });
 
-Deno.test("FR-L56 a write outside writeRoot is refused, inside is allowed", () => {
-  assertEquals(confineClientFsWrite("/sb", "/sb", "x.txt"), "/sb/x.txt");
-  assertThrows(
+Deno.test("FR-L56 a write outside writeRoot is refused, inside is allowed", async () => {
+  assertEquals(await confineClientFsWrite("/sb", "/sb", "x.txt"), "/sb/x.txt");
+  await assertRejects(
     () => confineClientFsWrite("/sb", "/sb", "../x.txt"),
     Error,
     "outside",
   );
-  assertThrows(
+  await assertRejects(
     () => confineClientFsWrite("/sb", "/sb", "/sbx/y.txt"),
     Error,
     "outside",
@@ -39,5 +39,77 @@ Deno.test("FR-L56 fs/read_text_file honours the 1-based line and limit", async (
     assertEquals(await read({ line: 3 }), { content: "3\n4" });
   } finally {
     await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("FR-L56 a symlinked directory inside writeRoot cannot carry a write outside it", async () => {
+  const root = await Deno.makeTempDir();
+  const outside = await Deno.makeTempDir();
+  try {
+    await Deno.symlink(outside, join(root, "link"));
+    await assertRejects(
+      () =>
+        serveClientFs(
+          "fs/write_text_file",
+          { path: "link/pwn.txt", content: "x" },
+          { cwd: root, writeRoot: root },
+        ),
+      Error,
+      "outside",
+    );
+    assertEquals(await Array.fromAsync(Deno.readDir(outside)), []);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+    await Deno.remove(outside, { recursive: true });
+  }
+});
+
+Deno.test("FR-L56 a write target that is itself a symlink is refused", async () => {
+  const root = await Deno.makeTempDir();
+  const outside = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(join(outside, "existing.txt"), "keep");
+    await Deno.symlink(join(outside, "existing.txt"), join(root, "file"));
+    await Deno.symlink(join(outside, "new.txt"), join(root, "dangling"));
+    for (const path of ["file", "dangling"]) {
+      await assertRejects(
+        () =>
+          serveClientFs(
+            "fs/write_text_file",
+            { path, content: "x" },
+            { cwd: root, writeRoot: root },
+          ),
+        Error,
+        "symbolic link",
+      );
+    }
+    assertEquals(
+      await Deno.readTextFile(join(outside, "existing.txt")),
+      "keep",
+    );
+    assertEquals(
+      (await Array.fromAsync(Deno.readDir(outside))).map((e) => e.name),
+      ["existing.txt"],
+    );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+    await Deno.remove(outside, { recursive: true });
+  }
+});
+
+Deno.test("FR-L56 a writeRoot reached through a symlink still accepts writes into new subdirectories", async () => {
+  const base = await Deno.makeTempDir();
+  try {
+    await Deno.mkdir(join(base, "real"));
+    await Deno.symlink(join(base, "real"), join(base, "alias"));
+    const root = join(base, "alias");
+    await serveClientFs(
+      "fs/write_text_file",
+      { path: "a/b/c.txt", content: "ok" },
+      { cwd: root, writeRoot: root },
+    );
+    assertEquals(await Deno.readTextFile(join(base, "real/a/b/c.txt")), "ok");
+  } finally {
+    await Deno.remove(base, { recursive: true });
   }
 });

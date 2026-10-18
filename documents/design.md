@@ -1746,7 +1746,12 @@ subprocess wrapper. One implementation
   instead of failing the run. With `clientFs` set it also serves
   `fs/read_text_file` / `fs/write_text_file` through
   `runtime/acp/client-fs.ts` (FR-L56): relative paths anchored to the
-  session cwd, writes confined to `writeRoot`.
+  session cwd, writes confined to `writeRoot`. `confineClientFsWrite`
+  checks the lexical path, refuses a target that `lstat` reports as a
+  symlink, then compares the real paths of `writeRoot` and of the
+  target's deepest existing ancestor (missing tail appended), so a
+  symlink inside the root cannot redirect the write. The check-then-write
+  gap stays open to a racing process; Deno exposes no `O_NOFOLLOW` open.
 - Permission answers use the protocol's `outcome` discriminator
   (FR-L54). Sessions pass `onToolUseObserved` to the permission handler
   (FR-L55); `acpSessionMeta` rides as `_meta` on `session/new` /
