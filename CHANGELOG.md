@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [3.0.0](https://github.com/korchasa/ai-ide-cli/compare/v2.1.0...v3.0.0) (2026-10-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** prepareSettingSourcesDir, PrepareSettingSourcesResult
+and defaultClaudeConfigDir are no longer exported from
+./runtime/setting-sources.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+* **runtime:** passing settingSources to the codex, opencode or cursor
+adapter on the CLI transport now throws instead of being ignored.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+### Features
+
+* **claude:** map settingSources to native --setting-sources (FR-L18) ([f86f59c](https://github.com/korchasa/ai-ide-cli/commit/f86f59cb75cf656eaed7da70dbeb898d22ca5485))
+* **runtime:** reject settingSources on non-Claude CLI runtimes (FR-L28) ([73b4c9d](https://github.com/korchasa/ai-ide-cli/commit/73b4c9d730ce584a5f1c9a2e23c7fe79b3f169a0))
+
+
+### Documentation
+
+* rescope stale FR-L27, FR-L28 and FR-L29 ([c8d9edb](https://github.com/korchasa/ai-ide-cli/commit/c8d9edb62330f6f396910b7baea2a389962a45bb))
+
+
+### Code Refactoring
+
+* **runtime:** remove the temp-dir settingSources helpers (FR-L18) ([7fd4073](https://github.com/korchasa/ai-ide-cli/commit/7fd4073f283908ac6a454fbd912ebf09651052d2))
+
 ## [2.1.0](https://github.com/korchasa/ai-ide-cli/compare/v2.0.0...v2.1.0) (2026-10-18)
 
 
