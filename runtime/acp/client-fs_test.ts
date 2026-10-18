@@ -154,3 +154,44 @@ Deno.test("FR-L56 overwriting a file keeps its permission bits and leaves no tem
     await Deno.remove(root, { recursive: true });
   }
 });
+
+Deno.test("FR-L56 an overwrite drops setuid, setgid and sticky bits", async () => {
+  if (Deno.build.os === "windows") return;
+  const root = await Deno.makeTempDir();
+  try {
+    await Deno.writeTextFile(join(root, "tool"), "old");
+    await Deno.chmod(join(root, "tool"), 0o4750);
+    await serveClientFs(
+      "fs/write_text_file",
+      { path: "tool", content: "new" },
+      { cwd: root, writeRoot: root },
+    );
+    assertEquals((await Deno.stat(join(root, "tool"))).mode! & 0o7777, 0o750);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("FR-L56 writeRoot itself is not a write target", async () => {
+  const base = await Deno.makeTempDir();
+  try {
+    const root = join(base, "root");
+    await Deno.mkdir(root);
+    await assertRejects(
+      () =>
+        serveClientFs(
+          "fs/write_text_file",
+          { path: ".", content: "x" },
+          { cwd: root, writeRoot: root },
+        ),
+      Error,
+      "outside",
+    );
+    assertEquals(
+      (await Array.fromAsync(Deno.readDir(base))).map((e) => e.name),
+      ["root"],
+    );
+  } finally {
+    await Deno.remove(base, { recursive: true });
+  }
+});

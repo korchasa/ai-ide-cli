@@ -1747,12 +1747,15 @@ subprocess wrapper. One implementation
   `fs/read_text_file` / `fs/write_text_file` through
   `runtime/acp/client-fs.ts` (FR-L56): relative paths anchored to the
   session cwd, writes confined to `writeRoot`. `confineClientFsWrite`
-  checks the lexical path, refuses a target that `lstat` reports as a
+  checks the lexical path (strictly inside, so never the root itself),
+  refuses a target that `lstat` reports as a
   symlink, then compares the real paths of `writeRoot` and of the
   target's deepest existing ancestor (missing tail appended), so a
   symlink inside the root cannot redirect the write. `serveClientFs`
   then writes a sibling temp file with `createNew` (O_EXCL, never follows
-  a link), copies the old permission bits and renames it over the target,
+  a link) and the final `mode` set at creation (old `0o777` bits; Deno
+  has no `fchmod`, and a path chmod could be redirected), and renames it
+  over the target,
   which defeats hard links and a symlink swapped in at the final
   component. An intermediate directory swapped for a symlink after the
   check still races it; Deno exposes no `openat` / `O_NOFOLLOW` walk.

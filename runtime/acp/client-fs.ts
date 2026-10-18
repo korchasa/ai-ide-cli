@@ -52,8 +52,8 @@ export function resolveClientFsPath(cwd: string, path: string): string {
   return join(resolve(cwd), path);
 }
 
-function isInside(root: string, target: string): boolean {
-  return target === root || target.startsWith(`${root}/`);
+function isStrictlyInside(root: string, target: string): boolean {
+  return target.startsWith(`${root}/`);
 }
 
 async function lstatOrNull(path: string): Promise<Deno.FileInfo | null> {
@@ -90,7 +90,9 @@ async function realPathOfDeepestExisting(path: string): Promise<string> {
 }
 
 /**
- * Resolve a write target and refuse it outside `writeRoot`.
+ * Resolve a write target and refuse it outside `writeRoot`. The target
+ * must lie strictly inside: `writeRoot` itself is not a file to write,
+ * and the temp file beside it would land in its parent.
  *
  * The lexical check runs first; then both `writeRoot` and the target's
  * deepest existing ancestor are resolved to real paths and compared
@@ -114,7 +116,7 @@ export async function confineClientFsWrite(
 ): Promise<string> {
   const target = resolveClientFsPath(cwd, path);
   const root = resolve(writeRoot);
-  if (!isInside(root, target)) {
+  if (!isStrictlyInside(root, target)) {
     throw new Error(
       `client fs: refusing to write ${target} — outside writeRoot ${root}`,
     );
@@ -126,7 +128,7 @@ export async function confineClientFsWrite(
   }
   const realRoot = await realPathOfDeepestExisting(root);
   const realTarget = await realPathOfDeepestExisting(target);
-  if (!isInside(realRoot, realTarget)) {
+  if (!isStrictlyInside(realRoot, realTarget)) {
     throw new Error(
       `client fs: refusing to write ${target} — resolves to ${realTarget}, outside writeRoot ${realRoot}`,
     );
@@ -137,18 +139,22 @@ export async function confineClientFsWrite(
 /**
  * Write `content` to `target` without writing through what is there:
  * create a sibling temp file with exclusive-create (which never follows
- * a symlink), give it the old file's permission bits, and rename it over
- * `target`. A hard link at `target` loses its directory entry instead of
- * having the shared inode rewritten.
+ * a symlink) and rename it over `target`. A hard link at `target` loses
+ * its directory entry instead of having the shared inode rewritten.
+ *
+ * The temp file is created with its final mode, so its content is never
+ * more readable than the old file: the old permission bits (`0o777`
+ * only — setuid, setgid and sticky are dropped), narrowed by the umask;
+ * `0o666` narrowed by the umask for a new file. Deno has no `fchmod`,
+ * and a path-based chmod on a name in an agent-writable directory could
+ * be redirected, so the mode is never changed after creation.
  */
 async function replaceFile(target: string, content: string): Promise<void> {
   const previous = await lstatOrNull(target);
+  const mode = previous?.mode != null ? previous.mode & 0o777 : 0o666;
   const temp = `${target}.${crypto.randomUUID()}.tmp`;
   try {
-    await Deno.writeTextFile(temp, content, { createNew: true });
-    if (previous?.mode != null && Deno.build.os !== "windows") {
-      await Deno.chmod(temp, previous.mode & 0o7777);
-    }
+    await Deno.writeTextFile(temp, content, { createNew: true, mode });
     await Deno.rename(temp, target);
   } catch (e) {
     await Deno.remove(temp).catch(() => {});
@@ -168,8 +174,8 @@ export const CLIENT_FS_METHODS: readonly string[] = [
  * `fs/read_text_file` honours the optional 1-based `line` and `limit`
  * the protocol defines; `fs/write_text_file` creates missing parent
  * directories, as an editor saving a new file would, and replaces the
- * target with a new file (permission bits kept) rather than writing into
- * the existing one.
+ * target with a new file (permission bits kept, special bits dropped)
+ * rather than writing into the existing one.
  *
  * @param method `fs/read_text_file` or `fs/write_text_file`.
  * @param params Request params (`path`, `content`, `line`, `limit`).

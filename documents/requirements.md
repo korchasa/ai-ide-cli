@@ -3254,13 +3254,15 @@ runs); OpenCode and Codex dispatch at completion time.
   `initialize` and serves `fs/read_text_file` (1-based `line`, `limit`)
   and `fs/write_text_file` (creates parent dirs). A relative path resolves
   against the session `cwd`, never this process's cwd. A write that does
-  not resolve inside `writeRoot` is refused with an error. Containment is
+  not resolve strictly inside `writeRoot` (the root itself included) is
+  refused with an error. Containment is
   checked twice: lexically, then on real paths (`Deno.realPath` of
   `writeRoot` and of the target's deepest existing ancestor), so a
   symlink inside `writeRoot` that points outside cannot carry a write
   out. A target that is itself a symlink, dangling or not, is refused.
-  The content goes to a fresh sibling temp file (exclusive create, the
-  old file's permission bits) that is renamed over the target, so a hard
+  The content goes to a fresh sibling temp file, created with exclusive
+  create and its final mode (the old file's `0o777` bits, setuid/setgid/
+  sticky dropped, narrowed by the umask), that is renamed over the target, so a hard
   link inside `writeRoot` to an outside file is replaced, not written
   through, and the final component cannot be swapped for a symlink
   after the check. Residual: an intermediate directory swapped for a
@@ -3276,8 +3278,9 @@ runs); OpenCode and Codex dispatch at completion time.
         writes outside `writeRoot` refused, including through a symlinked
         directory inside it or a symlinked target; a hard link to an
         outside file is replaced, not written through; an overwrite keeps
-        the permission bits; a `writeRoot` reached through a symlink still
-        accepts writes. Tests:
+        the permission bits and drops setuid/setgid/sticky; `writeRoot`
+        itself is refused as a target; a `writeRoot` reached through a
+        symlink still accepts writes. Tests:
         `runtime/acp/session_options_test.ts::FR-L56 *`,
         `runtime/acp/client-fs_test.ts::FR-L56 *`.
 
