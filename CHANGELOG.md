@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [3.0.2](https://github.com/korchasa/ai-ide-cli/compare/v3.0.1...v3.0.2) (2026-10-18)
+
+
+### Bug Fixes
+
+* **acp:** replace the client-fs write target instead of writing through it ([d1d90f3](https://github.com/korchasa/ai-ide-cli/commit/d1d90f3799187ae9e2dd980e127779fa0a6d1f05))
+
 ### [3.0.1](https://github.com/korchasa/ai-ide-cli/compare/v3.0.0...v3.0.1) (2026-10-18)
 
 
