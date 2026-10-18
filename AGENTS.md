@@ -519,6 +519,17 @@ events with a `tool_call.<name>ToolCall.{args|result}` wrapper, not inline
 `tool_use` blocks like Claude. The divergence was invisible until empirical
 capture (FR-L30).
 
+No capture, no variant. When the installed binary cannot emit the event,
+do not type a "best-effort" shape from a release note — leave it to the
+untyped fallback and defer. A release note does not say which way a message
+travels: `response.processed` (Codex 0.130, #21642) went into
+`CodexNotification` in 2026-05 from one, yet Codex SENDS it to the model
+provider; 0.159.1's `ServerNotification.ts` and binary hold no such method,
+and the dead public type now waits for a MAJOR to be removed (2026-10-18).
+Before typing from upstream, grep the generated schema
+(`codex app-server generate-ts --experimental`) or the binary for the
+method string.
+
 ### Test Rules
 
 - Test logic and behavior only — do not test constants or templates, they change without breaking anything.
